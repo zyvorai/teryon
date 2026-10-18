@@ -29,6 +29,12 @@ in the background you get a notification when one needs you or finishes (`[deskt
 it off). Because the daemon keeps the agent running, you can close the app, reconnect later and see "While you were
 away" with what finished or failed; ✦ Summarize asks the assistant for a short recap.
 
+## Describe a command
+
+⌘⇧K opens a bar at the top: say what you want, review the command and its risk, press Enter to insert it at the
+prompt (you still press Enter to run it). Click a red ✗ chip after a failed command to have the assistant explain it.
+See `docs/AI.md`.
+
 ## Icons
 
 Icons printed by `eza --icons`, `lsd`, oh-my-posh, starship and similar tools are Nerd Font glyphs. The desktop app

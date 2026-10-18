@@ -56,6 +56,7 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
             ("Command palette", "palette"),
             ("Ask AI", "ai"),
             ("Agents overview", "agents"),
+            ("AI command bar", "ai_command"),
             ("Bigger text", "font_up"),
             ("Smaller text", "font_down"),
             ("Reset text size", "font_reset"),

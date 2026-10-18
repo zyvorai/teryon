@@ -4,6 +4,7 @@ pub mod api;
 pub mod cli;
 pub mod key;
 pub mod redact;
+pub mod suggest;
 pub mod tools;
 
 use api::{Event, Model};
@@ -26,6 +27,7 @@ pub enum AgentEvent {
         summary: String,
         risk: Risk,
         needs_approval: bool,
+        input: Value,
     },
     ToolDone {
         id: String,
@@ -245,6 +247,7 @@ fn decide_and_run(
         summary: tools::summary(name, input),
         risk,
         needs_approval: !approved,
+        input: input.clone(),
     });
     if !approved {
         loop {

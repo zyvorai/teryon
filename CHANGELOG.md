@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 — AI in the prompt
+
+- **Command bar** (⌘⇧K, also in the ▾ menu and the palette): describe what you want ("show what listens on port 3000") and get one command with a one-line explanation and a risk label, using the pane's directory, shell and OS. **Enter inserts it at your prompt; nothing runs until you press Enter.** ⌥Enter runs it directly only when it is single-line, rated low risk and not on the denylist; blocked commands cannot be inserted at all.
+- **Explain / fix**: click a failed-command chip (✗ 2) and the assistant explains the failure from the redacted tail of the pane and proposes a fix as a card with **Insert in pane**.
+- New assistant tool `suggest_command`: proposes a command for you to review; it is never run by the tool.
+- `teryon ai --command "find the 5 biggest files"` prints a command for scripts and shell aliases.
+
 ## 0.12.0 — Agent-aware workspaces
 
 - AI coding agents (Claude Code, Codex, Gemini CLI, aider, Cursor, OpenCode) are recognized in panes from the pane's foreground command. Each shows a status chip (working / needs you / idle / done); **⌘⇧A** opens an Agents overview and jumps to a pane. When a background agent needs you or finishes you get a notification (`[desktop] agent_notifications`).

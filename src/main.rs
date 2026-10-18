@@ -206,6 +206,9 @@ enum Commands {
         /// Verify the key with one tiny request.
         #[arg(long)]
         check: bool,
+        /// Turn the request into one shell command and print it (nothing is run).
+        #[arg(long)]
+        command: bool,
     },
     /// Show the desktop configuration, or validate it with --check.
     Config {
@@ -876,8 +879,9 @@ fn run() -> Result<i32> {
             prompt,
             set_key,
             check,
+            command,
         } => {
-            return teryon::ai::cli::run(prompt, set_key, check);
+            return teryon::ai::cli::run(prompt, set_key, check, command);
         }
         Commands::Config { check, keys } => {
             let path = config::path()?;

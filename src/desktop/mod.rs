@@ -22,6 +22,7 @@ use std::{
 mod actions;
 mod agents;
 mod ai;
+mod aicmd;
 mod away;
 mod bar;
 mod dropzone;
@@ -184,6 +185,9 @@ pub struct Desktop {
     copy_text: Option<String>,
     ai: ai::Panel,
     agents_open: bool,
+    aicmd: aicmd::Bar,
+    /// A failed-command chip was clicked: explain this pane's failure with the assistant.
+    explain_req: Option<u64>,
     /// A choice from the right-click or dropdown menu, applied next frame.
     menu_pick: Option<(u64, menus::MenuPick)>,
     renaming: Option<(u64, String)>,
@@ -328,6 +332,8 @@ impl Desktop {
             copy_text: None,
             ai: ai::Panel::new(),
             agents_open: false,
+            aicmd: aicmd::Bar::default(),
+            explain_req: None,
             menu_pick: None,
             renaming: None,
             zoom_prev: None,
@@ -811,6 +817,10 @@ impl Desktop {
         self.ai_panel(ctx);
         self.agents_overview(ctx);
         self.away_ui(ctx);
+        if let Some(id) = self.explain_req.take() {
+            self.ai_explain(id);
+        }
+        self.aicmd_ui(ctx);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1253,6 +1263,7 @@ impl Desktop {
             ActionKind::Draft => self.draft_open = true,
             ActionKind::Ai => self.ai_toggle(),
             ActionKind::Agents => self.agents_open = !self.agents_open,
+            ActionKind::AiCommand => self.aicmd_toggle(),
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
@@ -2133,7 +2144,7 @@ mod tests {
             modifiers: mods,
         }
     }
-    fn drain(rx: &mpsc::Receiver<Command>) -> Vec<Command> {
+    pub(in crate::desktop) fn drain(rx: &mpsc::Receiver<Command>) -> Vec<Command> {
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
     }
     #[test]

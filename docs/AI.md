@@ -22,6 +22,15 @@ The key is read from `ANTHROPIC_API_KEY`, then from the Keychain (service `teryo
 Try: *"open Calculator"*, *"quit Safari"*, *"how much battery is left?"*, *"open a terminal to my staging host"*,
 *"what is using port 3000?"*, *"explain the last error in pane 1"*.
 
+## Describe a command (⌘⇧K)
+
+Type what you want in plain words; TERYON asks Claude for one command and shows it with an explanation and a risk
+rating. **Insert** (Enter) types it at the prompt of the pane you were in, using bracketed paste, so you read it and
+press Enter yourself. **Run** (⌥Enter) exists only for single-line commands the model rated low risk that also pass
+TERYON's own denylist. Anything on the denylist (sudo, recursive deletes of system folders, …) is shown as blocked
+and cannot be inserted. From a shell: `teryon ai --command "list the 5 biggest files here"`. When a command fails,
+click its red ✗ chip in the pane bar to have the assistant explain it and suggest a fix.
+
 ## What it may do, and when it asks
 
 | Tool | Asks first? | What it does |
@@ -62,7 +71,7 @@ into the chat itself.
 enabled = true
 model = "claude-sonnet-5-5"
 max_tokens = 2048
-auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes"]   # read-only tools only
+auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes", "suggest_command"]   # read-only tools only
 ```
 
 `teryon config --check` validates the section. There is no key option on purpose.

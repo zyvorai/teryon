@@ -64,6 +64,7 @@ pub(super) enum ActionKind {
     Draft,
     Ai,
     Agents,
+    AiCommand,
 }
 
 impl ActionKind {
@@ -128,6 +129,7 @@ impl ActionKind {
                 Self::Draft => "draft",
                 Self::Ai => "ai",
                 Self::Agents => "agents",
+                Self::AiCommand => "ai_command",
                 Self::Layout(_)
                 | Self::Theme(_)
                 | Self::TabMove(_)
@@ -201,6 +203,7 @@ impl ActionKind {
             "draft" => Self::Draft,
             "ai" => Self::Ai,
             "agents" => Self::Agents,
+            "ai_command" => Self::AiCommand,
             _ => return None,
         })
     }
@@ -222,6 +225,7 @@ pub(super) fn actions(
         ("Command palette", ActionKind::Palette),
         ("Ask AI…", ActionKind::Ai),
         ("Agents overview", ActionKind::Agents),
+        ("AI command bar: describe a command…", ActionKind::AiCommand),
         ("Open workspace…", ActionKind::OpenWorkspace),
         ("Shortcut cheat sheet", ActionKind::CheatSheet),
         ("New pane", ActionKind::NewPane),

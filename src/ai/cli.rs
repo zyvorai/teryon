@@ -19,7 +19,7 @@ pub fn settings(cfg: &config::AiConfig) -> api::Settings {
 
 pub const NO_KEY: &str = "No API key found. Export ANTHROPIC_API_KEY=sk-ant-… or store one in the Keychain with `teryon ai --set-key`.";
 
-pub fn run(prompt: Vec<String>, set_key: bool, check: bool) -> Result<i32> {
+pub fn run(prompt: Vec<String>, set_key: bool, check: bool, command: bool) -> Result<i32> {
     if set_key {
         key::set_interactively()?;
         println!(
@@ -78,6 +78,42 @@ pub fn run(prompt: Vec<String>, set_key: bool, check: bool) -> Result<i32> {
                 1
             }
         });
+    }
+    if command {
+        if prompt.is_empty() {
+            bail!("say what you want, e.g. teryon ai --command find the 5 biggest files here");
+        }
+        let curl = api::Curl {
+            settings,
+            key: api_key,
+        };
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let context = format!(
+            "OS: {}\nShell: {}\nDirectory: {cwd}",
+            std::env::consts::OS,
+            std::env::var("SHELL").unwrap_or_else(|_| "sh".into())
+        );
+        return Ok(
+            match super::suggest::run(&curl, &context, &prompt.join(" ")) {
+                Ok(s) => {
+                    println!("{}", s.command);
+                    eprintln!(
+                        "# {} (risk: {}{})",
+                        s.explanation,
+                        s.risk,
+                        s.blocked
+                            .map_or(String::new(), |w| format!(", blocked: {w}"))
+                    );
+                    0
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    1
+                }
+            },
+        );
     }
     let agent = Agent::spawn(
         Box::new(api::Curl {

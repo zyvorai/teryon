@@ -559,11 +559,20 @@ impl Desktop {
                     .color(color(t.warning)),
             );
         } else if let Some((text, bad)) = self.panes.get(&id).and_then(|p| command_chip(&p.marks)) {
-            left.label(RichText::new(text).size(11.).color(color(if bad {
-                t.warning
+            let chip =
+                RichText::new(text)
+                    .size(11.)
+                    .color(color(if bad { t.warning } else { t.muted }));
+            if bad {
+                let r = left
+                    .add(egui::Label::new(chip).sense(Sense::click()))
+                    .on_hover_text("Click: ask the assistant to explain and fix this");
+                if r.clicked() {
+                    self.explain_req = Some(id);
+                }
             } else {
-                t.muted
-            })));
+                left.label(chip);
+            }
         }
         out
     }

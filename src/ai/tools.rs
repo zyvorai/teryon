@@ -14,7 +14,13 @@ pub enum Risk {
 }
 
 /// Tools that never change anything; only these may appear in `[ai] auto_allow`.
-pub const READ_TOOLS: &[&str] = &["mac_info", "list_apps", "list_panes", "list_hosts"];
+pub const READ_TOOLS: &[&str] = &[
+    "mac_info",
+    "list_apps",
+    "list_panes",
+    "list_hosts",
+    "suggest_command",
+];
 
 pub const TOOL_TIMEOUT_SECS: u64 = 60;
 const OUTPUT_CAP: usize = 8 * 1024;
@@ -41,6 +47,8 @@ pub fn schemas() -> Value {
          "input_schema": obj(json!({}), &[])},
         {"name": "list_panes", "description": "Panes of the current TERYON workspace: id, title, directory.",
          "input_schema": obj(json!({}), &[])},
+        {"name": "suggest_command", "description": "Propose a shell command for the user to review. It is only shown, never run; the user can insert it at their prompt. Use this instead of run_command when the user should decide.",
+         "input_schema": obj(json!({"command": {"type": "string"}, "why": {"type": "string", "description": "one short sentence"}}), &["command"])},
         {"name": "open_app", "description": "Open (launch) a macOS application by name, e.g. \"Calculator\".",
          "input_schema": obj(json!({"name": {"type": "string"}}), &["name"])},
         {"name": "quit_app", "description": "Quit a running macOS application gracefully (it may ask to save).",
@@ -169,6 +177,7 @@ pub fn command_denied(cmd: &str) -> Option<&'static str> {
 pub fn summary(name: &str, input: &Value) -> String {
     let s = |k: &str| input[k].as_str().unwrap_or("?").to_string();
     match name {
+        "suggest_command" => format!("Suggested command: {}", s("command")),
         "open_app" => format!("Open the app “{}”", s("name")),
         "quit_app" => format!("Quit the app “{}”", s("name")),
         "open_url" => format!("Open {}", s("url")),
@@ -361,6 +370,13 @@ pub fn execute(
             )
         }
         "list_hosts" => Ok(host_names()),
+        "suggest_command" => {
+            let c = str_arg(input, "command")?;
+            if let Some(why) = command_denied(c) {
+                return Err(format!("refused: {why}"));
+            }
+            Ok("Shown to the user, who decides whether to use it.".into())
+        }
         "list_panes" => env.list_panes().map_err(|e| {
             if e == UNSUPPORTED {
                 "no TERYON workspace is attached here".into()
@@ -523,7 +539,7 @@ mod tests {
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
         assert!(names.iter().all(|n| risk(n).is_some()));
-        assert_eq!(names.len(), 12);
+        assert_eq!(names.len(), 13);
     }
 
     #[test]

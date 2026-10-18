@@ -75,6 +75,11 @@ pub(super) enum Item {
         summary: String,
         state: ToolState,
     },
+    /// A command the assistant proposes (never run by itself).
+    Suggest {
+        command: String,
+        why: String,
+    },
     Error(String),
 }
 
@@ -89,6 +94,8 @@ pub(super) struct Panel {
     env_rx: Option<Receiver<EnvReq>>,
     context: Arc<Mutex<String>>,
     pub(super) focus_input: bool,
+    /// A suggested command the user chose to insert at the focused pane's prompt.
+    insert_req: Option<String>,
 }
 impl Panel {
     #[cfg(test)]
@@ -106,6 +113,7 @@ impl Panel {
             env_rx: None,
             context: Arc::new(Mutex::new(String::new())),
             focus_input: false,
+            insert_req: None,
         }
     }
 }
@@ -230,6 +238,12 @@ impl Desktop {
                     Some(Item::Assistant(s)) => s.push_str(&t),
                     _ => self.ai.items.push(Item::Assistant(t)),
                 },
+                AgentEvent::ToolRequest { name, input, .. } if name == "suggest_command" => {
+                    self.ai.items.push(Item::Suggest {
+                        command: input["command"].as_str().unwrap_or("").to_string(),
+                        why: input["why"].as_str().unwrap_or("").to_string(),
+                    })
+                }
                 AgentEvent::ToolRequest {
                     id,
                     summary,
@@ -393,6 +407,9 @@ impl Desktop {
                     }
                 }
             }
+        }
+        if let Some(cmd) = self.ai.insert_req.take() {
+            self.insert_command(self.focus, &cmd, false);
         }
         if let Some(text) = send {
             self.ai_send(&text);
@@ -562,6 +579,27 @@ impl Desktop {
                                 );
                             }
                         }
+                    });
+                }
+                Item::Suggest { command, why } => {
+                    card(ui, t, |ui| {
+                        ui.label(RichText::new(command).monospace().size(12.5));
+                        if !why.is_empty() {
+                            ui.label(RichText::new(why).size(11.5).color(color(t.muted)));
+                        }
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, t, "Insert in pane").clicked() {
+                                self.ai.insert_req = Some(command.clone());
+                            }
+                            if ui.small_button("Copy").clicked() {
+                                self.copy_text = Some(command.clone());
+                            }
+                            ui.label(
+                                RichText::new("You press Enter.")
+                                    .size(11.)
+                                    .color(color(t.muted)),
+                            );
+                        });
                     });
                 }
                 Item::Error(m) => {

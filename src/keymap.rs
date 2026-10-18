@@ -68,6 +68,7 @@ pub const ACTION_NAMES: &[&str] = &[
     "draft",
     "ai",
     "agents",
+    "ai_command",
 ];
 
 /// Default bindings as `(chord, action)`; an action may appear more than once.
@@ -91,6 +92,7 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("cmd+ctrl+=", "equalize"),
     ("cmd+j", "ai"),
     ("cmd+shift+a", "agents"),
+    ("cmd+shift+k", "ai_command"),
     ("cmd+f", "find"),
     ("cmd+g", "find_next"),
     ("cmd+shift+g", "find_prev"),

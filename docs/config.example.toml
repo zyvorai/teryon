@@ -58,4 +58,4 @@ destination = "susant@mini.local"
 # enabled = true
 # model = "claude-sonnet-5-5"
 # max_tokens = 2048
-# auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes"]   # read-only tools only
+# auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes", "suggest_command"]   # read-only tools only
