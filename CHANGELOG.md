@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 — Agent-aware workspaces
+
+- AI coding agents (Claude Code, Codex, Gemini CLI, aider, Cursor, OpenCode) are recognized in panes from the pane's foreground command. Each shows a status chip (working / needs you / idle / done); **⌘⇧A** opens an Agents overview and jumps to a pane. When a background agent needs you or finishes you get a notification (`[desktop] agent_notifications`).
+- "While you were away": reattaching to a persistent workspace after a few minutes shows what finished or failed meanwhile and which agents are waiting, with a ✦ Summarize button. It works from shell-integration marks, so it needs no AI unless you ask for the summary.
+- Privacy guard: terminal text and command output sent to the assistant are scrubbed of API keys, tokens, JWTs, private keys and `NAME=secret` values (`[redacted:…]`), and are framed as untrusted data so instructions inside terminal output are not followed.
+- The daemon reports each pane's foreground command (`fg`); additive protocol field, older clients and daemons keep working.
+
 ## 0.11.0 — AI assistant
 
 - `teryon ai` and a ⌘J panel in the desktop app: chat with Claude and let it open or quit apps, open SSH terminals, answer questions about your Mac and work with your panes. Anything that changes something shows an approval card (Allow / Always this session / Deny); a few dangerous commands are refused outright. Needs `ANTHROPIC_API_KEY` (or `teryon ai --set-key` for the Keychain); `teryon ai --check` verifies it. See `docs/AI.md` for the permission and privacy model.

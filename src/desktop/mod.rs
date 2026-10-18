@@ -20,7 +20,9 @@ use std::{
 };
 
 mod actions;
+mod agents;
 mod ai;
+mod away;
 mod bar;
 mod dropzone;
 mod find;
@@ -55,6 +57,8 @@ struct Pane {
     /// Trigger highlights for the current screen, and whether a first scan has happened.
     spans: Vec<Span>,
     scanned: bool,
+    /// AI agent detection and status for this pane.
+    track: agents::Track,
 }
 impl Pane {
     fn new(info: PaneView, parser: vt100::Parser) -> Self {
@@ -65,6 +69,7 @@ impl Pane {
             announced: 0,
             spans: Vec::new(),
             scanned: false,
+            track: agents::Track::default(),
         }
     }
 }
@@ -78,6 +83,10 @@ struct SessionExtra {
     pending_titles: Vec<(String, Instant)>,
     last_layout: Option<crate::layout::Layout>,
     last_layout_save: Option<Instant>,
+    /// "While you were away": the card text and the time you last looked; checked once per attach.
+    away: Option<(Vec<String>, u64)>,
+    away_checked: bool,
+    away_touched: Option<Instant>,
 }
 /// Everything that belongs to one attached workspace; parked tabs keep theirs here.
 struct Session {
@@ -174,6 +183,7 @@ pub struct Desktop {
     /// Text queued for the clipboard; flushed with the egui context each frame.
     copy_text: Option<String>,
     ai: ai::Panel,
+    agents_open: bool,
     /// A choice from the right-click or dropdown menu, applied next frame.
     menu_pick: Option<(u64, menus::MenuPick)>,
     renaming: Option<(u64, String)>,
@@ -317,6 +327,7 @@ impl Desktop {
             latency: None,
             copy_text: None,
             ai: ai::Panel::new(),
+            agents_open: false,
             menu_pick: None,
             renaming: None,
             zoom_prev: None,
@@ -596,6 +607,9 @@ impl Desktop {
                 }
             }
         }
+        self.agents_update();
+        self.away_check();
+        self.away_touch();
     }
     fn execute(&mut self) {
         let command = std::mem::take(&mut self.command);
@@ -795,6 +809,8 @@ impl Desktop {
         }
         self.top_bar(ctx);
         self.ai_panel(ctx);
+        self.agents_overview(ctx);
+        self.away_ui(ctx);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1236,6 +1252,7 @@ impl Desktop {
             }
             ActionKind::Draft => self.draft_open = true,
             ActionKind::Ai => self.ai_toggle(),
+            ActionKind::Agents => self.agents_open = !self.agents_open,
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
@@ -2075,7 +2092,7 @@ mod tests {
         assert_eq!(app.tabs.len(), 1);
     }
     /// A desktop with one pane whose screen shows `text`, online, with a command receiver.
-    fn app_with_screen(text: &str) -> (Desktop, mpsc::Receiver<Command>) {
+    pub(in crate::desktop) fn app_with_screen(text: &str) -> (Desktop, mpsc::Receiver<Command>) {
         let (tx, rx) = mpsc::sync_channel(64);
         let (_utx, urx) = mpsc::sync_channel(4);
         let mut app = Desktop::new(

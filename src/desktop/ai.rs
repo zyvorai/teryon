@@ -88,7 +88,7 @@ pub(super) struct Panel {
     key_found: Option<bool>,
     env_rx: Option<Receiver<EnvReq>>,
     context: Arc<Mutex<String>>,
-    focus_input: bool,
+    pub(super) focus_input: bool,
 }
 impl Panel {
     #[cfg(test)]

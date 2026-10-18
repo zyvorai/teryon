@@ -540,6 +540,7 @@ impl Desktop {
                 self.focus = id;
             }
         }
+        self.draw_agent_chip(&mut left, id);
         let tail: Vec<&str> = cwd.rsplit('/').filter(|c| !c.is_empty()).take(2).collect();
         if !tail.is_empty() {
             let short: Vec<&str> = tail.into_iter().rev().collect();

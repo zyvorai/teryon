@@ -20,6 +20,15 @@ and close. The ▾ next to "+" in the bar opens the same menu plus New tab, Open
 the mouse (vim, tmux, htop) it keeps the right button; hold Shift to open the menu anyway. Paste reads the system
 clipboard through `pbpaste` (macOS), `wl-paste`/`xclip`/`xsel` (Linux) or PowerShell (Windows).
 
+## AI agents in panes
+
+Run Claude Code, Codex, Gemini CLI, aider, Cursor's agent or OpenCode in any pane (local or over SSH). TERYON sees the
+pane's foreground command and shows a chip: **working**, **needs you** (an approval or y/n prompt is on screen),
+**idle** or **done** (the shell is back). **⌘⇧A** lists every agent in the workspace, needing-you first. With the window
+in the background you get a notification when one needs you or finishes (`[desktop] agent_notifications = false` turns
+it off). Because the daemon keeps the agent running, you can close the app, reconnect later and see "While you were
+away" with what finished or failed; ✦ Summarize asks the assistant for a short recap.
+
 ## Icons
 
 Icons printed by `eza --icons`, `lsd`, oh-my-posh, starship and similar tools are Nerd Font glyphs. The desktop app

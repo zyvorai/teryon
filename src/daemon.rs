@@ -90,6 +90,8 @@ struct Pane {
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: std::sync::mpsc::SyncSender<Vec<u8>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    /// Foreground command line, refreshed at most once a second.
+    fg: Mutex<(std::time::Instant, Option<String>)>,
 }
 
 /// Friendly `ls` colors for new shells: directories blue, executables green, symlinks cyan, archives
@@ -191,6 +193,7 @@ impl Pane {
             master: Mutex::new(pty.master),
             input,
             killer: Mutex::new(killer),
+            fg: Mutex::new((std::time::Instant::now() - Duration::from_secs(10), None)),
         });
         let read_state = state.clone();
         thread::spawn(move || {
@@ -235,7 +238,35 @@ impl Pane {
             marks: changed.then(|| log.marks.clone()),
             first_line: top.saturating_sub(scrollback_lines() as u64),
             top_line: top,
+            fg: self.foreground_command(st.exited.is_some()),
         }
+    }
+    /// The command line of the foreground process group (cached for a second; `ps` is only run when asked again).
+    fn foreground_command(&self, exited: bool) -> Option<String> {
+        if exited {
+            return None;
+        }
+        let mut cache = self.fg.lock().unwrap();
+        if cache.0.elapsed() < Duration::from_secs(1) {
+            return cache.1.clone();
+        }
+        let leader = self.master.lock().unwrap().process_group_leader();
+        let text = leader.filter(|p| *p > 1).and_then(|pid| {
+            let out = std::process::Command::new("ps")
+                .args(["-o", "command=", "-p", &pid.to_string()])
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            let s = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .chars()
+                .take(200)
+                .collect::<String>();
+            (!s.is_empty()).then_some(s)
+        });
+        *cache = (std::time::Instant::now(), text.clone());
+        text
     }
     fn resize(&self, rows: u16, cols: u16) -> Result<()> {
         if !valid_size(rows, cols) {

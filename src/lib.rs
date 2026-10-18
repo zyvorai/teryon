@@ -1,6 +1,7 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 #[cfg(not(unix))]
 compile_error!("TERYON 0.1 supports macOS and Linux. Use WSL on Windows.");
+pub mod agents;
 pub mod ai;
 pub mod brand;
 pub mod config;

@@ -615,3 +615,50 @@ fn generated_shell_integration_works_in_real_interactive_shells() {
         assert!(kinds.contains("ACD"), "{shell}: {kinds}");
     }
 }
+
+#[test]
+fn a_fake_agent_is_reported_as_the_foreground_command_and_its_prompt_is_readable() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("agent", false);
+    let bin = tempfile::Builder::new()
+        .prefix("zl-agent-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let script = bin.path().join("claude");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf 'Edit src/main.rs\\nDo you want to proceed? (y/n)\\n'\nsleep 8\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec![script.display().to_string()],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    c.until(pane, "Do you want to proceed");
+    let deadline = Instant::now() + Duration::from_secs(6);
+    let fg = loop {
+        let v = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+        if let Some(fg) = v.fg {
+            break fg;
+        }
+        assert!(Instant::now() < deadline, "no foreground command reported");
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert!(fg.contains("claude"), "{fg}");
+    assert_eq!(
+        teryon::agents::detect(&fg),
+        Some(teryon::agents::Kind::Claude)
+    );
+    let rows: Vec<String> = c.capture(pane).lines().map(str::to_string).collect();
+    assert_eq!(
+        teryon::agents::status(&rows, Duration::from_secs(30)),
+        teryon::agents::Status::NeedsYou
+    );
+}

@@ -163,6 +163,8 @@ pub struct DesktopConfig {
     /// Notify when a command that took at least this many seconds finishes while the window is in
     /// the background (needs shell integration; 0 turns it off).
     pub notify_after_seconds: u32,
+    /// Notify when an AI coding agent in the background needs you or finishes.
+    pub agent_notifications: bool,
     /// Themes to switch to when macOS goes light or dark (either may be left out).
     pub theme_light: Option<String>,
     pub theme_dark: Option<String>,
@@ -191,6 +193,7 @@ impl Default for DesktopConfig {
             unfocused_opacity: 0.82,
             copy_on_select: false,
             notify_after_seconds: 10,
+            agent_notifications: true,
             theme_light: None,
             theme_dark: None,
             scrollback_lines: 10_000,

@@ -102,6 +102,9 @@ pub struct PaneView {
     pub first_line: u64,
     #[serde(default)]
     pub top_line: u64,
+    /// Command line of the pane's foreground process (e.g. `claude` or `node /…/codex`); old daemons send none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fg: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -239,7 +242,7 @@ mod tests {
         // A daemon from before shell integration: the new client sees empty extras.
         let old = r#"{"id":1,"title":"t","cwd":"/","pid":null,"rows":24,"cols":80,"revision":3,"screen":null,"exited":null}"#;
         let v: PaneView = serde_json::from_str(old).unwrap();
-        assert!(v.marks.is_none() && v.first_line == 0 && v.top_line == 0);
+        assert!(v.marks.is_none() && v.first_line == 0 && v.top_line == 0 && v.fg.is_none());
         // A new daemon talking to an older client, whose struct knows none of the new fields.
         #[derive(Deserialize)]
         #[allow(dead_code)]

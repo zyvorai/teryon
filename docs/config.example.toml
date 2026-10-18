@@ -25,6 +25,7 @@ destination = "susant@mini.local"
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect
 # unfocused_opacity = 0.82         # brightness of unfocused panes
 # copy_on_select = false
+# agent_notifications = true       # notify when Claude Code, Codex, etc. in a background pane needs you or finishes
 # notify_after_seconds = 10        # notify when a command this long finishes in the background (needs shell integration)
 # theme_light = "mac27-light"      # follow macOS appearance (either one may be left out)
 # theme_dark = "mac27-dark"

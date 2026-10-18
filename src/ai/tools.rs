@@ -1,4 +1,5 @@
 //! What the assistant may do: tool schemas, risk tiers, argument validation, the command denylist and execution.
+use super::redact;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -450,7 +451,7 @@ pub fn execute(
         "read_pane" | "close_pane" | "run_in_pane" => {
             let pane = input["pane"].as_u64().ok_or("missing \"pane\"")?;
             let r = match name {
-                "read_pane" => env.read_pane(pane),
+                "read_pane" => env.read_pane(pane).map(|t| redact::clean(&t)),
                 "close_pane" => env.close_pane(pane),
                 _ => {
                     let text = input["text"].as_str().ok_or("missing \"text\"")?;
@@ -473,7 +474,10 @@ pub fn execute(
             if let Some(why) = command_denied(c) {
                 return Err(format!("refused: {why}"));
             }
-            runner.run("/bin/sh", &args(&["-c", c]), t)
+            runner
+                .run("/bin/sh", &args(&["-c", c]), t)
+                .map(|o| redact::clean(&o))
+                .map_err(|e| redact::clean(&e))
         }
         other => Err(format!("unknown tool {other}")),
     }

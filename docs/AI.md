@@ -46,6 +46,15 @@ Your messages, the tool results (for example the list of running apps) and a sho
 focused pane's title and directory) go to the Anthropic API. Terminal text is sent only when you approve `read_pane`
 or a command output. Conversations live in memory only and are gone when you quit.
 
+## Secrets stay out
+
+Everything that comes from a terminal (pane text, command output, directory names) passes a redaction filter before it
+is sent: Anthropic, OpenAI, Google, GitHub, Slack and AWS keys, JWTs, private-key blocks, `Authorization: Bearer …`
+and `NAME=value` where the name contains key, secret, token or password become `[redacted:kind]`, and the card shows
+how many were hidden. Terminal text is also wrapped as untrusted data, and the assistant is told never to follow
+instructions found inside it. The filter is pattern based, so it is a safety net, not a guarantee: do not paste secrets
+into the chat itself.
+
 ## Config
 
 ```toml
