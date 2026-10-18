@@ -880,11 +880,15 @@ impl Desktop {
         if card {
             // A hairline edge, and a soft accent ring on the focused pane when there are several.
             let ring = id == self.focus && self.pane_rects.len() > 1;
-            let edge = if ring {
-                Stroke::new(1.5_f32, color(t.accent).gamma_multiply(0.55))
-            } else {
-                Stroke::new(1_f32, color(t.border).gamma_multiply(0.8))
-            };
+            // The ring fades in and out as focus moves.
+            let k = ui
+                .ctx()
+                .animate_bool_with_time(egui::Id::new(("focus-ring", id)), ring, 0.15);
+            let quiet = color(t.border).gamma_multiply(0.8);
+            let edge = Stroke::new(
+                1. + 0.5 * k,
+                quiet.lerp_to_gamma(color(t.accent).gamma_multiply(0.55), k),
+            );
             painter.rect_stroke(
                 full,
                 egui::CornerRadius::same(radius as u8),

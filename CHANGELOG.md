@@ -6,6 +6,7 @@
 - Palette shortcuts are drawn as keycaps at the row's right edge, and menu and palette rows span the full width, so hints and submenus no longer overlap their labels.
 - A lone, nearly empty pane shows a faint mark with the shortcuts for the palette, Ask AI and the command bar; it disappears once there is output.
 - Menus gain an icon column (Font Awesome glyphs from the bundled Nerd Font, now also a fallback for the UI font), small group headers (Workspace, Edit, Help) in the ▾ menu, and a 120 ms ease on the row highlight.
+- Top bar: 34 px with a bottom hairline, and Commands and Ask AI share one quiet tray so "New pane" is the only filled control. The focus ring fades with focus; the palette has icons, a SUGGESTED/RESULTS label and eased row hover; floating surfaces share a 12 px radius, a lighter edge and a softer shadow.
 - The top bar shows latency only when it is above 150 ms (the status dot still has it in its tooltip).
 
 ## 0.14.0 — `teryon mcp`

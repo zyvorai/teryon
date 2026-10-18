@@ -1335,14 +1335,46 @@ impl Desktop {
                 if wanted.name != self.theme.name {
                     self.theme = wanted;
                 }
-                ui.add_space(4.);
+                ui.add_space(6.);
+                if !ranked.is_empty() {
+                    ui.label(
+                        RichText::new(if typed { "RESULTS" } else { "SUGGESTED" })
+                            .size(10.)
+                            .strong()
+                            .color(color(self.theme.muted)),
+                    );
+                }
                 for (row, (_, i)) in ranked.iter().enumerate() {
                     let action = &list[*i];
                     let selected = row == self.palette_sel && !typed;
                     // Full-width rows, so the shortcut hint sits at the row's right edge instead of on the label.
-                    let resp = ui.add_sized(
-                        [ui.available_width(), 24.],
-                        egui::SelectableLabel::new(selected, &action.title),
+                    let (row_rect, resp) =
+                        ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.), Sense::click());
+                    let lit = selected || resp.hovered();
+                    let k = ui.ctx().animate_bool_with_time(resp.id, lit, 0.12);
+                    if k > 0. {
+                        let fill = if selected {
+                            color(self.theme.accent).gamma_multiply(0.35)
+                        } else {
+                            color(mix(self.theme.panel, self.theme.foreground, 0.1))
+                        };
+                        ui.painter().rect_filled(row_rect, 6., fill.gamma_multiply(k));
+                    }
+                    if let Some(g) = menus::glyph(&action.title) {
+                        ui.painter().text(
+                            row_rect.left_center() + Vec2::new(10., 0.),
+                            egui::Align2::LEFT_CENTER,
+                            g,
+                            FontId::proportional(12.),
+                            color(self.theme.muted),
+                        );
+                    }
+                    ui.painter().text(
+                        row_rect.left_center() + Vec2::new(10. + menus::ICON_COLUMN, 0.),
+                        egui::Align2::LEFT_CENTER,
+                        &action.title,
+                        FontId::proportional(13.),
+                        color(self.theme.foreground),
                     );
                     if !action.hint.is_empty() {
                         // The shortcut as a small keycap at the row's right edge.

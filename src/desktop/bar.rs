@@ -2,7 +2,7 @@
 use super::*;
 
 /// Height of the bar; the macOS traffic lights sit inside it.
-pub(super) const BAR_HEIGHT: f32 = 30.;
+pub(super) const BAR_HEIGHT: f32 = 34.;
 /// Space kept free for the macOS window buttons when the title bar is merged into the bar.
 const TRAFFIC_LIGHTS: f32 = 78.;
 const TOAST_SECONDS: f32 = 4.;
@@ -68,6 +68,14 @@ impl Desktop {
                     .inner_margin(egui::Margin::symmetric(6, 3)),
             )
             .show(ctx, |ui| {
+                let edge = ui.max_rect().expand2(Vec2::new(6., 3.));
+                ui.painter().line_segment(
+                    [
+                        edge.left_bottom() - Vec2::new(0., 0.5),
+                        edge.right_bottom() - Vec2::new(0., 0.5),
+                    ],
+                    Stroke::new(1_f32, color(t.border).gamma_multiply(0.8)),
+                );
                 // Empty bar space drags the window and double-click maximizes it.
                 let drag = ui.interact(
                     ui.max_rect(),
@@ -126,13 +134,23 @@ impl Desktop {
                     ui.add_space(4.);
                     self.pane_chips(ui, compact);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_button(ui, &t, Icon::Spark, "Ask AI  ⌘J").clicked() {
-                            self.run_action(ActionKind::Ai);
-                        }
+                        // Quiet tools share one tray, so only "New pane" is filled.
+                        egui::Frame::new()
+                            .fill(color(mix(t.panel, t.foreground, 0.05)))
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .inner_margin(1.)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 0.;
+                                    if icon_button(ui, &t, Icon::List, "Commands  ⌘K").clicked() {
+                                        self.palette = true;
+                                    }
+                                    if icon_button(ui, &t, Icon::Spark, "Ask AI  ⌘J").clicked() {
+                                        self.run_action(ActionKind::Ai);
+                                    }
+                                });
+                            });
                         self.agent_pill(ui);
-                        if icon_button(ui, &t, Icon::List, "Commands").clicked() {
-                            self.palette = true;
-                        }
                         if primary_button(ui, &t, if wide { "New pane" } else { "+" }).clicked() {
                             self.run_action(ActionKind::NewPane);
                         }

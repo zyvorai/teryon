@@ -278,8 +278,9 @@ pub(super) fn apply_style(ctx: &egui::Context, t: &Theme) {
     let rail = color(mix(t.panel, t.foreground, 0.16));
     v.panel_fill = color(t.panel);
     v.window_fill = color(mix(t.panel, t.foreground, 0.06));
-    v.window_stroke = hairline;
-    v.window_corner_radius = egui::CornerRadius::same(14);
+    // Floating surfaces share one radius, a lighter edge and a soft shadow.
+    v.window_stroke = Stroke::new(1_f32, color(mix(t.border, t.foreground, 0.1)));
+    v.window_corner_radius = egui::CornerRadius::same(12);
     v.menu_corner_radius = egui::CornerRadius::same(12);
     v.override_text_color = Some(color(t.foreground));
     v.selection.bg_fill = color(t.accent).gamma_multiply(0.35);
@@ -289,13 +290,13 @@ pub(super) fn apply_style(ctx: &egui::Context, t: &Theme) {
     let pill = egui::CornerRadius::same(if native { 8 } else { 255 });
     if native {
         v.window_corner_radius = egui::CornerRadius::same(12);
-        v.menu_corner_radius = egui::CornerRadius::same(10);
+        v.menu_corner_radius = egui::CornerRadius::same(12);
         v.selection.bg_fill = color(t.accent).gamma_multiply(0.30);
         let shadow = egui::Shadow {
-            offset: [0, 10],
-            blur: 28,
-            spread: 0,
-            color: Color32::from_black_alpha(if light { 50 } else { 120 }),
+            offset: [0, 12],
+            blur: 36,
+            spread: 2,
+            color: Color32::from_black_alpha(if light { 44 } else { 140 }),
         };
         v.window_shadow = shadow;
         v.popup_shadow = shadow;

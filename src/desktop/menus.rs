@@ -45,28 +45,34 @@ pub(super) struct MenuState {
 }
 
 /// A Font Awesome glyph (from the bundled Nerd Font) for a menu label, when it has one.
-fn glyph(label: &str) -> Option<char> {
-    Some(match label {
-        "New Tab" | "New Pane" => '\u{f067}',
-        "Open Workspace…" => '\u{f07c}',
-        "Copy" | "Copy Special" => '\u{f0c5}',
-        "Paste" => '\u{f0ea}',
-        "Select All" => '\u{f245}',
-        "Find…" => '\u{f002}',
-        "Split Right" | "Split Below" | "Pane" => '\u{f0db}',
-        "Layout" => '\u{f009}',
-        "Snippets" => '\u{f121}',
-        "View" => '\u{f06e}',
-        "Command Palette" => '\u{f120}',
-        "Keyboard Shortcuts" => '\u{f11c}',
-        "Reload Config" => '\u{f021}',
-        "Close Pane" => '\u{f00d}',
+pub(super) fn glyph(label: &str) -> Option<char> {
+    Some(match label.to_lowercase().as_str() {
+        "new tab" | "new pane" => '\u{f067}',
+        "open workspace…" => '\u{f07c}',
+        "copy" | "copy special" => '\u{f0c5}',
+        "paste" => '\u{f0ea}',
+        "select all" => '\u{f245}',
+        "find…" => '\u{f002}',
+        "split right" | "split below" | "pane" => '\u{f0db}',
+        "layout" => '\u{f009}',
+        "snippets" => '\u{f121}',
+        "view" => '\u{f06e}',
+        "command palette" => '\u{f120}',
+        "keyboard shortcuts" => '\u{f11c}',
+        "reload config" => '\u{f021}',
+        "close pane" => '\u{f00d}',
+        "ask ai" => '\u{f005}',
+        "agents overview" => '\u{f0c0}',
+        "next theme" => '\u{f1fc}',
+        "rename pane" | "rename…" => '\u{f040}',
+        "close tab" => '\u{f00d}',
+        "next pane" | "next prompt" | "find next" => '\u{f105}',
         _ => return None,
     })
 }
 
 /// Width reserved in front of every label, so rows with and without an icon line up.
-const ICON_COLUMN: f32 = 24.;
+pub(super) const ICON_COLUMN: f32 = 24.;
 
 /// One menu row, macOS style: roomy, rounded accent highlight on hover, shortcut dimmed on the right.
 fn entry(
