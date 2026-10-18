@@ -2,6 +2,15 @@
 
 # TERYON
 
+<p>
+  <a href="https://github.com/zyvorai/teryon/actions/workflows/ci.yml"><img src="https://github.com/zyvorai/teryon/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/zyvorai/teryon" alt="Apache-2.0"></a>
+  <a href="https://github.com/zyvorai/teryon/releases"><img src="https://img.shields.io/github/v/tag/zyvorai/teryon?label=version" alt="Version"></a>
+  <a href="https://zyvorai.github.io/teryon/"><img src="https://img.shields.io/badge/site-zyvorai.github.io%2Fteryon-0a84ff" alt="Website"></a>
+</p>
+
+![TERYON desktop app: a file tree, a git log, test output and an AI agent waiting for approval, in four panes](docs/images/desktop-0.15-grid.png)
+
 **Your Mac mini. Wherever you work.** A Rust remote workspace with persistent PTYs, a colorful terminal interface, and an optional native GPU desktop app.
 
 TERYON separates the life of your shell from the life of your connection. A per-user service on your Mac mini or Linux host owns the terminals; OpenSSH transports the interface. Disconnect, close the client, or put your laptop to sleep, then reconnect to the same live shells.

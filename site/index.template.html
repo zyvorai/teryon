@@ -7,7 +7,20 @@
 <meta name="description" content="A Rust remote workspace: persistent shells on your Mac mini or Linux host, a colorful terminal UI, and a native desktop app, over plain OpenSSH.">
 <meta property="og:title" content="TERYON — Your Mac mini. Wherever you work.">
 <meta property="og:description" content="Persistent shells that outlive your connection. Terminal UI, native desktop app, 20 themes, over plain OpenSSH.">
-<meta property="og:image" content="img/desktop-mac27-dark.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TERYON">
+<meta property="og:url" content="__SITE__/">
+<meta property="og:image" content="__SITE__/img/teryon-og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TERYON: close the laptop, your shells stay. A four-pane desktop window with a file listing, git log, test output and an AI agent waiting for approval.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="TERYON — Your Mac mini. Wherever you work.">
+<meta name="twitter:description" content="Persistent shells that outlive your connection. Native desktop app, AI assistant, MCP for agents, over plain OpenSSH.">
+<meta name="twitter:image" content="__SITE__/img/teryon-og.png">
+<link rel="canonical" href="__SITE__/">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 :root{
@@ -89,7 +102,7 @@ button.theme{background:none;border:1px solid var(--hair);color:var(--muted);bor
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="img/mark.svg" alt="">TERYON</a>
   <div class="links">
-    <a href="#features">Features</a><a href="#desktop">Desktop</a><a href="#themes">Themes</a><a href="#start" class="keep">Get started</a>
+    <a href="#features">Features</a><a href="#agents">Agents &amp; AI</a><a href="#files">Files</a><a href="#themes">Themes</a><a href="#start" class="keep">Get started</a>
     <a href="__REPO__" class="keep">GitHub</a>
   </div>
   <button class="theme" id="theme" aria-label="Toggle light or dark">◐</button>
@@ -104,8 +117,7 @@ button.theme{background:none;border:1px solid var(--hair);color:var(--muted);bor
     <a class="pill" href="__REPO__">View on GitHub</a>
   </div>
   <div class="shot">
-    <img class="dark-only" src="img/desktop-mac27-dark.png" alt="TERYON desktop app, Mac27 Dark theme" width="2360" height="1584">
-    <img class="light-only" src="img/desktop-mac27-light.png" alt="TERYON desktop app, Mac27 Light theme" width="2360" height="1584">
+    <img src="img/desktop-0.15-grid.jpg" alt="TERYON desktop app with four panes: a file tree, a git log, test output, and an AI agent asking for approval" width="1900" height="1088">
   </div>
 </div></header>
 
@@ -136,6 +148,32 @@ button.theme{background:none;border:1px solid var(--hair);color:var(--muted);bor
   </div>
 </div></section>
 
+<section id="agents" style="padding-top:0"><div class="wrap">
+  <h2 class="reveal">Built for the age of coding agents.</h2>
+  <p class="lead reveal">Agents run for hours. Persistent panes mean they keep running when you leave, and TERYON tells you when one needs you.</p>
+  <div class="grid">
+    <div class="card reveal"><span class="ico">🤖</span><h3>Agent-aware panes</h3><p>Claude Code, Codex, Gemini CLI, aider, Cursor and OpenCode get a live status chip: working, needs you, idle or done. A notification fires when a background agent waits for you.</p></div>
+    <div class="card reveal"><span class="ico">🌙</span><h3>While you were away</h3><p>Reattach and a card lists what finished or failed, built from shell marks with no AI needed. One click summarizes it.</p></div>
+    <div class="card reveal"><span class="ico">⌘</span><h3>AI in your prompt</h3><p>Describe a command, get one command with an explanation and a risk label. It is inserted at your prompt and never runs until you press Enter. Click a failed command to have it explained.</p></div>
+    <div class="card reveal"><span class="ico">🔌</span><h3>MCP server</h3><p><code>teryon mcp</code> gives Claude Code and other MCP clients durable panes, local or over SSH. Reads are always on; writes need <code>--allow-write</code>.</p></div>
+    <div class="card reveal"><span class="ico">🛡️</span><h3>Secrets stay put</h3><p>Terminal text sent to a model is scrubbed of API keys, tokens and private keys, and framed as untrusted data. Your key lives in the environment or Keychain, never in config.</p></div>
+    <div class="card reveal"><span class="ico">💬</span><h3>Ask about your Mac</h3><p>A chat panel (⌘J) can open apps, start SSH sessions and answer questions, asking before it changes anything.</p></div>
+  </div>
+  <div class="term reveal" style="margin-top:40px"><div class="bar"><i></i><i></i><i></i></div><pre><span class="m"># give Claude Code a terminal that survives</span>
+<span class="g">$</span> claude mcp add teryon -- teryon mcp --allow-write</pre></div>
+</div></section>
+
+<section id="files" style="padding-top:0"><div class="wrap split">
+  <div class="shot reveal" style="margin:0">
+    <img src="img/desktop-0.15-files.jpg" alt="The TERYON file browser sidebar next to four panes" loading="lazy" width="1900" height="1088">
+  </div>
+  <div class="reveal">
+    <h2>A Finder in your terminal.</h2>
+    <p class="lead">Press <b>⌘B</b> for a sidebar that follows your shell’s folder, on this Mac or over SSH. Space is Quick Look for text and images, double-click types a quoted path, and download, rename and move to Trash are one right-click away.</p>
+    <a class="pill" href="__REPO__/blob/main/docs/DESKTOP.md#file-browser">File browser docs</a>
+  </div>
+</div></section>
+
 <section id="terminal" style="padding-top:0"><div class="wrap reveal">
   <h2>A terminal that’s a pleasure to live in.</h2>
   <p class="lead">A graphite header, a blue T with its cursor, and file-type colors that just work.</p>
@@ -152,12 +190,12 @@ button.theme{background:none;border:1px solid var(--hair);color:var(--muted);bor
 <section id="desktop" style="padding-top:0"><div class="wrap split">
   <div class="reveal">
     <h2>One slim bar. Everything else is terminal.</h2>
-    <p class="lead">No sidebar, no status bar: a single 30 px bar with your tabs, panes and layout, merged into the window title bar. It follows your macOS accent color. Optional, GPU-rendered, with SF Pro loaded straight from the system.</p>
+    <p class="lead">No status bar: a single slim bar with your tabs, panes and layout, merged into the window title bar, and panes drawn as rounded cards. It follows your macOS accent color. Optional, GPU-rendered, with SF Pro loaded straight from the system.</p>
     <a class="pill" href="#start">Build the desktop app</a>
   </div>
   <div class="shot reveal" style="margin:0">
-    <img class="dark-only" src="img/desktop-mac27-dark.png" alt="Mac27 Dark" loading="lazy">
-    <img class="light-only" src="img/desktop-mac27-light.png" alt="Mac27 Light" loading="lazy">
+    <img class="dark-only" src="img/desktop-mac27-dark.png" alt="Mac27 Dark theme" loading="lazy">
+    <img class="light-only" src="img/desktop-mac27-light.png" alt="Mac27 Light theme" loading="lazy">
   </div>
 </div></section>
 
@@ -185,7 +223,7 @@ teryon connect you@mini.local --workspace fluxvm</span></div>
       <span class="code">cargo build --release --features desktop --locked
 teryon desktop you@mini.local --workspace fluxvm</span></div>
   </div>
-  <p class="lead" style="margin-top:32px">Press <b>Ctrl+Space</b> then <b>?</b> for help. <b>Ctrl+Space → d</b> detaches; your shells keep running.</p>
+  <p class="lead" style="margin-top:32px">File transfers need rsync 3 on both machines (on macOS: <code>brew install rsync</code>). Press <b>Ctrl+Space</b> then <b>?</b> for help. <b>Ctrl+Space → d</b> detaches; your shells keep running.</p>
 </div></section>
 
 <footer><div class="wrap">
@@ -201,6 +239,12 @@ teryon desktop you@mini.local --workspace fluxvm</span></div>
     var dark=root.dataset.theme?root.dataset.theme==='dark':!matchMedia('(prefers-color-scheme: light)').matches;
     root.dataset.theme=dark?'light':'dark';
     try{localStorage.setItem('teryon-theme',root.dataset.theme)}catch(e){}
+  });
+  document.querySelectorAll('.code').forEach(function(c){
+    c.title='Click to copy';c.style.cursor='copy';
+    c.addEventListener('click',function(){
+      if(navigator.clipboard){navigator.clipboard.writeText(c.textContent.trim()).then(function(){c.title='Copied'})}
+    });
   });
   var els=document.querySelectorAll('.reveal');
   if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return}

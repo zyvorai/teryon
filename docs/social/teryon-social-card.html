@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TERYON social card</title>
+<!--
+  1600x900 (16:9) card for X and LinkedIn, in the look of the desktop app and the site. The same render is
+  cropped to 1200x630 (og:image) and 1280x640 (GitHub social preview) by build-social-card.sh, so keep
+  everything at least 60 px away from the top and bottom edges. Every claim is one the README or CHANGELOG
+  already states; the screenshot is a sample project, not real data.
+  Build:  ./docs/social/build-social-card.sh
+-->
+<style>
+  :root { --ink:#f5f5f7; --soft:#a1a1a6; --blue:#0a84ff; --cyan:#64d2ff; --line:rgba(255,255,255,.14);
+    --sans:-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,monospace; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; }
+  body { width:1600px; height:900px; overflow:hidden; position:relative; color:var(--ink); font-family:var(--sans);
+    background:
+      radial-gradient(900px 620px at 82% 10%, rgba(10,132,255,.34), transparent 70%),
+      radial-gradient(700px 520px at 0% 100%, rgba(100,210,255,.12), transparent 70%),
+      linear-gradient(180deg,#0b0b0d,#000); }
+  .left { position:absolute; left:84px; top:92px; width:560px; bottom:92px; display:flex; flex-direction:column; }
+  .brand { display:flex; align-items:center; gap:18px; }
+  .brand img { width:68px; height:68px; }
+  .brand b { font-size:34px; letter-spacing:.22em; font-weight:700; }
+  .brand span { margin-left:6px; padding:5px 12px; border:1px solid var(--line); border-radius:99px; color:var(--soft);
+    font-family:var(--mono); font-size:17px; letter-spacing:.04em; }
+  h1 { margin:44px 0 0; font-size:74px; line-height:1.02; letter-spacing:-.035em; font-weight:700; }
+  h1 em { font-style:normal; background:linear-gradient(90deg,var(--blue),var(--cyan)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .sub { margin:24px 0 0; font-size:26px; line-height:1.4; color:var(--soft); max-width:560px; }
+  .chips { margin-top:auto; display:flex; flex-wrap:wrap; gap:10px; max-width:560px; }
+  .chip { font-size:18px; font-weight:600; padding:6px 14px; border-radius:99px; border:1px solid var(--line); color:var(--ink); background:rgba(255,255,255,.05); }
+  .chip.hi { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .foot { margin-top:26px; padding-top:18px; border-top:1px solid var(--line); display:flex; font-family:var(--mono); font-size:20px; color:var(--soft); }
+  .foot b { color:var(--ink); font-weight:600; }
+  .foot .r { margin-left:auto; }
+  .shot { position:absolute; left:668px; top:222px; width:980px; border-radius:18px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.18); box-shadow:0 50px 120px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.6); }
+  .shot img { display:block; width:100%; height:auto; }
+  .glow { position:absolute; left:640px; top:170px; width:960px; height:680px; border-radius:40px;
+    background:radial-gradient(closest-side, rgba(10,132,255,.55), transparent); filter:blur(40px); }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="shot"><img src="../images/desktop-0.15-grid.png" alt=""></div>
+<div class="left">
+  <div class="brand"><img src="../brand/teryon-icon.svg" alt=""><b>TERYON</b><span>0.15</span></div>
+  <h1>Close the laptop. <em>Your shells stay.</em></h1>
+  <p class="sub">Persistent terminals on your Mac mini or Linux box, over plain OpenSSH. A native desktop app, an AI assistant and MCP for your agents.</p>
+  <div class="chips">
+    <span class="chip hi">Persistent PTYs</span><span class="chip">Native desktop</span><span class="chip">AI assistant</span>
+    <span class="chip">MCP for agents</span><span class="chip">File browser</span><span class="chip">20 themes</span>
+  </div>
+  <div class="foot"><b>github.com/zyvorai/teryon</b><span class="r">Rust &middot; Apache-2.0</span></div>
+</div>
+</body>
+</html>
