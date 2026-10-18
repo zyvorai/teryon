@@ -111,16 +111,7 @@ impl Desktop {
         };
         let t = &self.theme;
         let c = status_color(t, status);
-        let text = format!(
-            "{} {} · {}",
-            if status == Status::Working {
-                "●"
-            } else {
-                "◉"
-            },
-            kind.name(),
-            status.label()
-        );
+        let text = format!("{} · {}", kind.name(), status.label());
         egui::Frame::new()
             .fill(c.gamma_multiply(0.18))
             .corner_radius(egui::CornerRadius::same(8))
