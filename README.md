@@ -83,6 +83,9 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Terminal | ANSI colors, alternate screen, Unicode cells, cursor/application modes, bracketed paste, common function/control keys, cursor/status query responses |
 | Pane management | Create, focus, rename, explicitly terminate; single, vertical, horizontal and 2×2 grid layouts (up to 4 panes visible), zoom, fuzzy pane switcher, optional mouse focus |
 | Native desktop | GPU canvas, pane navigation, command palette, theme chooser, font size control, copy visible screen |
+| Power tools | Quick select, vi-style copy mode, snippets, broadcast input, regex find, floating panes, drag-and-drop upload, triggers |
+| Shell-aware | Optional shell integration: prompt jumping, last-command output, exit-status chips, long-command notifications |
+| Easy start | `teryon` picker, `teryon setup`, theme import from iTerm2/Alacritty/Ghostty/Kitty, saved layouts that come back after a reboot |
 | File-type colors | New shells get `CLICOLOR`/`LS_COLORS` (only if unset), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
 | Terminal UI | Responsive sidebar, pane borders, status bar, help overlay, prefix shortcuts |
 | Themes | Apple Dark (default, follows the netra/apple.com contract), Apple Light, Tokyo Night, Tokyo Night Storm, Catppuccin Mocha, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, Obsidian, Pearl, Aurora, Ember, Ocean, Sakura, Forest, High Contrast; custom TOML palettes; WezTerm export |

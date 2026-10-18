@@ -11,6 +11,7 @@ pub mod desktop;
 pub mod ipc;
 pub mod keymap;
 pub mod keys;
+pub mod layout;
 pub mod marks;
 pub mod protocol;
 pub mod recent;

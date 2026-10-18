@@ -61,6 +61,34 @@ pub struct Snippet {
     #[serde(default)]
     pub run: bool,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TriggerAction {
+    /// Tint the matching text on screen.
+    #[default]
+    Highlight,
+    /// A system notification with the matching line.
+    Notify,
+    /// A short sound (macOS).
+    Bell,
+    /// A message in the corner of the window.
+    Toast,
+}
+/// A rule applied to what appears on screen: when `pattern` matches a line, do `action`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Trigger {
+    /// A regular expression (Rust `regex` syntax) matched against each screen line.
+    pub pattern: String,
+    #[serde(default)]
+    pub action: TriggerAction,
+    /// `#RRGGBB` tint for `highlight` (default: the theme's warning color).
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Only fire while the window is in the background (default: true for notify and bell).
+    #[serde(default)]
+    pub unfocused_only: Option<bool>,
+}
 /// Options for the native desktop app; every field is optional in `config.toml`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -94,6 +122,8 @@ pub struct DesktopConfig {
     pub keys: BTreeMap<String, String>,
     /// Saved commands shown in the palette as "Snippet: NAME".
     pub snippets: Vec<Snippet>,
+    /// Rules that highlight, notify or beep when output matches.
+    pub triggers: Vec<Trigger>,
 }
 impl Default for DesktopConfig {
     fn default() -> Self {
@@ -115,6 +145,7 @@ impl Default for DesktopConfig {
             confirm_quit: false,
             keys: BTreeMap::new(),
             snippets: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 }
@@ -168,6 +199,29 @@ impl DesktopConfig {
             }
             crate::snippet::validate(&sn.command)
                 .map_err(|e| anyhow::anyhow!("desktop.snippets: \"{}\": {e}", sn.name))?;
+        }
+        if self.triggers.len() > 30 {
+            bail!("desktop.triggers: at most 30 triggers");
+        }
+        for t in &self.triggers {
+            if t.pattern.is_empty() || t.pattern.len() > 500 {
+                bail!("desktop.triggers: a pattern needs 1 to 500 characters");
+            }
+            regex::Regex::new(&t.pattern).map_err(|e| {
+                anyhow::anyhow!(
+                    "desktop.triggers: \"{}\": {}",
+                    t.pattern,
+                    e.to_string().lines().last().unwrap_or("invalid").trim()
+                )
+            })?;
+            if let Some(c) = &t.color {
+                let ok = c.len() == 7
+                    && c.starts_with('#')
+                    && c[1..].chars().all(|d| d.is_ascii_hexdigit());
+                if !ok {
+                    bail!("desktop.triggers: color \"{c}\" must be #RRGGBB");
+                }
+            }
         }
         let (_, problems) = crate::keymap::Keymap::build(&self.keys);
         if let Some(first) = problems.first() {
@@ -348,6 +402,16 @@ mod tests {
             parse_desktop("[desktop]\ntheme_dark = \"nord\"\ntheme_light = \"pearl\"\n").is_ok()
         );
         assert!(parse_desktop("[desktop.keys]\nnope = \"cmd+x\"\n").is_err());
+        let trig = "[[desktop.triggers]]\npattern = \"ERROR|panic\"\naction = \"notify\"\n";
+        assert_eq!(
+            parse_desktop(trig).unwrap().triggers[0].action,
+            TriggerAction::Notify
+        );
+        assert!(parse_desktop("[[desktop.triggers]]\npattern = \"(\"\n").is_err());
+        assert!(parse_desktop("[[desktop.triggers]]\npattern = \"x\"\ncolor = \"red\"\n").is_err());
+        assert!(
+            parse_desktop("[[desktop.triggers]]\npattern = \"x\"\naction = \"explode\"\n").is_err()
+        );
         let sn = "[[desktop.snippets]]\nname = \"logs\"\ncommand = \"tail -f {{file}}\"\n";
         assert_eq!(parse_desktop(sn).unwrap().snippets[0].name, "logs");
         assert!(

@@ -64,6 +64,9 @@ enum Commands {
         /// Skip the startup banner.
         #[arg(long)]
         no_splash: bool,
+        /// If this workspace is brand new, reopen the panes (directories and names) the desktop app last saved for it.
+        #[arg(long)]
+        restore: bool,
     },
     /// List persistent remote workspaces.
     Sessions {
@@ -293,18 +296,6 @@ enum LayoutCommand {
         file: PathBuf,
     },
 }
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Layout {
-    version: u32,
-    panes: Vec<LayoutPane>,
-}
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LayoutPane {
-    title: String,
-    cwd: String,
-}
 fn target(host: String, remote_bin: Option<String>) -> Result<Target> {
     config::target(&host, remote_bin)
 }
@@ -393,6 +384,55 @@ fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {
         false,
     )?;
     Ok(0)
+}
+/// Rename pane 1 and create the remaining panes of `layout` (directories and titles only).
+fn apply_layout(rpc: &mut Rpc, layout: &teryon::layout::Layout, first_pane: u64) -> Result<()> {
+    for (i, p) in layout.panes.iter().enumerate() {
+        let id = if i == 0 {
+            first_pane
+        } else {
+            let Response::Created { pane } = rpc.call(Request::NewPane {
+                cwd: Some(p.cwd.clone()),
+                command: vec![],
+                rows: 24,
+                cols: 100,
+            })?
+            else {
+                bail!("unexpected response");
+            };
+            pane
+        };
+        rpc.call(Request::Rename {
+            pane: id,
+            title: p.title.clone(),
+        })?;
+    }
+    Ok(())
+}
+/// `connect --restore`: set up a fresh workspace from the layout the desktop app saved for it.
+fn restore_saved_layout(host: &str, workspace: &str, bin: Option<String>) -> Result<()> {
+    let path = teryon::layout::auto_path(host, workspace)?;
+    let Ok(layout) = teryon::layout::load(&path) else {
+        eprintln!("No saved layout for {host} / {workspace}; starting normally.");
+        return Ok(());
+    };
+    let mut rpc = attach(
+        &target(host.to_string(), bin)?,
+        workspace.to_string(),
+        false,
+        None,
+    )?;
+    let views = panes(&mut rpc)?;
+    if !teryon::layout::is_fresh(&views) || layout.panes.len() < 2 {
+        eprintln!("This workspace is already in use; nothing restored.");
+        return Ok(());
+    }
+    apply_layout(&mut rpc, &layout, views[0].id)?;
+    eprintln!(
+        "Restored {} panes (directories and names only).",
+        layout.panes.len()
+    );
+    Ok(())
 }
 fn connect_tui(
     target: Target,
@@ -493,8 +533,12 @@ fn run() -> Result<i32> {
             cwd,
             theme,
             no_splash,
+            restore,
         } => {
             teryon::recent::record(&host, &workspace);
+            if restore && !readonly {
+                restore_saved_layout(&host, &workspace, bin.clone())?;
+            }
             connect_tui(
                 target(host, bin)?,
                 workspace,
@@ -942,16 +986,7 @@ fn run() -> Result<i32> {
                     file,
                 } => {
                     let mut rpc = attach(&target(host, bin)?, workspace, true, None)?;
-                    let layout = Layout {
-                        version: 1,
-                        panes: panes(&mut rpc)?
-                            .into_iter()
-                            .map(|p| LayoutPane {
-                                title: p.title,
-                                cwd: p.cwd,
-                            })
-                            .collect(),
-                    };
+                    let layout = teryon::layout::Layout::from_panes(&panes(&mut rpc)?);
                     teryon::util::private_write(&file, &serde_json::to_vec_pretty(&layout)?)?;
                     println!("Saved {}", file.display());
                 }
@@ -960,13 +995,7 @@ fn run() -> Result<i32> {
                     workspace,
                     file,
                 } => {
-                    if std::fs::metadata(&file)?.len() > 65536 {
-                        bail!("layout exceeds 64 KiB");
-                    }
-                    let layout: Layout = serde_json::from_slice(&std::fs::read(&file)?)?;
-                    if layout.version != 1 || layout.panes.is_empty() || layout.panes.len() > 8 {
-                        bail!("unsupported or oversized layout");
-                    }
+                    let layout = teryon::layout::load(&file)?;
                     let t = target(host, bin)?;
                     let mut rpc = t.connect()?;
                     if let Response::Workspaces { items } = rpc.call(Request::List)? {
@@ -981,26 +1010,7 @@ fn run() -> Result<i32> {
                         cols: 100,
                         cwd: Some(layout.panes[0].cwd.clone()),
                     })?;
-                    for (i, p) in layout.panes.into_iter().enumerate() {
-                        let id = if i == 0 {
-                            1
-                        } else {
-                            let Response::Created { pane } = rpc.call(Request::NewPane {
-                                cwd: Some(p.cwd),
-                                command: vec![],
-                                rows: 24,
-                                cols: 100,
-                            })?
-                            else {
-                                bail!("unexpected response");
-                            };
-                            pane
-                        };
-                        rpc.call(Request::Rename {
-                            pane: id,
-                            title: p.title,
-                        })?;
-                    }
+                    apply_layout(&mut rpc, &layout, 1)?;
                     println!("Restored directories and titles as new shells; no old commands were rerun.");
                 }
             }

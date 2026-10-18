@@ -172,20 +172,8 @@ impl Target {
         }
         Ok(())
     }
-    pub fn transfer(
-        &self,
-        upload: bool,
-        source: &str,
-        destination: &str,
-        limit_kbps: Option<u32>,
-    ) -> Result<()> {
-        if self.local() {
-            bail!("file transfer expects an SSH host");
-        }
-        let remote = if upload { destination } else { source };
-        if remote.starts_with('-') || remote.contains(['\n', '\0']) {
-            bail!("invalid remote path");
-        }
+    /// `rsync` with the options every TERYON transfer shares.
+    fn rsync_command(&self) -> Command {
         // --protect-args prevents the remote shell from interpreting filenames.
         // --partial-dir preserves interrupted transfers without in-place corruption.
         let mut cmd = Command::new("rsync");
@@ -202,6 +190,57 @@ impl Target {
             "-e",
             &ssh,
         ]);
+        cmd
+    }
+    /// Quietly upload `sources` into the remote directory `dest_dir`, leaving files that already exist
+    /// there untouched (used for drag-and-drop, where an accidental overwrite would be a surprise).
+    pub fn upload_files(&self, sources: &[std::path::PathBuf], dest_dir: &str) -> Result<()> {
+        if self.local() {
+            bail!("file upload expects an SSH host");
+        }
+        if sources.is_empty() || sources.len() > 50 {
+            bail!("drop between 1 and 50 files at a time");
+        }
+        if !dest_dir.starts_with('/') || dest_dir.contains(['\n', '\0']) {
+            bail!("invalid remote directory");
+        }
+        let mut cmd = self.rsync_command();
+        cmd.arg("--ignore-existing").arg("--").args(sources);
+        let dest = if dest_dir.ends_with('/') {
+            dest_dir.to_string()
+        } else {
+            format!("{dest_dir}/")
+        };
+        cmd.arg(format!("{}:{dest}", self.host));
+        let output = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .output()
+            .context("run rsync (install rsync 3+ on both machines)")?;
+        if !output.status.success() {
+            let why = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "upload failed: {}",
+                why.lines().last().unwrap_or("rsync error").trim()
+            );
+        }
+        Ok(())
+    }
+    pub fn transfer(
+        &self,
+        upload: bool,
+        source: &str,
+        destination: &str,
+        limit_kbps: Option<u32>,
+    ) -> Result<()> {
+        if self.local() {
+            bail!("file transfer expects an SSH host");
+        }
+        let remote = if upload { destination } else { source };
+        if remote.starts_with('-') || remote.contains(['\n', '\0']) {
+            bail!("invalid remote path");
+        }
+        let mut cmd = self.rsync_command();
         if let Some(limit) = limit_kbps {
             if limit == 0 {
                 bail!("bandwidth limit must be positive");

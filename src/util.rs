@@ -60,6 +60,16 @@ pub fn notify(message: &str) {
     #[cfg(not(target_os = "macos"))]
     let _ = message;
 }
+/// A short system sound (macOS); silent elsewhere.
+pub fn beep() {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("afplay")
+        .arg("/System/Library/Sounds/Tink.aiff")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
 pub fn nonce() -> Result<String> {
     let mut bytes = [0u8; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;

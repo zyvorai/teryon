@@ -59,6 +59,21 @@ double-click it to maximize.
 * **Find**: ⌥⌘R toggles regular expressions and ⌥⌘C match case (also the `.*` and `Aa` buttons); a bad pattern is
   shown next to the field.
 
+## Remote-native extras
+
+* **Floating panes** (⌥⌘↩ floats the focused pane, ⌥⌘N opens a new floating one): the pane leaves the layout and
+  becomes a draggable, resizable window on top of it, handy for a scratch shell or a log tail. ⌥⌘↩ (or the
+  pane's expand button) puts it back. It needs at least one other pane.
+* **Drag and drop**: drop files on a pane. On `local` the shell-quoted paths are typed at the cursor. On an SSH
+  host the files are uploaded with rsync into the pane's current directory (live when shell integration is
+  on); files that already exist there are left alone, and a toast reports the result. Up to 50 files per drop.
+* **Triggers**: `[[desktop.triggers]]` rules match each screen line with a regular expression and
+  `highlight` it (optionally with a `#RRGGBB` color), `notify`, `bell` or `toast`. Notifications and sounds fire once
+  per distinct line, never for what was already on screen, and by default only while the window is in the background.
+* **Saved layouts**: the app remembers each workspace's panes (names and directories, never commands) in
+  `~/.teryon/layouts/`. When you attach to a brand-new workspace (for example after the host rebooted) it offers
+  "Restore N panes". `teryon connect HOST -w NAME --restore` does the same for the terminal UI.
+
 ## Shell-aware features
 
 With the one-line shell integration ([SHELL-INTEGRATION.md](SHELL-INTEGRATION.md)) the app knows where
@@ -87,6 +102,7 @@ binding using `teryon config --keys`.
 | `pane_titles` | auto | `auto`, `always`, `never` |
 | `notify_after_seconds` | 10 | Notify when a command this long finishes in the background (shell integration; 0 = off) |
 | `confirm_quit` | false | Ask before the window closes (shells keep running either way) |
+| `triggers` | none | `[[desktop.triggers]]` with `pattern`, `action` (`highlight`, `notify`, `bell`, `toast`), optional `color`, `unfocused_only` |
 | `snippets` | none | `[[desktop.snippets]]` with `name`, `command`, optional `description` and `run` |
 
 Remembered state (window size, theme, font size, layout) is stored separately in `~/.teryon/desktop.toml`.
@@ -112,6 +128,7 @@ role of ⌘ (so ⇧ variants are not available there).
 | ⌘F, ⌘G, ⇧⌘G | Find in the pane, next, previous (⌥⌘R regex, ⌥⌘C case) |
 | ⇧⌘E / ⇧⌘X | Quick select / copy mode |
 | ⌥⌘I | Broadcast input to all visible panes |
+| ⌥⌘↩ / ⌥⌘N | Float the focused pane / new floating pane |
 | ⇧⌘F | Search the retained output |
 | ⌘T, ⌘W | New tab, close tab |
 | ⌘1 to ⌘9, ⇧⌘← / ⇧⌘→ | Jump to a tab, reorder tabs |

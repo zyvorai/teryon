@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 — Remote-native extras
+
+- Floating panes (⌥⌘↩ / ⌥⌘N): lift a pane into a draggable, resizable window over the layout.
+- Drag and drop files onto a pane: quoted paths are typed on `local`; on SSH hosts the files are uploaded with rsync to the pane's directory without overwriting existing files.
+- Triggers: `[[desktop.triggers]]` regex rules that highlight, notify, beep or toast; they fire once per new line and are silent for what was already on screen.
+- Saved layouts: the desktop keeps each workspace's pane names and directories and offers "Restore N panes" on a fresh workspace (for example after a reboot); `teryon connect --restore` does it for the terminal UI. Commands are never rerun.
+- `regex` is now a direct dependency (also used by `teryon config --check`); the layout file code moved into the library.
+
 ## 0.9.0 — Shell-aware features
 
 - `teryon shell-init zsh|bash|fish`: optional OSC 133/7 integration (also offered by `teryon setup`, guarded and with a backup). Verified against real zsh, bash and fish sessions.

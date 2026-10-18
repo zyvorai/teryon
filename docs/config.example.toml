@@ -42,3 +42,12 @@ destination = "susant@mini.local"
 # command = "tail -f {{file}}"
 # description = "tail -f on a path you type"
 # run = true                       # press Enter for you (single-line snippets only)
+#
+# Rules on what appears on screen: action = "highlight" | "notify" | "bell" | "toast".
+# [[desktop.triggers]]
+# pattern = "ERROR|panic|FAILED"
+# action = "highlight"
+# color = "#ff453a"
+# [[desktop.triggers]]
+# pattern = "BUILD (SUCCESSFUL|FAILED)"
+# action = "notify"               # notify/bell fire only while the window is in the background by default

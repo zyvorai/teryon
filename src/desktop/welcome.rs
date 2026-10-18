@@ -21,6 +21,8 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
             ("Zoom / restore", "zoom"),
             ("Equalize", "equalize"),
             ("Broadcast input", "broadcast"),
+            ("Float / unfloat pane", "float_pane"),
+            ("New floating pane", "new_floating_pane"),
         ],
     ),
     (

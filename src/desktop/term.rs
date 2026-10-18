@@ -977,6 +977,15 @@ impl Desktop {
                         color(t.warning).gamma_multiply(if strong { 0.85 } else { 0.4 }),
                     );
                 }
+                if let Some((_, _, _, c)) = pane.spans.iter().find(|(r, c0, l, _)| {
+                    *r == row && usize::from(col) >= *c0 && usize::from(col) < *c0 + *l
+                }) {
+                    painter.rect_filled(
+                        cell_rect,
+                        0.,
+                        c.unwrap_or(color(t.warning)).gamma_multiply(0.35),
+                    );
+                }
                 if selection.is_some_and(|s| s.contains(row, col)) {
                     painter.rect_filled(cell_rect, 0., color(t.accent).gamma_multiply(0.4));
                 }

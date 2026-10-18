@@ -55,22 +55,24 @@ impl FindQuery {
                     .map(|s| (s, needle.len()))
                     .collect()
             }
-            Self::Regex(re) => {
-                let text: String = row.iter().collect();
-                // Byte offsets back to columns.
-                let cols: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();
-                let col_of =
-                    |byte: usize| cols.iter().position(|b| *b == byte).unwrap_or(cols.len());
-                re.find_iter(&text)
-                    .filter(|m| !m.as_str().is_empty())
-                    .map(|m| {
-                        let (a, b) = (col_of(m.start()), col_of(m.end()));
-                        (a, b.saturating_sub(a).max(1))
-                    })
-                    .collect()
-            }
+            Self::Regex(re) => regex_matches(re, row),
         }
     }
+}
+
+/// `(start column, length)` of every non-empty regex match in a row (one `char` per column).
+pub(super) fn regex_matches(re: &regex::Regex, row: &[char]) -> Vec<(usize, usize)> {
+    let text: String = row.iter().collect();
+    // Byte offsets back to columns.
+    let cols: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();
+    let col_of = |byte: usize| cols.iter().position(|b| *b == byte).unwrap_or(cols.len());
+    re.find_iter(&text)
+        .filter(|m| !m.as_str().is_empty())
+        .map(|m| {
+            let (a, b) = (col_of(m.start()), col_of(m.end()));
+            (a, b.saturating_sub(a).max(1))
+        })
+        .collect()
 }
 
 impl Desktop {

@@ -13,7 +13,7 @@ use crate::{
 use anyhow::{bail, Result};
 use eframe::egui::{self, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     sync::mpsc::{self, Receiver, SyncSender},
     thread,
     time::{Duration, Instant},
@@ -21,13 +21,17 @@ use std::{
 
 mod actions;
 mod bar;
+mod dropzone;
 mod find;
+mod floating;
 mod hints;
 mod icons;
 mod panes;
+mod restore;
 mod snippets;
 mod style;
 mod term;
+mod triggers;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
 use find::FindQuery;
@@ -37,6 +41,7 @@ use panes::{arrange, Dir, Weights};
 use snippets::SnippetPrompt;
 use style::*;
 use term::Scrollback;
+use triggers::{CompiledTrigger, Span};
 
 struct Pane {
     info: PaneView,
@@ -45,6 +50,9 @@ struct Pane {
     marks: Vec<Mark>,
     /// Exit-status notification bookkeeping: unix time of the last `D` mark already announced.
     announced: u64,
+    /// Trigger highlights for the current screen, and whether a first scan has happened.
+    spans: Vec<Span>,
+    scanned: bool,
 }
 impl Pane {
     fn new(info: PaneView, parser: vt100::Parser) -> Self {
@@ -53,11 +61,25 @@ impl Pane {
             parser,
             marks: Vec::new(),
             announced: 0,
+            spans: Vec::new(),
+            scanned: false,
         }
     }
 }
+/// Per-workspace odds and ends: the floating pane and the saved-layout bookkeeping.
+#[derive(Default)]
+struct SessionExtra {
+    floating: Option<u64>,
+    restore_checked: bool,
+    restore_offer: Option<crate::layout::Layout>,
+    /// Titles for panes a restore is about to create, with when they were queued.
+    pending_titles: Vec<(String, Instant)>,
+    last_layout: Option<crate::layout::Layout>,
+    last_layout_save: Option<Instant>,
+}
 /// Everything that belongs to one attached workspace; parked tabs keep theirs here.
 struct Session {
+    extra: SessionExtra,
     host: String,
     target: Option<Target>,
     workspace: String,
@@ -135,6 +157,13 @@ pub struct Desktop {
     theme_id_cache: Option<(String, Option<String>)>,
     /// Last macOS appearance seen, so a manual theme choice sticks until it changes.
     last_system_dark: Option<bool>,
+    /// Floating pane, saved-layout state, triggers and uploads.
+    extra: SessionExtra,
+    pending_float: bool,
+    triggers: Vec<CompiledTrigger>,
+    trigger_seen: HashMap<u64, Instant>,
+    upload_tx: mpsc::Sender<(bool, String)>,
+    upload_rx: Receiver<(bool, String)>,
     /// Message currently floating in the corner, and the last `notice` already turned into one.
     toast: Option<(String, Instant)>,
     toasted: String,
@@ -227,6 +256,7 @@ impl Desktop {
         tx: SyncSender<Command>,
         rx: Receiver<Update>,
     ) -> Self {
+        let (upload_tx, upload_rx) = mpsc::channel();
         Self {
             tabs: vec![Tab {
                 host: host.clone(),
@@ -270,6 +300,12 @@ impl Desktop {
             offline_since: None,
             theme_id_cache: None,
             last_system_dark: None,
+            extra: SessionExtra::default(),
+            pending_float: false,
+            triggers: Vec::new(),
+            trigger_seen: HashMap::new(),
+            upload_tx,
+            upload_rx,
             toast: None,
             toasted: String::new(),
             window_title: String::new(),
@@ -312,6 +348,7 @@ impl Desktop {
         }
     }
     fn swap_session(&mut self, other: &mut Session) {
+        std::mem::swap(&mut self.extra, &mut other.extra);
         std::mem::swap(&mut self.host, &mut other.host);
         std::mem::swap(&mut self.target, &mut other.target);
         std::mem::swap(&mut self.workspace, &mut other.workspace);
@@ -387,6 +424,7 @@ impl Desktop {
             host: host.into(),
             name: name.into(),
             state: Some(Session {
+                extra: SessionExtra::default(),
                 host: host.into(),
                 target: Some(target),
                 workspace: name.into(),
@@ -475,7 +513,14 @@ impl Desktop {
                 }
                 Update::Message(s) => self.notice = s,
                 Update::Latency(ms) => self.latency = Some(ms),
-                Update::Created(id) => self.focus = id,
+                Update::Created(id) => {
+                    self.focus = id;
+                    if self.pending_float {
+                        self.pending_float = false;
+                        self.extra.floating = Some(id);
+                    }
+                    self.title_new_pane(id);
+                }
                 Update::Captured(text, first_line, purpose) => match purpose {
                     CapturePurpose::View(query) => {
                         self.history = Some(text);
@@ -494,6 +539,11 @@ impl Desktop {
                 },
                 Update::State(views) => {
                     self.panes.retain(|id, _| views.iter().any(|p| p.id == *id));
+                    let changed: Vec<u64> = views
+                        .iter()
+                        .filter(|v| v.screen.is_some())
+                        .map(|v| v.id)
+                        .collect();
                     for view in views {
                         let pane = self.panes.entry(view.id).or_insert_with(|| {
                             Pane::new(view.clone(), vt100::Parser::new(view.rows, view.cols, 0))
@@ -532,6 +582,10 @@ impl Desktop {
                     if !self.panes.contains_key(&self.focus) {
                         self.focus = self.panes.keys().next().copied().unwrap_or(1);
                     }
+                    for id in changed {
+                        self.scan_triggers(id);
+                    }
+                    self.after_state();
                 }
             }
         }
@@ -815,8 +869,8 @@ impl Desktop {
                     self.welcome_ui(ui);
                     return;
                 }
-                let ids: Vec<u64> = self.panes.keys().copied().collect();
-                let shown = visible_ids(&ids, self.focus, self.layout);
+                let ids: Vec<u64> = self.tiled_ids();
+                let shown = visible_ids(&ids, self.tiled_focus(&ids), self.layout);
                 let (grid_rows, grid_cols) = self.layout.dims(shown.len());
                 let dims = (usize::from(grid_rows), usize::from(grid_cols));
                 self.weights.fit(dims.0, dims.1);
@@ -881,40 +935,14 @@ impl Desktop {
                 }
                 ui.advance_cursor_after_rect(area);
                 for (id, result) in drawn {
-                    let Some(out) = result else {
-                        continue;
-                    };
-                    match out.action {
-                        Some(PaneAction::Rename(pane)) => {
-                            let title = self.panes.get(&pane).map(|p| p.info.title.clone());
-                            self.renaming = title.map(|title| (pane, title));
-                        }
-                        Some(PaneAction::Zoom(pane)) => {
-                            self.focus = pane;
-                            self.run_action(ActionKind::Zoom);
-                        }
-                        Some(PaneAction::Close(pane)) => {
-                            self.focus = pane;
-                            self.confirm_close = true;
-                        }
-                        None => {}
-                    }
-                    if id == self.focus {
-                        if self.online
-                            && !self.readonly
-                            && out.size != self.last_size
-                            && self
-                                .tx
-                                .try_send(Command::Resize(out.size.0, out.size.1))
-                                .is_ok()
-                        {
-                            self.last_size = out.size;
-                        }
-                    } else if out.clicked {
-                        self.focus = id;
+                    if let Some(out) = result {
+                        self.handle_term_out(id, out);
                     }
                 }
             });
+        self.floating_ui(ctx);
+        self.handle_drops(ctx);
+        self.restore_ui(ctx);
         if self.palette && !self.palette_was_open {
             self.refresh_catalog();
         }
@@ -1120,6 +1148,8 @@ impl Desktop {
                 self.find_open = true;
                 self.rebuild_find();
             }
+            ActionKind::FloatPane => self.toggle_float(),
+            ActionKind::NewFloatingPane => self.new_floating(),
             ActionKind::Hints => self.start_hints(),
             ActionKind::CopyMode => self.start_copy_mode(),
             ActionKind::Broadcast => {
@@ -1349,6 +1379,7 @@ impl Desktop {
         if cfg.font_size != self.cfg.font_size {
             self.font_size = cfg.font_size;
         }
+        self.triggers = triggers::compile(&cfg.triggers);
         self.cfg = cfg;
         if let Some(first) = problems.first() {
             self.toast(format!("Config keys: {first}"));
@@ -1701,6 +1732,7 @@ mod tests {
             host: "m".into(),
             name: "b".into(),
             state: Some(Session {
+                extra: SessionExtra::default(),
                 host: "m".into(),
                 target: None,
                 workspace: "b".into(),
@@ -1735,6 +1767,22 @@ mod tests {
         );
         app.close_tab();
         assert_eq!(app.tabs.len(), 1);
+    }
+    pub(super) fn app_for_extras() -> (Desktop, mpsc::Receiver<Command>) {
+        app_with_screen("")
+    }
+    impl Desktop {
+        pub(super) fn add_test_pane(&mut self, id: u64) {
+            let info = PaneView {
+                id,
+                title: "sh".into(),
+                rows: 10,
+                cols: 60,
+                ..Default::default()
+            };
+            self.panes
+                .insert(id, Pane::new(info, vt100::Parser::new(10, 60, 0)));
+        }
     }
     fn app_with(theme: &str) -> Desktop {
         let (tx, _rx) = mpsc::sync_channel(4);
@@ -1798,6 +1846,7 @@ mod tests {
                 host: "m".into(),
                 name: name.into(),
                 state: Some(Session {
+                    extra: SessionExtra::default(),
                     host: "m".into(),
                     target: None,
                     workspace: name.into(),
@@ -2110,6 +2159,7 @@ mod tests {
             host: "m".into(),
             name: "b".into(),
             state: Some(Session {
+                extra: SessionExtra::default(),
                 host: "m".into(),
                 target: None,
                 workspace: "b".into(),
@@ -2395,5 +2445,101 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(Command::New(Some(c))) if c == "/srv/app"));
         app.run_action(ActionKind::NewPaneBelow);
         assert!(matches!(rx.try_recv(), Ok(Command::New(Some(_)))));
+    }
+    #[test]
+    fn triggers_highlight_and_fire_once_per_new_line_but_never_for_first_sight() {
+        let (mut app, _rx) = app_with_screen("old ERROR line");
+        let cfg = DesktopConfig {
+            triggers: vec![
+                crate::config::Trigger {
+                    pattern: "ERROR".into(),
+                    action: crate::config::TriggerAction::Highlight,
+                    color: Some("#ff0000".into()),
+                    unfocused_only: None,
+                },
+                crate::config::Trigger {
+                    pattern: "BOOM".into(),
+                    action: crate::config::TriggerAction::Toast,
+                    color: None,
+                    unfocused_only: None,
+                },
+            ],
+            ..Default::default()
+        };
+        app.apply_config(cfg);
+        app.scan_triggers(1);
+        let spans = &app.panes[&1].spans;
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].0, spans[0].1, spans[0].2), (0, 4, 5));
+        assert!(app.toast.is_none(), "first sight of the screen is silent");
+        app.panes
+            .get_mut(&1)
+            .unwrap()
+            .parser
+            .process(b"\r\nBOOM now");
+        app.scan_triggers(1);
+        assert!(app.toast.as_ref().is_some_and(|(t, _)| t == "BOOM now"));
+        app.toast = None;
+        app.scan_triggers(1);
+        assert!(app.toast.is_none(), "the same line does not fire twice");
+    }
+    #[test]
+    fn a_floating_pane_renders_and_a_new_floating_pane_floats_when_created() {
+        let (tx, _rx) = mpsc::sync_channel(8);
+        let (utx, urx) = mpsc::sync_channel(8);
+        let mut app = Desktop::new(
+            "local".into(),
+            "a".into(),
+            false,
+            Theme::load("nord").unwrap(),
+            tx,
+            urx,
+        );
+        app.online = true;
+        app.add_test_pane(1);
+        app.new_floating();
+        assert!(app.pending_float);
+        app.add_test_pane(2);
+        utx.send(Update::Created(2)).unwrap();
+        let ctx = egui::Context::default();
+        render(&mut app, &ctx, 900.);
+        assert_eq!(app.extra.floating, Some(2));
+        assert_eq!(app.focus, 2);
+        render(&mut app, &ctx, 900.);
+        render(&mut app, &ctx, 420.);
+        // Removing the other pane ends floating: a lone pane is tiled.
+        app.panes.remove(&1);
+        render(&mut app, &ctx, 900.);
+        assert!(app.extra.floating.is_none());
+    }
+    #[test]
+    fn restoring_a_layout_renames_the_first_pane_creates_the_rest_and_titles_them_as_they_appear() {
+        let (mut app, rx) = app_with_screen("");
+        app.panes.get_mut(&1).unwrap().info.title = "Shell".into();
+        app.extra.restore_offer = Some(crate::layout::Layout {
+            version: 1,
+            panes: vec![
+                crate::layout::LayoutPane {
+                    title: "editor".into(),
+                    cwd: "/a".into(),
+                },
+                crate::layout::LayoutPane {
+                    title: "logs".into(),
+                    cwd: "/var/log".into(),
+                },
+            ],
+        });
+        app.restore_layout();
+        let sent = drain(&rx);
+        assert!(matches!(&sent[0], Command::Rename(1, t) if t == "editor"));
+        assert!(matches!(&sent[1], Command::New(Some(c)) if c == "/var/log"));
+        assert!(app.extra.restore_offer.is_none());
+        app.title_new_pane(2);
+        assert!(matches!(&drain(&rx)[..], [Command::Rename(2, t)] if t == "logs"));
+        app.title_new_pane(3);
+        assert!(
+            drain(&rx).is_empty(),
+            "no queued title left for a pane the user opens later"
+        );
     }
 }
