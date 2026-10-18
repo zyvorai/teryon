@@ -6,20 +6,60 @@ Card: `docs/social/teryon-social-card.jpg` (1600x900). Alt text for the card:
 > TERYON: "Close the laptop. Your shells stay." A desktop window with four terminal panes (a file tree, a git log,
 > passing tests, and an AI coding agent asking for approval) beside the headline and feature chips.
 
-## X
+## X: announcement and thread
 
+Attach `teryon-social-card.jpg` to post 1, `docs/images/desktop-0.15-grid.png` to post 3 and
+`docs/images/desktop-0.15-files.png` to post 7.
+
+1.
+> Introducing TERYON 🚀
+>
 > Close the laptop. Your shells stay.
 >
-> TERYON keeps real PTYs alive on your Mac mini or Linux box and reattaches over plain OpenSSH. Native desktop app,
-> an agent status chip for Claude Code/Codex/Gemini, an MCP server, and a Finder-style file browser. Rust, Apache-2.0.
+> Persistent terminals on your Mac mini or Linux box, over plain OpenSSH. Native desktop app, agent-aware panes, a
+> Finder-style file browser, an AI command bar and an MCP server.
 >
-> github.com/zyvorai/teryon
+> Rust. Open source. Apache-2.0.
+>
+> github.com/zyvorai/teryon 🧵
 
-Thread follow-ups, one per post (attach a screenshot from `docs/images/`):
-1. Agents: "A pane running Claude Code, Codex, Gemini CLI or aider gets a live chip: working, needs you, idle, done. Walk away; it tells you when one is waiting."
-2. MCP: `claude mcp add teryon -- teryon mcp --allow-write` gives an agent a terminal that survives the agent and the SSH link.
-3. Prompt: "Describe a command, get one command with a risk label. It is inserted at your prompt and never runs until you press Enter."
-4. Honesty: "It is a 0.15 engineering preview. Known limits are in docs/LIMITATIONS.md."
+2.
+> The idea: separate the life of your shell from the life of your connection. A small per-user service on your host owns
+> the PTYs. Your laptop connects over the OpenSSH you already use. Sleep, switch networks, come back tomorrow: same live
+> shells. No new ports, no new accounts.
+
+3.
+> Agents run for hours, so panes now know about them. Claude Code, Codex, Gemini CLI, aider, Cursor and OpenCode get a
+> live status chip: working, needs you, idle, done. You get a notification when a background agent is waiting on you.
+> ⌘⇧A lists them all.
+
+4.
+> Reattach and a "While you were away" card tells you what finished and what failed, built from shell marks, no AI needed.
+
+5.
+> Give your coding agent a terminal that survives it:
+>
+> `claude mcp add teryon -- teryon mcp --allow-write`
+>
+> Durable panes, local or over SSH. Reads are always on; writes are opt-in and only touch the server's own workspace.
+
+6.
+> AI in your prompt, without handing over control. ⌘⇧K: describe a command, get one command with a risk label. It's
+> inserted at your prompt and never runs until you press Enter. Secrets in terminal text are scrubbed before they reach
+> a model.
+
+7.
+> New in 0.15: a Finder-like file browser (⌘B), local or over SSH. Space is Quick Look, a double-click types a quoted
+> path, and download, rename and move to Trash are one right-click away. Nothing is deleted outright.
+
+8.
+> Honest status: it's a 0.15 engineering preview. Input is acknowledged, not guaranteed executed, and a reboot ends live
+> processes. The limits are written down in docs/LIMITATIONS.md.
+>
+> Try it, break it, tell me what's missing: github.com/zyvorai/teryon
+> Site: zyvorai.github.io/teryon
+
+For a single big post instead of a thread, use post 1 and put posts 2 and 8 in the first reply.
 
 ## LinkedIn
 
