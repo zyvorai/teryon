@@ -4,6 +4,7 @@
 
 - Panes are now rounded cards inset from the window edge (`[desktop] pane_inset`, default 10, 0 restores edge to edge) with a hairline border and a soft accent ring on the focused pane; dividers show only while hovered or dragged.
 - Palette shortcuts are drawn as keycaps at the row's right edge, and menu and palette rows span the full width, so hints and submenus no longer overlap their labels.
+- A lone, nearly empty pane shows a faint mark with the shortcuts for the palette, Ask AI and the command bar; it disappears once there is output.
 - The top bar shows latency only when it is above 150 ms (the status dot still has it in its tooltip).
 
 ## 0.14.0 — `teryon mcp`

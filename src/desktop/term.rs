@@ -1186,12 +1186,62 @@ impl Desktop {
                 egui::StrokeKind::Inside,
             );
         }
+        self.empty_hint(&painter, rect, id, &t);
         self.dim_if_unfocused(&painter, rect, id, &t);
         Some(TermOut {
             size: (rows, cols),
             clicked: response.clicked(),
             action,
         })
+    }
+    /// A faint mark and three shortcuts in a lone pane that has barely printed anything yet.
+    fn empty_hint(&self, painter: &egui::Painter, rect: Rect, id: u64, t: &Theme) {
+        if self.pane_rects.len() != 1 || rect.height() < 260. || rect.width() < 360. {
+            return;
+        }
+        let Some(p) = self.panes.get(&id) else {
+            return;
+        };
+        let screen = p.parser.screen();
+        if screen.alternate_screen() {
+            return;
+        }
+        let (_, cols) = screen.size();
+        let used = screen
+            .rows(0, cols)
+            .filter(|r| !r.trim().is_empty())
+            .count();
+        if used > 3 {
+            return;
+        }
+        let c = rect.center() + Vec2::new(0., 10.);
+        let mark = Rect::from_center_size(c - Vec2::new(0., 46.), Vec2::splat(44.));
+        let mut faint = painter.clone();
+        faint.multiply_opacity(0.4);
+        paint_mark(&faint, mark);
+        let hints = [
+            ("palette", "Commands"),
+            ("ai", "Ask AI"),
+            ("ai_command", "Describe a command"),
+        ];
+        for (i, (action, label)) in hints.iter().enumerate() {
+            let key = self.keymap.hint(action);
+            let y = c.y + 8. + i as f32 * 22.;
+            painter.text(
+                Pos2::new(c.x - 8., y),
+                egui::Align2::RIGHT_CENTER,
+                label,
+                FontId::proportional(12.5),
+                color(t.muted).gamma_multiply(0.8),
+            );
+            painter.text(
+                Pos2::new(c.x + 8., y),
+                egui::Align2::LEFT_CENTER,
+                key,
+                FontId::proportional(12.5),
+                color(t.muted),
+            );
+        }
     }
     fn dim_if_unfocused(&self, painter: &egui::Painter, rect: Rect, id: u64, t: &Theme) {
         if id != self.focus && self.pane_rects.len() > 1 && self.unfocused_dim > 0. {
