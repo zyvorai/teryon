@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.1 — Linux build fix, releases and the launch site
 
 - Fixed the Linux build: an import used only by the macOS Keychain code failed `clippy -D warnings` on Linux.
 - Release workflow now publishes a GitHub Release with the archives and these notes (`macos-arm64` and `linux-x86_64`).
