@@ -638,7 +638,9 @@ mod tests {
         let out = System
             .run(
                 "/bin/sh",
-                &["-c".into(), "yes x | head -c 20000".into()],
+                // `; true`: once the runner stops reading at its cap, `head` may get SIGPIPE (exit 141),
+                // which is the cap working and not what this test is about.
+                &["-c".into(), "yes x | head -c 20000; true".into()],
                 Duration::from_secs(5),
             )
             .unwrap();
