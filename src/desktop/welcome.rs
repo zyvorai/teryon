@@ -20,6 +20,7 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
             ("Focus right", "focus_right"),
             ("Zoom / restore", "zoom"),
             ("Equalize", "equalize"),
+            ("Broadcast input", "broadcast"),
         ],
     ),
     (
@@ -37,6 +38,9 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
         &[
             ("Find in pane", "find"),
             ("Next match", "find_next"),
+            ("Quick select (copy URLs, paths…)", "hints"),
+            ("Copy mode (vi keys)", "copy_mode"),
+            ("Regex / case in find", "find_regex"),
             ("Search retained output", "history"),
             ("Scroll a page up", "scroll_page_up"),
         ],

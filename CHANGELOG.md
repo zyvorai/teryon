@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — Keyboard power tools
+
+- Quick select (⇧⌘E): labelled URLs, paths, SHAs, IPs, UUIDs and emails on screen; copy, paste or open with a keystroke.
+- Copy mode (⇧⌘X): vi-style keyboard selection (characters, lines, blocks, search) over the pane's whole history.
+- Snippets: `[[desktop.snippets]]` saved commands with `{{placeholders}}` in the palette; multi-line snippets are never auto-run.
+- Broadcast input (⌥⌘I) to every visible live pane, with a visible BROADCAST marker and automatic reset on tab switch.
+- Find gets regular-expression and match-case toggles (⌥⌘R, ⌥⌘C) with inline errors for bad patterns.
+
 ## 0.7.0 — Easy start and our own mark
 
 - New TERYON logo: a blue T with the cursor waiting beside it (replaces the Zyvor Z everywhere: icon, wordmark, app, banner, site).

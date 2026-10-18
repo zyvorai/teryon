@@ -21,14 +21,20 @@ use std::{
 
 mod actions;
 mod bar;
+mod find;
+mod hints;
 mod icons;
 mod panes;
+mod snippets;
 mod style;
 mod term;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
+use find::FindQuery;
+use hints::HintMode;
 use icons::*;
 use panes::{arrange, Dir, Weights};
+use snippets::SnippetPrompt;
 use style::*;
 use term::Scrollback;
 
@@ -75,8 +81,15 @@ pub struct Desktop {
     pane_rects: BTreeMap<u64, Rect>,
     /// How much unfocused panes are dimmed (0 = not at all).
     unfocused_dim: f32,
-    /// Text from the last `search`, tinted wherever it appears on the visible screens.
-    highlight: String,
+    /// What the find bar (or the `search` command) looks for, and how.
+    find_query: Option<FindQuery>,
+    find_regex: bool,
+    find_case: bool,
+    find_error: Option<String>,
+    /// Quick-select labels, the snippet being filled in, and broadcast input.
+    hints: Option<HintMode>,
+    snippet_prompt: Option<SnippetPrompt>,
+    broadcast: bool,
     /// Scrolled-back views by pane, rows last drawn per pane, and mouse bookkeeping.
     scrollback: BTreeMap<u64, Scrollback>,
     view_rows: BTreeMap<u64, u16>,
@@ -212,7 +225,13 @@ impl Desktop {
             weights: Weights::default(),
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
-            highlight: String::new(),
+            find_query: None,
+            find_regex: false,
+            find_case: false,
+            find_error: None,
+            hints: None,
+            snippet_prompt: None,
+            broadcast: false,
             scrollback: BTreeMap::new(),
             view_rows: BTreeMap::new(),
             mouse_down: None,
@@ -304,6 +323,8 @@ impl Desktop {
             self.active = i;
             self.last_size = (0, 0);
             self.toasted = self.notice.clone();
+            self.broadcast = false;
+            self.hints = None;
         }
     }
     /// Let background tabs drain their updates so their workers never block.
@@ -397,16 +418,34 @@ impl Desktop {
             self.notice = "Action queue full; action not queued".into();
         }
     }
+    /// Panes that receive typed input: the focused one, or every visible live pane while broadcasting.
+    fn input_targets(&self) -> Vec<u64> {
+        if !self.broadcast {
+            return vec![self.focus];
+        }
+        let mut t: Vec<u64> = self
+            .pane_rects
+            .keys()
+            .copied()
+            .filter(|id| self.panes.get(id).is_some_and(|p| p.info.exited.is_none()))
+            .collect();
+        if !t.contains(&self.focus) {
+            t.push(self.focus);
+        }
+        t
+    }
     fn input(&mut self, data: Vec<u8>) {
         self.scrollback.remove(&self.focus);
         if data.len() > MAX_INPUT {
             self.notice = "Paste too large; transfer a file instead".into();
             return;
         }
-        self.send(Command::Input {
-            pane: self.focus,
-            data,
-        });
+        for pane in self.input_targets() {
+            self.send(Command::Input {
+                pane,
+                data: data.clone(),
+            });
+        }
     }
     fn updates(&mut self) {
         while let Ok(update) = self.rx.try_recv() {
@@ -477,7 +516,7 @@ impl Desktop {
         "split"=>self.layout = if self.layout == LayoutMode::Single { LayoutMode::Vertical } else { LayoutMode::Single },
         "layout"=>match LayoutMode::parse(arg){Some(m)=>self.layout=m,None=>self.notice="Usage: layout single|vertical|horizontal|grid".into()},
         "theme"=>match Theme::load_native(arg){Ok(t)=>{self.committed_theme=t.clone();self.theme=t}Err(e)=>self.notice=e.to_string()},
-        "search"=>{self.highlight=arg.to_lowercase();self.send(Command::Capture(self.focus,CapturePurpose::View(arg.into())))},
+        "search"=>{self.find_text=arg.to_string();self.rebuild_find();self.send(Command::Capture(self.focus,CapturePurpose::View(arg.into())))},
         "capture"=>self.send(Command::Capture(self.focus,CapturePurpose::View(String::new()))),
         "export"=>self.send(Command::Capture(self.focus,CapturePurpose::Export(arg.into()))),
         "draft"=>self.draft_open=true,
@@ -498,6 +537,16 @@ impl Desktop {
         }
         let events = ctx.input(|i| i.events.clone());
         for event in events {
+            let consumed = if self.hints.is_some() {
+                self.hints_event(&event)
+            } else if self.copy_active() {
+                self.copy_event(&event)
+            } else {
+                false
+            };
+            if consumed {
+                continue;
+            }
             match event {
                 egui::Event::Text(text) => self.input(text.into_bytes()),
                 egui::Event::Copy => {
@@ -669,14 +718,41 @@ impl Desktop {
                             self.find_focus = false;
                         }
                         if edit.changed() {
-                            self.find_cur = 0;
+                            self.rebuild_find();
                         }
                         if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             let back = ui.input(|i| i.modifiers.shift);
                             self.find_step(back);
                             edit.request_focus();
                         }
+                        let mut toggled = false;
+                        for (label, tip, on) in [
+                            ("Aa", "Match case  ⌥⌘C", &mut self.find_case),
+                            (".*", "Regular expression  ⌥⌘R", &mut self.find_regex),
+                        ] {
+                            let button = egui::Button::new(
+                                RichText::new(label)
+                                    .monospace()
+                                    .size(11.)
+                                    .color(color(if *on { t.foreground } else { t.muted })),
+                            )
+                            .fill(if *on {
+                                color(t.accent).gamma_multiply(0.35)
+                            } else {
+                                Color32::TRANSPARENT
+                            });
+                            if ui.add(button).on_hover_text(tip).clicked() {
+                                *on = !*on;
+                                toggled = true;
+                            }
+                        }
+                        if toggled {
+                            self.rebuild_find();
+                        }
                         let n = self.find_count;
+                        if let Some(err) = &self.find_error {
+                            ui.label(RichText::new(err).size(11.).color(color(t.warning)));
+                        }
                         ui.label(
                             RichText::new(if n == 0 {
                                 "no matches".to_string()
@@ -702,7 +778,6 @@ impl Desktop {
                             self.close_find();
                         }
                     });
-                    self.highlight = self.find_text.to_lowercase();
                 }
                 if self.panes.is_empty() {
                     self.welcome_ui(ui);
@@ -818,6 +893,7 @@ impl Desktop {
         if self.cheatsheet {
             self.cheatsheet_ui(ctx);
         }
+        self.snippet_ui(ctx);
         self.toast_ui(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && self.cfg.confirm_quit && !self.quit_ok {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -997,6 +1073,28 @@ impl Desktop {
             }
             ActionKind::Open(host, ws) => self.open_tab(&host, &ws),
             ActionKind::CheatSheet => self.cheatsheet = !self.cheatsheet,
+            ActionKind::FindRegex => {
+                self.find_regex = !self.find_regex;
+                self.find_open = true;
+                self.rebuild_find();
+            }
+            ActionKind::FindCase => {
+                self.find_case = !self.find_case;
+                self.find_open = true;
+                self.rebuild_find();
+            }
+            ActionKind::Hints => self.start_hints(),
+            ActionKind::CopyMode => self.start_copy_mode(),
+            ActionKind::Broadcast => {
+                self.broadcast = !self.broadcast;
+                let n = self.input_targets().len();
+                self.toast(if self.broadcast {
+                    format!("Broadcast ON: typing goes to {n} pane(s)")
+                } else {
+                    "Broadcast off".to_string()
+                });
+            }
+            ActionKind::Snippet(i) => self.run_snippet(i),
             ActionKind::FindNext => self.find_step(false),
             ActionKind::FindPrev => self.find_step(true),
             ActionKind::TabJump(n) => self.activate(n),
@@ -1059,7 +1157,12 @@ impl Desktop {
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
-        let list = actions(&self.keymap, &self.theme_names, &self.open_entries);
+        let list = actions(
+            &self.keymap,
+            &self.theme_names,
+            &self.open_entries,
+            &self.cfg.snippets,
+        );
         let query = self.command.clone();
         let (word, arg) = query
             .trim_start()
@@ -1243,7 +1346,8 @@ impl Desktop {
     }
     fn close_find(&mut self) {
         self.find_open = false;
-        self.highlight.clear();
+        self.find_query = None;
+        self.find_error = None;
         self.find_count = 0;
     }
     fn move_tab(&mut self, delta: isize) {
@@ -1630,7 +1734,7 @@ mod tests {
         assert!(app.palette && app.command == "tab ");
         app.command = "lay gr".into();
         render(&mut app, &ctx, 900.);
-        assert!(actions(&app.keymap, &app.theme_names, &[])
+        assert!(actions(&app.keymap, &app.theme_names, &[], &[])
             .iter()
             .any(|a| a.title == "Layout: grid"));
         assert!(uikit::fuzzy_score("lay gr", "Layout: grid").is_some());
@@ -1855,5 +1959,276 @@ mod tests {
         assert_eq!((app.tabs.len(), app.active), (2, 0));
         app.close_tab();
         assert_eq!(app.tabs.len(), 1);
+    }
+    /// A desktop with one pane whose screen shows `text`, online, with a command receiver.
+    fn app_with_screen(text: &str) -> (Desktop, mpsc::Receiver<Command>) {
+        let (tx, rx) = mpsc::sync_channel(64);
+        let (_utx, urx) = mpsc::sync_channel(4);
+        let mut app = Desktop::new(
+            "local".into(),
+            "a".into(),
+            false,
+            Theme::load("nord").unwrap(),
+            tx,
+            urx,
+        );
+        app.online = true;
+        let mut parser = vt100::Parser::new(10, 60, 0);
+        parser.process(text.as_bytes());
+        app.panes.insert(
+            1,
+            Pane {
+                info: PaneView {
+                    id: 1,
+                    title: "sh".into(),
+                    cwd: "/tmp".into(),
+                    pid: None,
+                    rows: 10,
+                    cols: 60,
+                    revision: 1,
+                    screen: None,
+                    exited: None,
+                },
+                parser,
+            },
+        );
+        (app, rx)
+    }
+    fn key_event(key: Key, mods: egui::Modifiers) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: mods,
+        }
+    }
+    fn drain(rx: &mpsc::Receiver<Command>) -> Vec<Command> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+    #[test]
+    fn broadcast_types_into_every_visible_live_pane_and_resets_on_tab_switch() {
+        let (mut app, rx) = app_with_screen("");
+        let info = app.panes[&1].info.clone();
+        app.panes.insert(
+            2,
+            Pane {
+                info: PaneView {
+                    id: 2,
+                    ..info.clone()
+                },
+                parser: vt100::Parser::new(10, 60, 0),
+            },
+        );
+        app.panes.insert(
+            3,
+            Pane {
+                info: PaneView {
+                    id: 3,
+                    exited: Some(0),
+                    ..info
+                },
+                parser: vt100::Parser::new(10, 60, 0),
+            },
+        );
+        for id in [1, 2, 3] {
+            app.pane_rects
+                .insert(id, Rect::from_min_size(Pos2::ZERO, Vec2::splat(10.)));
+        }
+        app.input(b"x".to_vec());
+        assert_eq!(drain(&rx).len(), 1, "no broadcast: focused pane only");
+        app.run_action(ActionKind::Broadcast);
+        assert!(app.broadcast);
+        drain(&rx);
+        app.input(b"ls\r".to_vec());
+        let sent: Vec<u64> = drain(&rx)
+            .into_iter()
+            .filter_map(|c| {
+                if let Command::Input { pane, .. } = c {
+                    Some(pane)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(sent, vec![1, 2], "exited pane 3 is skipped");
+        let (tx2, _rx2) = mpsc::sync_channel(4);
+        let (_utx2, urx2) = mpsc::sync_channel(4);
+        app.tabs.push(Tab {
+            host: "m".into(),
+            name: "b".into(),
+            state: Some(Session {
+                host: "m".into(),
+                target: None,
+                workspace: "b".into(),
+                online: false,
+                notice: String::new(),
+                panes: BTreeMap::new(),
+                focus: 1,
+                layout: LayoutMode::Single,
+                tx: tx2,
+                rx: urx2,
+                history: None,
+                query: String::new(),
+                last_size: (0, 0),
+            }),
+        });
+        app.activate(1);
+        assert!(!app.broadcast);
+    }
+    #[test]
+    fn quick_select_labels_matches_and_acts_on_the_chosen_one() {
+        let (mut app, rx) = app_with_screen("fix src/main.rs:42 and see https://example.com now");
+        app.start_hints();
+        let h = app.hints.as_ref().expect("hints started");
+        assert_eq!(h.items.len(), 2);
+        assert_eq!(h.items[0].label, "a");
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            events: vec![egui::Event::Text("a".into())],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw, |ctx| app.keyboard(ctx));
+        assert!(app.hints.is_none());
+        assert_eq!(app.copy_text.as_deref(), Some("src/main.rs:42"));
+        // Tab cycles to paste, then the second label pastes it into the pane.
+        app.start_hints();
+        let raw = egui::RawInput {
+            events: vec![
+                key_event(Key::Tab, egui::Modifiers::NONE),
+                egui::Event::Text("s".into()),
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw, |ctx| app.keyboard(ctx));
+        let sent = drain(&rx);
+        assert!(
+            matches!(&sent[..], [Command::Input { pane: 1, data }] if data == b"https://example.com")
+        );
+        // Esc cancels, and an empty screen says so.
+        app.start_hints();
+        let raw = egui::RawInput {
+            events: vec![key_event(Key::Escape, egui::Modifiers::NONE)],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw, |ctx| app.keyboard(ctx));
+        assert!(app.hints.is_none());
+        let (mut empty, _rx) = app_with_screen("plain words only");
+        empty.start_hints();
+        assert!(empty.hints.is_none());
+    }
+    #[test]
+    fn copy_mode_selects_with_vi_keys_and_yanks_history_text() {
+        let (mut app, rx) = app_with_screen("one\r\ntwo\r\nthree");
+        app.view_rows.insert(1, 10);
+        app.start_copy_mode();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::Capture(1, CapturePurpose::Scrollback(1)))
+        ));
+        app.finish_scrollback(1, "old line\none\ntwo\nthree");
+        assert!(app.copy_active());
+        let ctx = egui::Context::default();
+        let typed = |app: &mut Desktop, s: &str| {
+            let raw = egui::RawInput {
+                events: vec![egui::Event::Text(s.into())],
+                ..Default::default()
+            };
+            let _ = ctx.run(raw, |ctx| app.keyboard(ctx));
+        };
+        typed(&mut app, "kk");
+        typed(&mut app, "V");
+        typed(&mut app, "j");
+        typed(&mut app, "y");
+        assert_eq!(app.copy_text.as_deref(), Some("one\ntwo"));
+        assert!(!app.copy_active() && app.scrollback.is_empty());
+        // Typing in a pane while copy mode is off still reaches the shell.
+        typed(&mut app, "q");
+        assert!(matches!(&drain(&rx)[..], [Command::Input { pane: 1, data }] if data == b"q"));
+    }
+    #[test]
+    fn find_toggles_rebuild_the_query_and_report_bad_regexes() {
+        let (mut app, _rx) = app_with_screen("Error 12 and error 7");
+        app.find_text = "error".into();
+        app.rebuild_find();
+        assert!(app.find_query.is_some());
+        app.run_action(ActionKind::FindCase);
+        assert!(app.find_case && app.find_open);
+        app.find_text = r"\d+".into();
+        app.run_action(ActionKind::FindRegex);
+        assert!(app.find_regex && app.find_error.is_none());
+        app.find_text = "(".into();
+        app.rebuild_find();
+        assert!(app.find_error.is_some() && app.find_query.is_none());
+        app.close_find();
+        assert!(app.find_error.is_none());
+    }
+    #[test]
+    fn snippets_prompt_for_placeholders_and_only_auto_run_single_lines() {
+        let (mut app, rx) = app_with_screen("");
+        app.cfg.snippets = vec![
+            crate::config::Snippet {
+                name: "logs".into(),
+                command: "tail -f {{file}}".into(),
+                description: None,
+                run: true,
+            },
+            crate::config::Snippet {
+                name: "multi".into(),
+                command: "a\nb".into(),
+                description: None,
+                run: true,
+            },
+            crate::config::Snippet {
+                name: "plain".into(),
+                command: "ls".into(),
+                description: None,
+                run: false,
+            },
+        ];
+        app.run_action(ActionKind::Snippet(0));
+        assert!(app.snippet_prompt.is_some() && drain(&rx).is_empty());
+        let mut values = BTreeMap::new();
+        values.insert("file".to_string(), "/var/log/x".to_string());
+        app.send_snippet(0, &values);
+        assert!(
+            matches!(&drain(&rx)[..], [Command::Input { data, .. }] if data == b"tail -f /var/log/x\r")
+        );
+        app.run_action(ActionKind::Snippet(2));
+        assert!(matches!(&drain(&rx)[..], [Command::Input { data, .. }] if data == b"ls"));
+        app.run_action(ActionKind::Snippet(1));
+        let sent = drain(&rx);
+        assert!(
+            matches!(&sent[..], [Command::Input { data, .. }] if !data.ends_with(b"\r")),
+            "multi-line never auto-runs"
+        );
+        assert!(app.toast.is_some());
+    }
+    #[test]
+    fn power_tool_overlays_render_without_trouble() {
+        let (mut app, _rx) = app_with_screen("open /etc/hosts or https://example.com");
+        let ctx = egui::Context::default();
+        app.start_hints();
+        render(&mut app, &ctx, 900.);
+        app.hints = None;
+        app.view_rows.insert(1, 10);
+        app.start_copy_mode();
+        app.finish_scrollback(1, "alpha\nbeta\ngamma");
+        let typed = egui::RawInput {
+            events: vec![egui::Event::Text("vj".into())],
+            ..Default::default()
+        };
+        let _ = ctx.run(typed, |ctx| app.keyboard(ctx));
+        render(&mut app, &ctx, 900.);
+        app.scrollback.clear();
+        app.broadcast = true;
+        app.pane_rects
+            .insert(1, Rect::from_min_size(Pos2::ZERO, Vec2::splat(100.)));
+        app.find_text = "etc".into();
+        app.find_open = true;
+        app.rebuild_find();
+        render(&mut app, &ctx, 420.);
+        render(&mut app, &ctx, 1180.);
+        assert!(app.find_count >= 1);
     }
 }

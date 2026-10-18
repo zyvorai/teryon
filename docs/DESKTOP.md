@@ -44,6 +44,21 @@ double-click it to maximize.
 * **Cursor**: `block`, `bar` or `underline`, optional blinking.
 * **Notifications**: when a pane's process exits while the window is in the background, macOS shows a notification.
 
+## Power tools
+
+* **Quick select** (⇧⌘E): labels appear over every URL, file path (with `:line`), git SHA, IP address, UUID and
+  email on the screen. Type a label to copy it; Tab switches the action to paste (types it into the pane) or open
+  (links and local paths). Esc cancels.
+* **Copy mode** (⇧⌘X): move through the pane's whole history with the keyboard. `h j k l`, `w b e`, `0 ^ $`,
+  `gg G`, `^U ^D ^B ^F`; `v` characters, `V` lines, `^V` a block; `/` and `?` search (smart case), `n N` repeat;
+  `y` or Enter copies; `q` or Esc leaves. History is plain text, as in scrollback.
+* **Snippets**: saved commands in the palette (`Snippet: NAME`). `{{name}}` placeholders are asked for first.
+  With `run = true` single-line snippets also press Enter; multi-line snippets are only typed, never run.
+* **Broadcast input** (⌥⌘I): everything you type or paste goes to every visible pane that is still running. The
+  panes get an amber border and the bar shows BROADCAST; it switches itself off when you change tab.
+* **Find**: ⌥⌘R toggles regular expressions and ⌥⌘C match case (also the `.*` and `Aa` buttons); a bad pattern is
+  shown next to the field.
+
 ## Configuration
 
 Options live in the `[desktop]` table of `~/.config/teryon/config.toml` (see `docs/config.example.toml`).
@@ -63,6 +78,7 @@ binding using `teryon config --keys`.
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
 | `confirm_quit` | false | Ask before the window closes (shells keep running either way) |
+| `snippets` | none | `[[desktop.snippets]]` with `name`, `command`, optional `description` and `run` |
 
 Remembered state (window size, theme, font size, layout) is stored separately in `~/.teryon/desktop.toml`.
 Precedence for the theme: `--theme`, then the remembered choice, then `config.toml`.
@@ -84,7 +100,9 @@ role of ⌘ (so ⇧ variants are not available there).
 | ⌃⌘ arrows, ⌃⌘= | Resize the focused pane, equalize all |
 | ⌘] / ⌘[ | Next / previous pane |
 | ⇧⌘↩ | Zoom or restore the focused pane |
-| ⌘F, ⌘G, ⇧⌘G | Find in the pane, next, previous |
+| ⌘F, ⌘G, ⇧⌘G | Find in the pane, next, previous (⌥⌘R regex, ⌥⌘C case) |
+| ⇧⌘E / ⇧⌘X | Quick select / copy mode |
+| ⌥⌘I | Broadcast input to all visible panes |
 | ⇧⌘F | Search the retained output |
 | ⌘T, ⌘W | New tab, close tab |
 | ⌘1 to ⌘9, ⇧⌘← / ⇧⌘→ | Jump to a tab, reorder tabs |

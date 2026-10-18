@@ -34,3 +34,10 @@ destination = "susant@mini.local"
 # [desktop.keys]                   # action = "chord"; "none" unbinds
 # palette = "cmd+p"
 # new_pane_below = "cmd+shift+e"
+#
+# Saved commands for the palette ("Snippet: logs"). {{name}} placeholders are asked for first.
+# [[desktop.snippets]]
+# name = "Follow a log"
+# command = "tail -f {{file}}"
+# description = "tail -f on a path you type"
+# run = true                       # press Enter for you (single-line snippets only)

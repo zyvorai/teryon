@@ -1,6 +1,7 @@
 //! The terminal canvas: drawing, selection, mouse reporting, cursor styles and the scrollback view.
 use super::*;
 use crate::config::{CursorStyle, PaneTitles};
+use crate::copymode::{CopyMode, Key as CmKey, Outcome};
 use crate::keys::{mouse_report, MouseKind};
 use vt100::MouseProtocolMode as MouseMode;
 
@@ -12,6 +13,27 @@ pub(super) struct Scrollback {
     /// Waiting for the daemon's capture; `queued` is how far the user already scrolled.
     pub loading: bool,
     pub queued: usize,
+    /// Keyboard selection over `buf` (the same text as `lines`, one `char` per cell).
+    pub copy: Option<CopyMode>,
+    /// Start copy mode as soon as the text arrives.
+    pub copy_pending: bool,
+    pub buf: Vec<Vec<char>>,
+}
+
+/// Scroll the view so the copy-mode cursor stays on screen.
+fn follow_cursor(sb: &mut Scrollback, rows: usize) {
+    let Some(c) = &sb.copy else {
+        return;
+    };
+    let total = sb.buf.len();
+    let mut end = total.saturating_sub(sb.offset);
+    let start = end.saturating_sub(rows);
+    if c.row < start {
+        end = c.row + rows;
+    } else if c.row >= end {
+        end = c.row + 1;
+    }
+    sb.offset = total.saturating_sub(end.min(total));
 }
 
 impl Desktop {
@@ -58,6 +80,9 @@ impl Desktop {
                             offset: 0,
                             loading: true,
                             queued: step,
+                            copy: None,
+                            copy_pending: false,
+                            buf: Vec::new(),
                         },
                     );
                     self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
@@ -66,7 +91,7 @@ impl Desktop {
         } else if let Some(sb) = self.scrollback.get_mut(&id) {
             if !sb.loading {
                 sb.offset = sb.offset.saturating_sub(lines.unsigned_abs());
-                if sb.offset == 0 {
+                if sb.offset == 0 && sb.copy.is_none() {
                     self.scrollback.remove(&id);
                 }
             }
@@ -102,8 +127,121 @@ impl Desktop {
         sb.offset = sb.queued.min(max);
         sb.lines = lines;
         sb.loading = false;
-        if sb.offset == 0 {
+        if sb.copy_pending {
+            sb.copy_pending = false;
+            sb.buf = sb.lines.iter().map(|l| l.chars().collect()).collect();
+            let last = sb.buf.len().saturating_sub(1);
+            sb.copy = Some(CopyMode::new(last, 0, rows));
+            sb.offset = 0;
+        } else if sb.offset == 0 {
             self.scrollback.remove(&id);
+        }
+    }
+    /// Enter vi-style copy mode over the focused pane's history and screen.
+    pub(super) fn start_copy_mode(&mut self) {
+        let id = self.focus;
+        let Some(pane) = self.panes.get(&id) else {
+            return;
+        };
+        if pane.parser.screen().alternate_screen() {
+            self.toast("Copy mode works on the normal screen; use ⌥-drag in full-screen programs");
+            return;
+        }
+        let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
+        match self.scrollback.get_mut(&id) {
+            Some(sb) if !sb.loading => {
+                sb.buf = sb.lines.iter().map(|l| l.chars().collect()).collect();
+                let end = sb.lines.len().saturating_sub(sb.offset);
+                sb.copy = Some(CopyMode::new(end.saturating_sub(1), 0, rows));
+            }
+            Some(sb) => sb.copy_pending = true,
+            None if !self.online => self.toast("Offline: no history to copy from"),
+            None => {
+                self.scrollback.insert(
+                    id,
+                    Scrollback {
+                        lines: Vec::new(),
+                        offset: 0,
+                        loading: true,
+                        queued: 0,
+                        copy: None,
+                        copy_pending: true,
+                        buf: Vec::new(),
+                    },
+                );
+                self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
+            }
+        }
+    }
+    pub(super) fn copy_active(&self) -> bool {
+        self.scrollback
+            .get(&self.focus)
+            .is_some_and(|s| !s.loading && s.copy.is_some())
+    }
+    /// Keys while copy mode is on; ⌘ shortcuts are left to the normal handling.
+    pub(super) fn copy_event(&mut self, event: &egui::Event) -> bool {
+        let keys: Vec<CmKey> = match event {
+            egui::Event::Text(t) => t.chars().map(CmKey::Char).collect(),
+            egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } if !modifiers.command => match key {
+                Key::Escape => vec![CmKey::Esc],
+                Key::Enter => vec![CmKey::Enter],
+                Key::Backspace => vec![CmKey::Backspace],
+                Key::ArrowLeft => vec![CmKey::Char('h')],
+                Key::ArrowRight => vec![CmKey::Char('l')],
+                Key::ArrowUp => vec![CmKey::Char('k')],
+                Key::ArrowDown => vec![CmKey::Char('j')],
+                Key::PageUp => vec![CmKey::Ctrl('b')],
+                Key::PageDown => vec![CmKey::Ctrl('f')],
+                k if modifiers.ctrl => k
+                    .name()
+                    .chars()
+                    .next()
+                    .map(|c| CmKey::Ctrl(c.to_ascii_lowercase()))
+                    .into_iter()
+                    .collect(),
+                _ => Vec::new(),
+            },
+            _ => return false,
+        };
+        for key in keys {
+            if !self.copy_key(key) {
+                break;
+            }
+        }
+        true
+    }
+    /// One key into copy mode; false once copy mode has ended.
+    fn copy_key(&mut self, key: CmKey) -> bool {
+        let id = self.focus;
+        let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
+        let Some(sb) = self.scrollback.get_mut(&id) else {
+            return false;
+        };
+        let Some(mut cm) = sb.copy.take() else {
+            return false;
+        };
+        match cm.key(key, &sb.buf) {
+            Outcome::None => {
+                sb.copy = Some(cm);
+                follow_cursor(sb, rows);
+                true
+            }
+            Outcome::Exit => {
+                self.scrollback.remove(&id);
+                false
+            }
+            Outcome::Yank(text) => {
+                self.scrollback.remove(&id);
+                let n = text.lines().count();
+                self.copy_text = Some(text);
+                self.toast(format!("Copied {n} line(s)"));
+                false
+            }
         }
     }
     /// Title bar above a pane: name (double-click renames), directory, status, zoom and close.
@@ -258,7 +396,7 @@ impl Desktop {
         let scrolled = self
             .scrollback
             .get(&id)
-            .is_some_and(|s| !s.loading && s.offset > 0);
+            .is_some_and(|s| !s.loading && (s.offset > 0 || s.copy.is_some()));
         let reporting = mode != MouseMode::None && !mods.shift && !scrolled;
         let pointer = ui.input(|i| i.pointer.hover_pos());
         let over = pointer.is_some_and(|p| rect.contains(p));
@@ -467,21 +605,54 @@ impl Desktop {
         if let Some(sb) = self
             .scrollback
             .get(&id)
-            .filter(|s| !s.loading && s.offset > 0)
+            .filter(|s| !s.loading && (s.offset > 0 || s.copy.is_some()))
         {
             // Plain-text history (colors are not retained by the daemon).
             let total = sb.lines.len();
             let end = total.saturating_sub(sb.offset);
             let start = end.saturating_sub(usize::from(rows));
             for (i, line) in sb.lines[start..end].iter().enumerate() {
+                let row = start + i;
+                let y = rect.top() + pad + i as f32 * ch;
+                if let Some(cm) = &sb.copy {
+                    for col in 0..usize::from(cols) {
+                        if cm.selected(row, col) {
+                            painter.rect_filled(
+                                Rect::from_min_size(
+                                    Pos2::new(rect.left() + pad + col as f32 * cw, y),
+                                    Vec2::new(cw, ch),
+                                ),
+                                0.,
+                                color(t.accent).gamma_multiply(0.4),
+                            );
+                        }
+                    }
+                }
                 let text: String = line.chars().take(usize::from(cols)).collect();
                 painter.text(
-                    Pos2::new(rect.left() + pad, rect.top() + pad + i as f32 * ch),
+                    Pos2::new(rect.left() + pad, y),
                     egui::Align2::LEFT_TOP,
                     text,
                     font.clone(),
                     color(t.foreground),
                 );
+                if let Some(cm) = sb.copy.as_ref().filter(|c| c.row == row) {
+                    let x = rect.left() + pad + cm.col as f32 * cw;
+                    painter.rect_filled(
+                        Rect::from_min_size(Pos2::new(x, y), Vec2::new(cw, ch)),
+                        0.,
+                        color(t.accent),
+                    );
+                    if let Some(c) = line.chars().nth(cm.col).filter(|c| *c != ' ') {
+                        painter.text(
+                            Pos2::new(x, y),
+                            egui::Align2::LEFT_TOP,
+                            c,
+                            font.clone(),
+                            bg_default,
+                        );
+                    }
+                }
             }
             let track = Rect::from_min_max(
                 Pos2::new(rect.right() - 6., rect.top() + 4.),
@@ -497,10 +668,16 @@ impl Desktop {
                 2.,
                 color(t.muted).gamma_multiply(0.6),
             );
-            let label = format!("history · {} lines up", sb.offset);
+            let label = match sb.copy.as_ref() {
+                Some(cm) => match &cm.typing {
+                    Some((text, fwd)) => format!("{}{text}▏", if *fwd { "/" } else { "?" }),
+                    None => "copy mode · v V ^V select · y copy · / find · q quit".to_string(),
+                },
+                None => format!("history · {} lines up", sb.offset),
+            };
             let pill = Rect::from_min_size(
-                Pos2::new(rect.right() - 170., rect.top() + 6.),
-                Vec2::new(156., 20.),
+                Pos2::new(rect.right() - 330., rect.top() + 6.),
+                Vec2::new(316., 20.),
             );
             painter.rect_filled(pill, 10., color(mix(t.panel, t.foreground, 0.1)));
             painter.text(
@@ -519,21 +696,20 @@ impl Desktop {
         }
         let pane = self.panes.get(&id)?;
         let screen = pane.parser.screen();
-        let needle: Vec<char> = self.highlight.chars().collect();
-        let mut starts: Vec<(u16, usize)> = Vec::new();
-        if id == self.focus && !needle.is_empty() {
-            for row in 0..rows.min(pane.info.rows) {
-                let chars = row_chars(screen, row.min(pane.info.rows - 1));
-                starts.extend(
-                    uikit::match_starts(
-                        &chars[..chars.len().min(usize::from(pane.info.cols))],
-                        &needle,
-                    )
-                    .into_iter()
-                    .map(|c| (row, c)),
-                );
+        let mut starts: Vec<(u16, usize, usize)> = Vec::new();
+        if id == self.focus {
+            if let Some(q) = &self.find_query {
+                for row in 0..rows.min(pane.info.rows) {
+                    let chars = row_chars(screen, row.min(pane.info.rows - 1));
+                    let width = chars.len().min(usize::from(pane.info.cols));
+                    starts.extend(
+                        q.matches(&chars[..width])
+                            .into_iter()
+                            .map(|(c, len)| (row, c, len)),
+                    );
+                }
+                self.find_count = starts.len();
             }
-            self.find_count = starts.len();
         }
         let current = (!starts.is_empty()).then(|| starts[self.find_cur % starts.len()]);
         let selection = self.selection.filter(|s| s.pane == id);
@@ -561,10 +737,10 @@ impl Desktop {
                 if bg != bg_default {
                     painter.rect_filled(cell_rect, 0., bg);
                 }
-                if let Some(&(r, c)) = starts.iter().find(|(r, c)| {
-                    *r == row && usize::from(col) >= *c && usize::from(col) < *c + needle.len()
+                if let Some(&(r, c, len)) = starts.iter().find(|(r, c, len)| {
+                    *r == row && usize::from(col) >= *c && usize::from(col) < *c + *len
                 }) {
-                    let strong = current == Some((r, c));
+                    let strong = current == Some((r, c, len));
                     painter.rect_filled(
                         cell_rect,
                         0.,
@@ -658,6 +834,52 @@ impl Desktop {
                     }
                 }
             }
+        }
+        if let Some(h) = self.hints.as_ref().filter(|h| h.pane == id) {
+            for item in h.items.iter().filter(|i| i.label.starts_with(&h.typed)) {
+                let x = rect.left() + pad + item.hint.start as f32 * cw;
+                let y = rect.top() + pad + f32::from(item.row) * ch;
+                let span = Rect::from_min_size(
+                    Pos2::new(x, y),
+                    Vec2::new((item.hint.end - item.hint.start) as f32 * cw, ch),
+                );
+                painter.rect_filled(span, 2., color(t.accent).gamma_multiply(0.25));
+                let tag = Rect::from_min_size(
+                    Pos2::new(x, y),
+                    Vec2::new(item.label.chars().count() as f32 * cw + 6., ch),
+                );
+                painter.rect_filled(tag, 3., color(t.warning));
+                painter.text(
+                    tag.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &item.label,
+                    font.clone(),
+                    bg_default,
+                );
+            }
+            let pill = Rect::from_min_size(
+                Pos2::new(rect.right() - 300., rect.top() + 6.),
+                Vec2::new(286., 20.),
+            );
+            painter.rect_filled(pill, 10., color(mix(t.panel, t.foreground, 0.12)));
+            painter.text(
+                pill.center(),
+                egui::Align2::CENTER_CENTER,
+                format!(
+                    "quick select · {} · Tab switches · Esc cancels",
+                    h.act.name()
+                ),
+                FontId::proportional(11.),
+                color(t.foreground),
+            );
+        }
+        if self.broadcast && self.pane_rects.contains_key(&id) {
+            painter.rect_stroke(
+                rect.shrink(1.),
+                0.,
+                Stroke::new(2_f32, color(t.warning)),
+                egui::StrokeKind::Inside,
+            );
         }
         self.dim_if_unfocused(&painter, rect, id, &t);
         Some(TermOut {

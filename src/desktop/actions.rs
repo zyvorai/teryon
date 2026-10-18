@@ -32,6 +32,12 @@ pub(super) enum ActionKind {
     Find,
     FindNext,
     FindPrev,
+    FindRegex,
+    FindCase,
+    Hints,
+    CopyMode,
+    Broadcast,
+    Snippet(usize),
     NewTab,
     CloseTab,
     TabJump(usize),
@@ -81,6 +87,11 @@ impl ActionKind {
                 Self::Find => "find",
                 Self::FindNext => "find_next",
                 Self::FindPrev => "find_prev",
+                Self::FindRegex => "find_regex",
+                Self::FindCase => "find_case",
+                Self::Hints => "hints",
+                Self::CopyMode => "copy_mode",
+                Self::Broadcast => "broadcast",
                 Self::NewTab => "new_tab",
                 Self::CloseTab => "close_tab",
                 Self::TabMove(-1) => "tab_move_left",
@@ -103,9 +114,11 @@ impl ActionKind {
                 Self::History => "history",
                 Self::CopyScreen => "copy_screen",
                 Self::Draft => "draft",
-                Self::Layout(_) | Self::Theme(_) | Self::TabMove(_) | Self::Open(..) => {
-                    return None
-                }
+                Self::Layout(_)
+                | Self::Theme(_)
+                | Self::TabMove(_)
+                | Self::Open(..)
+                | Self::Snippet(_) => return None,
             }
             .to_string(),
         )
@@ -141,6 +154,11 @@ impl ActionKind {
             "find" => Self::Find,
             "find_next" => Self::FindNext,
             "find_prev" => Self::FindPrev,
+            "find_regex" => Self::FindRegex,
+            "find_case" => Self::FindCase,
+            "hints" => Self::Hints,
+            "copy_mode" => Self::CopyMode,
+            "broadcast" => Self::Broadcast,
             "new_tab" => Self::NewTab,
             "close_tab" => Self::CloseTab,
             "tab_move_left" => Self::TabMove(-1),
@@ -177,6 +195,7 @@ pub(super) fn actions(
     keymap: &Keymap,
     themes: &[String],
     opens: &[(String, String)],
+    snippets: &[crate::config::Snippet],
 ) -> Vec<Action> {
     let plain = [
         ("Command palette", ActionKind::Palette),
@@ -202,6 +221,17 @@ pub(super) fn actions(
         ("Find in pane", ActionKind::Find),
         ("Find next", ActionKind::FindNext),
         ("Find previous", ActionKind::FindPrev),
+        ("Find: toggle regular expression", ActionKind::FindRegex),
+        ("Find: toggle match case", ActionKind::FindCase),
+        (
+            "Quick select (copy a URL, path, SHA, IP…)",
+            ActionKind::Hints,
+        ),
+        ("Copy mode (vi keys)", ActionKind::CopyMode),
+        (
+            "Toggle broadcast input to all visible panes",
+            ActionKind::Broadcast,
+        ),
         ("New tab", ActionKind::NewTab),
         ("Close tab", ActionKind::CloseTab),
         ("Move tab left", ActionKind::TabMove(-1)),
@@ -251,6 +281,13 @@ pub(super) fn actions(
             kind: ActionKind::Theme(name.clone()),
         });
     }
+    for (i, sn) in snippets.iter().enumerate() {
+        list.push(Action {
+            title: format!("Snippet: {}", sn.name),
+            hint: sn.description.clone().unwrap_or_default(),
+            kind: ActionKind::Snippet(i),
+        });
+    }
     for (host, ws) in opens {
         list.push(Action {
             title: format!("Open: {host} / {ws}"),
@@ -296,7 +333,7 @@ mod tests {
     fn palette_lists_shortcuts_from_the_keymap() {
         let (map, _) = Keymap::build(&Default::default());
         let themes: Vec<String> = BUILTINS.iter().map(|s| s.to_string()).collect();
-        let list = actions(&map, &themes, &[("mini".into(), "dev".into())]);
+        let list = actions(&map, &themes, &[("mini".into(), "dev".into())], &[]);
         let hint = |k: ActionKind| list.iter().find(|a| a.kind == k).unwrap().hint.clone();
         assert_eq!(hint(ActionKind::NewPaneBelow), "⇧⌘D");
         assert_eq!(hint(ActionKind::Focus(Dir::Left)), "⌥⌘←");

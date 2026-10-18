@@ -142,6 +142,159 @@ pub fn match_font_file(family: &str, files: &[String]) -> Option<usize> {
     .find_map(|w| (0..files.len()).find(|&i| exts_ok(&files[i]) && stems[i] == *w))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HintKind {
+    Url,
+    Path,
+    Sha,
+    Ip,
+    Uuid,
+    Email,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hint {
+    pub start: usize,
+    pub end: usize,
+    pub kind: HintKind,
+    pub text: String,
+}
+
+fn is_hex(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+fn is_uuid(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(&parts)
+            .all(|(n, p)| p.len() == *n && is_hex(p))
+}
+fn is_ipv4(s: &str) -> bool {
+    let host = s.split(':').next().unwrap_or(s);
+    let octets: Vec<&str> = host.split('.').collect();
+    octets.len() == 4
+        && octets.iter().all(|o| {
+            !o.is_empty()
+                && o.len() <= 3
+                && o.chars().all(|c| c.is_ascii_digit())
+                && o.parse::<u16>().is_ok_and(|n| n <= 255)
+        })
+}
+fn is_ipv6(s: &str) -> bool {
+    s.matches(':').count() >= 2
+        && s.len() >= 5
+        && s.chars().all(|c| c.is_ascii_hexdigit() || c == ':')
+        && s.chars().any(|c| c.is_ascii_hexdigit())
+}
+fn is_email(s: &str) -> bool {
+    let Some((user, host)) = s.split_once('@') else {
+        return false;
+    };
+    !user.is_empty()
+        && host.contains('.')
+        && !host.ends_with('.')
+        && !s.contains('/')
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c))
+}
+fn is_path(s: &str) -> bool {
+    if s.contains("://") || s.len() < 2 {
+        return false;
+    }
+    let body = s.split(':').next().unwrap_or(s);
+    body.starts_with('/')
+        || body.starts_with("./")
+        || body.starts_with("../")
+        || body.starts_with("~/")
+        || (body.contains('/')
+            && body
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            && !body.ends_with('/')
+            && body
+                .chars()
+                .all(|c| c.is_alphanumeric() || "/._-+@".contains(c)))
+}
+/// Things worth picking on a screen row: URLs, paths (with `:line`), git SHAs, IPs, UUIDs, emails.
+pub fn hint_matches(row: &[char]) -> Vec<Hint> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < row.len() {
+        if row[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < row.len() && !row[i].is_whitespace() {
+            i += 1;
+        }
+        // Strip wrapping punctuation from the token.
+        let (mut a, mut b) = (start, i);
+        while a < b && "([{<\"'`".contains(row[a]) {
+            a += 1;
+        }
+        while b > a && ")]}>\"'`,;.!?".contains(row[b - 1]) {
+            b -= 1;
+        }
+        // A URL may legitimately end in ")" balanced elsewhere; keep it simple and trim.
+        if a >= b {
+            continue;
+        }
+        let tok: String = row[a..b].iter().collect();
+        let tok_trim = tok.trim_end_matches(':').to_string();
+        let b = a + tok_trim.chars().count();
+        let kind = if tok_trim.starts_with("http://") || tok_trim.starts_with("https://") {
+            Some(HintKind::Url)
+        } else if is_uuid(&tok_trim) {
+            Some(HintKind::Uuid)
+        } else if is_email(&tok_trim) {
+            Some(HintKind::Email)
+        } else if is_ipv4(&tok_trim) {
+            Some(HintKind::Ip)
+        } else if is_path(&tok_trim) {
+            Some(HintKind::Path)
+        } else if (7..=40).contains(&tok_trim.len())
+            && is_hex(&tok_trim)
+            && tok_trim.chars().any(|c| c.is_ascii_digit())
+            && tok_trim.chars().any(|c| c.is_ascii_alphabetic())
+        {
+            Some(HintKind::Sha)
+        } else if is_ipv6(&tok_trim) {
+            Some(HintKind::Ip)
+        } else {
+            None
+        };
+        if let Some(kind) = kind {
+            out.push(Hint {
+                start: a,
+                end: b,
+                kind,
+                text: tok_trim,
+            });
+        }
+    }
+    out
+}
+/// Home-row-first labels: one letter for up to 26 hints, two letters (all of them) beyond that.
+pub fn labels(n: usize) -> Vec<String> {
+    const ABC: &str = "asdfghjklqwertyuiopzxcvbnm";
+    let letters: Vec<char> = ABC.chars().collect();
+    if n <= letters.len() {
+        return letters.iter().take(n).map(char::to_string).collect();
+    }
+    (0..n.min(letters.len() * letters.len()))
+        .map(|i| {
+            format!(
+                "{}{}",
+                letters[i / letters.len()],
+                letters[i % letters.len()]
+            )
+        })
+        .collect()
+}
+
 /// Open a URL with the platform opener; arguments are passed without a shell.
 pub fn open_url(url: &str) {
     let opener = if cfg!(target_os = "macos") {
@@ -223,6 +376,42 @@ mod tests {
         p.process(b"abcdefgh\r\nijklmnop\r\nqrstuvwx");
         assert_eq!(selected_block(p.screen(), (0, 2), (2, 4)), "cde\nklm\nstu");
         assert_eq!(selected_block(p.screen(), (2, 4), (0, 2)), "cde\nklm\nstu");
+    }
+    #[test]
+    fn hints_find_the_things_people_copy() {
+        let row = chars("see https://x.io/a, src/main.rs:42: err at /var/log/x.log (10.0.0.7:22) a1b2c3d4 me@z.dev");
+        let kinds: Vec<(HintKind, String)> = hint_matches(&row)
+            .into_iter()
+            .map(|h| (h.kind, h.text))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (HintKind::Url, "https://x.io/a".to_string()),
+                (HintKind::Path, "src/main.rs:42".to_string()),
+                (HintKind::Path, "/var/log/x.log".to_string()),
+                (HintKind::Ip, "10.0.0.7:22".to_string()),
+                (HintKind::Sha, "a1b2c3d4".to_string()),
+                (HintKind::Email, "me@z.dev".to_string()),
+            ]
+        );
+        let u = hint_matches(&chars("id 123e4567-e89b-12d3-a456-426614174000 end"));
+        assert_eq!(u[0].kind, HintKind::Uuid);
+        assert!(hint_matches(&chars("hello world 12345 deadbeef cafe")).is_empty());
+        let spans = hint_matches(&chars("  ./run.sh"));
+        assert_eq!((spans[0].start, spans[0].end), (2, 10));
+    }
+    #[test]
+    fn labels_are_unique_and_prefix_free() {
+        let few = labels(3);
+        assert_eq!(few, ["a", "s", "d"]);
+        let many = labels(40);
+        assert_eq!(many.len(), 40);
+        assert!(many.iter().all(|l| l.len() == 2));
+        let mut sorted = many.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 40);
     }
     #[test]
     fn match_starts_are_case_insensitive() {

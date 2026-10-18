@@ -49,6 +49,18 @@ pub enum PaneTitles {
     Always,
     Never,
 }
+/// A saved command; `{{name}}` placeholders are asked for before it is typed into a pane.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Snippet {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Press Enter after typing it (single-line commands only; multi-line snippets are never auto-run).
+    #[serde(default)]
+    pub run: bool,
+}
 /// Options for the native desktop app; every field is optional in `config.toml`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -77,6 +89,8 @@ pub struct DesktopConfig {
     pub confirm_quit: bool,
     /// Key bindings: action name -> chord such as "cmd+shift+d"; "none" unbinds.
     pub keys: BTreeMap<String, String>,
+    /// Saved commands shown in the palette as "Snippet: NAME".
+    pub snippets: Vec<Snippet>,
 }
 impl Default for DesktopConfig {
     fn default() -> Self {
@@ -96,6 +110,7 @@ impl Default for DesktopConfig {
             pane_titles: PaneTitles::Auto,
             confirm_quit: false,
             keys: BTreeMap::new(),
+            snippets: Vec::new(),
         }
     }
 }
@@ -126,6 +141,26 @@ impl DesktopConfig {
             {
                 bail!("desktop.{key} = \"{n}\" is not a known theme");
             }
+        }
+        if self.snippets.len() > 200 {
+            bail!("desktop.snippets: at most 200 snippets");
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for sn in &self.snippets {
+            if sn.name.trim().is_empty() || sn.name.len() > 60 {
+                bail!("desktop.snippets: every snippet needs a name of 1 to 60 characters");
+            }
+            if !seen.insert(sn.name.clone()) {
+                bail!("desktop.snippets: duplicate name \"{}\"", sn.name);
+            }
+            if sn.command.trim().is_empty() || sn.command.len() > 4000 {
+                bail!(
+                    "desktop.snippets: \"{}\" needs a command of up to 4000 characters",
+                    sn.name
+                );
+            }
+            crate::snippet::validate(&sn.command)
+                .map_err(|e| anyhow::anyhow!("desktop.snippets: \"{}\": {e}", sn.name))?;
         }
         let (_, problems) = crate::keymap::Keymap::build(&self.keys);
         if let Some(first) = problems.first() {
@@ -306,6 +341,19 @@ mod tests {
             parse_desktop("[desktop]\ntheme_dark = \"nord\"\ntheme_light = \"pearl\"\n").is_ok()
         );
         assert!(parse_desktop("[desktop.keys]\nnope = \"cmd+x\"\n").is_err());
+        let sn = "[[desktop.snippets]]\nname = \"logs\"\ncommand = \"tail -f {{file}}\"\n";
+        assert_eq!(parse_desktop(sn).unwrap().snippets[0].name, "logs");
+        assert!(
+            parse_desktop(&format!("{sn}{sn}")).is_err(),
+            "duplicate names"
+        );
+        assert!(
+            parse_desktop("[[desktop.snippets]]\nname = \"x\"\ncommand = \"a {{b\"\n").is_err()
+        );
+        assert!(
+            parse_desktop("[[desktop.snippets]]\nname = \"x\"\ncommand = \"ls\"\nbogus = 1\n")
+                .is_err()
+        );
         assert!(parse_desktop("[desktop.keys]\npalette = \"cmd+d\"\n").is_err());
     }
     #[test]

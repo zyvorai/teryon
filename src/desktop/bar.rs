@@ -134,6 +134,23 @@ impl Desktop {
                         if wide {
                             layout_switch(ui, &t, &mut self.layout);
                         }
+                        if self.broadcast {
+                            let pill = egui::Button::new(
+                                RichText::new("BROADCAST")
+                                    .size(10.)
+                                    .strong()
+                                    .color(Color32::BLACK),
+                            )
+                            .fill(color(t.warning))
+                            .corner_radius(egui::CornerRadius::same(8));
+                            if ui
+                                .add(pill)
+                                .on_hover_text("Typing goes to every visible pane. Click to stop.")
+                                .clicked()
+                            {
+                                self.run_action(ActionKind::Broadcast);
+                            }
+                        }
                         let tip = match (self.online, self.latency) {
                             (true, Some(ms)) => format!("Connected · {ms} ms"),
                             (true, None) => "Connected".to_string(),
