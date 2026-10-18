@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Mouse menus: right-click in a pane for Copy, Paste, Select all, Copy last output, Find, Quick select, splits, float, zoom, rename and close; a ▾ dropdown next to "+" in the bar holds the same plus New tab, Open workspace, Layout, Snippets, View and Help. Programs that track the mouse keep the right button (Shift+right-click opens the menu).
+- Mouse menus: right-click in a pane for Copy, Paste, Select all, Copy last output, Find, Quick select, splits, float, zoom, rename and close; a ▾ dropdown next to "+" in the bar holds the same, grouped into short submenus (Copy Special, Pane, Layout, Snippets, View), plus New tab, Open workspace, Layout, Snippets, View and Help. Programs that track the mouse keep the right button (Shift+right-click opens the menu).
 - `Makefile`: `make run`, `make app`, `make check` and friends (`make help`).
 
 ## 0.10.0 — Remote-native extras

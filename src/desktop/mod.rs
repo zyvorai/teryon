@@ -2276,8 +2276,26 @@ mod tests {
         };
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                assert!(menus::menu_body(ui, &app.keymap, &app.cfg.snippets, &st(true)).is_none());
-                assert!(menus::menu_body(ui, &app.keymap, &app.cfg.snippets, &st(false)).is_none());
+                assert!(menus::menu_body(
+                    ui,
+                    &menus::Cx {
+                        keys: &app.keymap,
+                        theme: &app.theme,
+                        snippets: &app.cfg.snippets
+                    },
+                    &st(true)
+                )
+                .is_none());
+                assert!(menus::menu_body(
+                    ui,
+                    &menus::Cx {
+                        keys: &app.keymap,
+                        theme: &app.theme,
+                        snippets: &app.cfg.snippets
+                    },
+                    &st(false)
+                )
+                .is_none());
             });
         });
     }

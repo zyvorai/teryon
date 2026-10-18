@@ -44,279 +44,331 @@ pub(super) struct MenuState {
     pub full: bool,
 }
 
+/// One menu row, macOS style: roomy, rounded accent highlight on hover, shortcut dimmed on the right.
 fn entry(
     ui: &mut egui::Ui,
-    keys: &Keymap,
+    cx: &Cx,
     label: &str,
     pick: MenuPick,
     enabled: bool,
     out: &mut Option<MenuPick>,
 ) {
     let hint = match &pick {
-        MenuPick::Act(kind) => kind.name().map(|n| keys.hint(&n)).unwrap_or_default(),
+        MenuPick::Act(kind) => kind.name().map(|n| cx.keys.hint(&n)).unwrap_or_default(),
         MenuPick::Copy if cfg!(target_os = "macos") => "⌘C".into(),
         MenuPick::Paste if cfg!(target_os = "macos") => "⌘V".into(),
-        MenuPick::SelectAll => String::new(),
+        MenuPick::SelectAll if cfg!(target_os = "macos") => "⌘A".into(),
         MenuPick::Copy => "Ctrl+Shift+C".into(),
         MenuPick::Paste => "Ctrl+Shift+V".into(),
+        MenuPick::SelectAll => String::new(),
     };
-    let mut button = egui::Button::new(label);
-    if !hint.is_empty() {
-        button = button.shortcut_text(hint);
+    let (rect, resp) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(220.), 26.),
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    let hot = enabled && resp.hovered();
+    if hot {
+        ui.painter().rect_filled(rect, 6., color(cx.theme.primary));
     }
-    if ui.add_enabled(enabled, button).clicked() {
+    let (text, dim) = if hot {
+        (Color32::WHITE, Color32::from_white_alpha(190))
+    } else if enabled {
+        (color(cx.theme.foreground), color(cx.theme.muted))
+    } else {
+        (
+            color(cx.theme.muted),
+            color(cx.theme.muted).gamma_multiply(0.7),
+        )
+    };
+    let p = ui.painter();
+    p.text(
+        rect.left_center() + Vec2::new(10., 0.),
+        egui::Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.),
+        text,
+    );
+    if !hint.is_empty() {
+        p.text(
+            rect.right_center() - Vec2::new(10., 0.),
+            egui::Align2::RIGHT_CENTER,
+            hint,
+            FontId::proportional(12.),
+            dim,
+        );
+    }
+    if resp.clicked() {
         *out = Some(pick);
         ui.close_menu();
     }
 }
 
-/// The shared menu body. The right-click menu shows the first three groups; the dropdown shows all of them.
-pub(super) fn menu_body(
-    ui: &mut egui::Ui,
-    keys: &Keymap,
-    snippets: &[config::Snippet],
-    st: &MenuState,
-) -> Option<MenuPick> {
+/// A submenu row with a chevron, same look as `entry`.
+fn submenu(ui: &mut egui::Ui, cx: &Cx, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.scope(|ui| {
+        let v = ui.visuals_mut();
+        v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+        v.widgets.hovered.weak_bg_fill = color(cx.theme.primary);
+        v.widgets.hovered.fg_stroke.color = Color32::WHITE;
+        v.widgets.open.weak_bg_fill = color(cx.theme.primary);
+        v.widgets.open.fg_stroke.color = Color32::WHITE;
+        ui.set_min_width(220.);
+        ui.menu_button(format!("{label}   ›"), |ui| {
+            ui.set_min_width(220.);
+            add(ui);
+        });
+    });
+}
+
+fn rule(ui: &mut egui::Ui, cx: &Cx) {
+    ui.add_space(2.);
+    let (r, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(220.), 1.),
+        Sense::hover(),
+    );
+    ui.painter()
+        .rect_filled(r.shrink2(Vec2::new(8., 0.)), 0., color(cx.theme.border));
+    ui.add_space(2.);
+}
+
+/// Everything a menu needs besides its entries.
+pub(super) struct Cx<'a> {
+    pub keys: &'a Keymap,
+    pub theme: &'a Theme,
+    pub snippets: &'a [config::Snippet],
+}
+
+/// The pane menu is short; the rest lives in submenus. The dropdown adds tabs, layout, snippets, view and help.
+pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<MenuPick> {
     use ActionKind as A;
     let mut out = None;
-    ui.set_min_width(210.);
+    ui.spacing_mut().item_spacing.y = 1.;
     if st.full {
+        entry(ui, cx, "New Tab", MenuPick::Act(A::NewTab), true, &mut out);
         entry(
             ui,
-            keys,
-            "New tab",
-            MenuPick::Act(A::NewTab),
-            true,
-            &mut out,
-        );
-        entry(
-            ui,
-            keys,
-            "New pane",
+            cx,
+            "New Pane",
             MenuPick::Act(A::NewPane),
             true,
             &mut out,
         );
         entry(
             ui,
-            keys,
-            "Open workspace…",
+            cx,
+            "Open Workspace…",
             MenuPick::Act(A::OpenWorkspace),
             true,
             &mut out,
         );
-        ui.separator();
+        rule(ui, cx);
     }
-    entry(ui, keys, "Copy", MenuPick::Copy, st.selection, &mut out);
-    entry(ui, keys, "Paste", MenuPick::Paste, true, &mut out);
-    entry(ui, keys, "Select all", MenuPick::SelectAll, true, &mut out);
+    entry(ui, cx, "Copy", MenuPick::Copy, st.selection, &mut out);
+    entry(ui, cx, "Paste", MenuPick::Paste, true, &mut out);
+    entry(ui, cx, "Select All", MenuPick::SelectAll, true, &mut out);
+    rule(ui, cx);
+    entry(ui, cx, "Find…", MenuPick::Act(A::Find), true, &mut out);
+    submenu(ui, cx, "Copy Special", |ui| {
+        entry(
+            ui,
+            cx,
+            "Last Command Output",
+            MenuPick::Act(A::CopyLastOutput),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Whole Screen",
+            MenuPick::Act(A::CopyScreen),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Quick Select…",
+            MenuPick::Act(A::Hints),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Copy Mode",
+            MenuPick::Act(A::CopyMode),
+            true,
+            &mut out,
+        );
+    });
+    rule(ui, cx);
     entry(
         ui,
-        keys,
-        "Copy last output",
-        MenuPick::Act(A::CopyLastOutput),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Copy screen",
-        MenuPick::Act(A::CopyScreen),
-        true,
-        &mut out,
-    );
-    ui.separator();
-    entry(ui, keys, "Find…", MenuPick::Act(A::Find), true, &mut out);
-    entry(
-        ui,
-        keys,
-        "Quick select",
-        MenuPick::Act(A::Hints),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Copy mode",
-        MenuPick::Act(A::CopyMode),
-        true,
-        &mut out,
-    );
-    ui.separator();
-    entry(
-        ui,
-        keys,
-        "Split right",
+        cx,
+        "Split Right",
         MenuPick::Act(A::NewPaneRight),
         true,
         &mut out,
     );
     entry(
         ui,
-        keys,
-        "Split below",
+        cx,
+        "Split Below",
         MenuPick::Act(A::NewPaneBelow),
         true,
         &mut out,
     );
-    entry(
-        ui,
-        keys,
-        "Float / dock pane",
-        MenuPick::Act(A::FloatPane),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Zoom pane",
-        MenuPick::Act(A::Zoom),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Rename pane…",
-        MenuPick::Act(A::RenamePane),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Close pane",
-        MenuPick::Act(A::ClosePane),
-        true,
-        &mut out,
-    );
-    if !st.full {
-        return out;
-    }
-    ui.separator();
-    ui.menu_button("Layout", |ui| {
-        for (name, mode) in [
-            ("Single", LayoutMode::Single),
-            ("Side by side", LayoutMode::Horizontal),
-            ("Stacked", LayoutMode::Vertical),
-            ("Grid", LayoutMode::Grid),
-        ] {
-            entry(
-                ui,
-                keys,
-                name,
-                MenuPick::Act(A::Layout(mode)),
-                true,
-                &mut out,
-            );
-        }
+    submenu(ui, cx, "Pane", |ui| {
+        entry(ui, cx, "Zoom", MenuPick::Act(A::Zoom), true, &mut out);
         entry(
             ui,
-            keys,
-            "Equalize panes",
+            cx,
+            "Float or Dock",
+            MenuPick::Act(A::FloatPane),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Rename…",
+            MenuPick::Act(A::RenamePane),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Equalize Sizes",
             MenuPick::Act(A::Equalize),
             true,
             &mut out,
         );
     });
-    if !snippets.is_empty() {
-        ui.menu_button("Snippets", |ui| {
-            for (i, s) in snippets.iter().enumerate() {
-                entry(
-                    ui,
-                    keys,
-                    &s.name,
-                    MenuPick::Act(A::Snippet(i)),
-                    true,
-                    &mut out,
-                );
+    if st.full {
+        submenu(ui, cx, "Layout", |ui| {
+            for (name, mode) in [
+                ("Single", LayoutMode::Single),
+                ("Side by Side", LayoutMode::Horizontal),
+                ("Stacked", LayoutMode::Vertical),
+                ("Grid", LayoutMode::Grid),
+            ] {
+                entry(ui, cx, name, MenuPick::Act(A::Layout(mode)), true, &mut out);
             }
         });
+        if !cx.snippets.is_empty() {
+            submenu(ui, cx, "Snippets", |ui| {
+                for (i, s) in cx.snippets.iter().enumerate() {
+                    entry(
+                        ui,
+                        cx,
+                        &s.name,
+                        MenuPick::Act(A::Snippet(i)),
+                        true,
+                        &mut out,
+                    );
+                }
+            });
+        }
+        submenu(ui, cx, "View", |ui| {
+            let label = if st.broadcast {
+                "Stop Broadcast Input"
+            } else {
+                "Broadcast Input"
+            };
+            entry(ui, cx, label, MenuPick::Act(A::Broadcast), true, &mut out);
+            entry(
+                ui,
+                cx,
+                "Bigger Text",
+                MenuPick::Act(A::FontUp),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "Smaller Text",
+                MenuPick::Act(A::FontDown),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "Actual Size",
+                MenuPick::Act(A::FontReset),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "Next Theme",
+                MenuPick::Act(A::NextTheme),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "Full Screen",
+                MenuPick::Act(A::Fullscreen),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "Always on Top",
+                MenuPick::Act(A::AlwaysOnTop),
+                true,
+                &mut out,
+            );
+        });
+        rule(ui, cx);
+        entry(
+            ui,
+            cx,
+            "Command Palette",
+            MenuPick::Act(A::Palette),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Keyboard Shortcuts",
+            MenuPick::Act(A::CheatSheet),
+            true,
+            &mut out,
+        );
+        entry(
+            ui,
+            cx,
+            "Reload Config",
+            MenuPick::Act(A::ReloadConfig),
+            true,
+            &mut out,
+        );
+    } else {
+        rule(ui, cx);
     }
-    ui.menu_button("View", |ui| {
-        let label = if st.broadcast {
-            "Stop broadcast input"
-        } else {
-            "Broadcast input"
-        };
-        entry(ui, keys, label, MenuPick::Act(A::Broadcast), true, &mut out);
+    if !st.full {
         entry(
             ui,
-            keys,
-            "Bigger text",
-            MenuPick::Act(A::FontUp),
+            cx,
+            "Close Pane",
+            MenuPick::Act(A::ClosePane),
             true,
             &mut out,
         );
-        entry(
-            ui,
-            keys,
-            "Smaller text",
-            MenuPick::Act(A::FontDown),
-            true,
-            &mut out,
-        );
-        entry(
-            ui,
-            keys,
-            "Reset text size",
-            MenuPick::Act(A::FontReset),
-            true,
-            &mut out,
-        );
-        entry(
-            ui,
-            keys,
-            "Next theme",
-            MenuPick::Act(A::NextTheme),
-            true,
-            &mut out,
-        );
-        entry(
-            ui,
-            keys,
-            "Full screen",
-            MenuPick::Act(A::Fullscreen),
-            true,
-            &mut out,
-        );
-        entry(
-            ui,
-            keys,
-            "Always on top",
-            MenuPick::Act(A::AlwaysOnTop),
-            true,
-            &mut out,
-        );
-    });
-    ui.separator();
-    entry(
-        ui,
-        keys,
-        "Command palette",
-        MenuPick::Act(A::Palette),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Keyboard shortcuts",
-        MenuPick::Act(A::CheatSheet),
-        true,
-        &mut out,
-    );
-    entry(
-        ui,
-        keys,
-        "Reload config",
-        MenuPick::Act(A::ReloadConfig),
-        true,
-        &mut out,
-    );
+    }
     out
 }
 
@@ -372,7 +424,15 @@ impl Desktop {
             &button,
             egui::PopupCloseBehavior::CloseOnClick,
             |ui| {
-                pick = menu_body(ui, &self.keymap, &self.cfg.snippets, &st);
+                pick = menu_body(
+                    ui,
+                    &Cx {
+                        keys: &self.keymap,
+                        theme: &t,
+                        snippets: &self.cfg.snippets,
+                    },
+                    &st,
+                );
             },
         );
         if let Some(p) = pick {

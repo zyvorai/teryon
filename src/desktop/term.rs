@@ -609,7 +609,15 @@ impl Desktop {
             || ui.input(|i| i.modifiers.shift)
         {
             response.context_menu(|ui| {
-                picked = menus::menu_body(ui, &self.keymap, &self.cfg.snippets, &menu_state);
+                picked = menus::menu_body(
+                    ui,
+                    &menus::Cx {
+                        keys: &self.keymap,
+                        theme: &t,
+                        snippets: &self.cfg.snippets,
+                    },
+                    &menu_state,
+                );
             });
         }
         if let Some(p) = picked {
