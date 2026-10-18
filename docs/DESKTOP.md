@@ -20,6 +20,13 @@ and close. The ▾ next to "+" in the bar opens the same menu plus New tab, Open
 the mouse (vim, tmux, htop) it keeps the right button; hold Shift to open the menu anyway. Paste reads the system
 clipboard through `pbpaste` (macOS), `wl-paste`/`xclip`/`xsel` (Linux) or PowerShell (Windows).
 
+## Icons
+
+Icons printed by `eza --icons`, `lsd`, oh-my-posh, starship and similar tools are Nerd Font glyphs. The desktop app
+bundles the Symbols Nerd Font (license in `assets/fonts/`) as a fallback behind your terminal font, so they render
+with nothing to install. The terminal UI (`teryon connect`) is drawn by the terminal you run it in and uses that
+terminal's font.
+
 ## Getting around
 
 * **Welcome card**: while a workspace has no panes the window explains what is happening; if the host cannot

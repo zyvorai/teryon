@@ -56,7 +56,8 @@ pub(super) const BRAND_CYAN: Color32 = Color32::from_rgb(0x64, 0xd2, 0xff);
 pub(super) const SYSTEM_FONTS: &str = "/System/Library/Fonts";
 
 /// Font families for the UI: SF Pro at real weights (regular, `semibold`, `bold`), SF Pro
-/// Rounded (`rounded`) and SF Mono, read through `read` at runtime and never bundled. SF is a
+/// Rounded (`rounded`) and SF Mono, read through `read` at runtime and never bundled (only the small
+/// Nerd Font symbols file below is bundled, so file and folder icons from eza, lsd or oh-my-posh render). SF is a
 /// variable font, so each weight is the same file with a different `wght` axis value (applied
 /// by the vendored epaint patch). Anything missing falls back to egui's built-in fonts.
 pub(super) fn font_definitions(
@@ -113,6 +114,18 @@ pub(super) fn font_definitions(
             .or_default()
             .insert(0, key);
     }
+    // Last in the list, so it only supplies the private-use glyphs no other font has.
+    fonts.font_data.insert(
+        "nerd-symbols".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/SymbolsNerdFontMono-Regular.ttf"
+        ))),
+    );
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .push("nerd-symbols".into());
     fonts
 }
 
@@ -364,4 +377,29 @@ pub(super) fn brand_mark(ui: &mut egui::Ui, t: &Theme) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.), Sense::hover());
     paint_mark(ui.painter(), rect);
     ui.label(weighted(ui.ctx(), "TERYON", "bold", 14.).color(color(t.foreground)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn nerd_symbols_are_the_last_monospace_fallback() {
+        let fonts = font_definitions(|_| None, None);
+        let list = &fonts.families[&egui::FontFamily::Monospace];
+        assert_eq!(list.last().map(String::as_str), Some("nerd-symbols"));
+        let ctx = egui::Context::default();
+        ctx.set_fonts(font_definitions(|_| None, None));
+        let font = FontId::monospace(14.);
+        // Fonts take effect at the start of a frame, so measure inside a second one.
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let width = |c: char| ctx.fonts(|f| f.glyph_width(&font, c));
+            let m = width('M');
+            // Folder, file and Rust icons (as printed by `eza --icons`) take up a cell, not zero.
+            for icon in ['\u{f07b}', '\u{f15b}', '\u{e7a8}'] {
+                assert!(width(icon) > m * 0.5, "{icon:?} is missing");
+                assert!(width(icon) < m * 2.5);
+            }
+        });
+    }
 }

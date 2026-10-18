@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- File and folder icons work out of the box: the desktop bundles the Symbols Nerd Font (MIT, `assets/fonts/`) as the last monospace fallback, so `eza --icons`, `lsd`, oh-my-posh and similar tools show their glyphs without installing a patched font. The binary grows by about 2.5 MB.
 - Mouse menus: right-click in a pane for Copy, Paste, Select all, Copy last output, Find, Quick select, splits, float, zoom, rename and close; a ▾ dropdown next to "+" in the bar holds the same, grouped into short submenus (Copy Special, Pane, Layout, Snippets, View), plus New tab, Open workspace, Layout, Snippets, View and Help. Programs that track the mouse keep the right button (Shift+right-click opens the menu).
 - `Makefile`: `make run`, `make app`, `make check` and friends (`make help`).
 
