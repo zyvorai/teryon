@@ -24,6 +24,59 @@ pub struct Config {
     /// What plain `teryon` opens after you pick a host: the terminal UI or the desktop app.
     #[serde(default)]
     pub start: StartMode,
+    /// AI assistant options (`[ai]`).
+    #[serde(default)]
+    pub ai: AiConfig,
+}
+/// `[ai]`: the Claude-powered assistant. The API key is never stored here (`ANTHROPIC_API_KEY` or the Keychain).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AiConfig {
+    pub enabled: bool,
+    pub model: String,
+    pub max_tokens: u32,
+    /// API endpoint base; only for proxies and tests.
+    pub base_url: Option<String>,
+    /// Read-only tools that run without asking (changing tools always ask).
+    pub auto_allow: Vec<String>,
+}
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            model: "claude-sonnet-5-5".into(),
+            max_tokens: 2048,
+            base_url: None,
+            auto_allow: crate::ai::tools::READ_TOOLS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        }
+    }
+}
+impl AiConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !(64..=16000).contains(&self.max_tokens) {
+            bail!("ai.max_tokens = {} is outside 64..16000", self.max_tokens);
+        }
+        if self.model.trim().is_empty() || self.model.contains(char::is_whitespace) {
+            bail!("ai.model must be a model id such as claude-sonnet-5-5");
+        }
+        if let Some(url) = &self.base_url {
+            if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1")) {
+                bail!("ai.base_url must be https:// (or http://127.0.0.1 for tests)");
+            }
+        }
+        for name in &self.auto_allow {
+            if !crate::ai::tools::READ_TOOLS.contains(&name.as_str()) {
+                bail!(
+                    "ai.auto_allow: \"{name}\" is not a read-only tool (allowed: {})",
+                    crate::ai::tools::READ_TOOLS.join(", ")
+                );
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -262,6 +315,7 @@ pub fn load() -> Result<Config> {
             hosts: BTreeMap::new(),
             desktop: DesktopConfig::default(),
             start: StartMode::Tui,
+            ai: AiConfig::default(),
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -270,12 +324,14 @@ pub fn load() -> Result<Config> {
 pub fn parse_desktop(text: &str) -> Result<DesktopConfig> {
     let cfg: Config = toml::from_str(text)?;
     cfg.desktop.validate()?;
+    cfg.ai.validate()?;
     Ok(cfg.desktop)
 }
 /// The validated `[desktop]` options from the user's config file (defaults when there is none).
 pub fn load_desktop() -> Result<DesktopConfig> {
     let cfg = load()?;
     cfg.desktop.validate()?;
+    cfg.ai.validate()?;
     Ok(cfg.desktop)
 }
 /// Concrete `Host` aliases from OpenSSH config text; wildcards, negations and `Match` blocks are skipped.
@@ -454,5 +510,33 @@ mod tests {
     fn ssh_hosts_skips_wildcards_and_comments() {
         let cfg = "Host mini # home\n  HostName 10.0.0.2\nhost *\nHost a b !c *.x\nMatch all\nHost mini\n";
         assert_eq!(ssh_hosts(cfg), ["mini", "a", "b"]);
+    }
+}
+
+#[cfg(test)]
+mod ai_tests {
+    use super::*;
+    #[test]
+    fn ai_section_defaults_and_validation() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert!(cfg.ai.enabled && cfg.ai.validate().is_ok());
+        assert_eq!(cfg.ai.model, "claude-sonnet-5-5");
+        let ok: Config =
+            toml::from_str("[ai]\nmodel = \"claude-opus-5-5\"\nauto_allow = [\"mac_info\"]\n")
+                .unwrap();
+        assert!(ok.ai.validate().is_ok());
+        for bad in [
+            "[ai]\nauto_allow = [\"run_command\"]\n",
+            "[ai]\nmax_tokens = 5\n",
+            "[ai]\nbase_url = \"http://evil.example\"\n",
+            "[ai]\nmodel = \"has space\"\n",
+        ] {
+            let cfg: Config = toml::from_str(bad).unwrap();
+            assert!(cfg.ai.validate().is_err(), "{bad}");
+        }
+        assert!(
+            toml::from_str::<Config>("[ai]\nkey = \"sk-ant-x\"\n").is_err(),
+            "a key must never be stored in config"
+        );
     }
 }

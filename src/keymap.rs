@@ -66,6 +66,7 @@ pub const ACTION_NAMES: &[&str] = &[
     "scroll_bottom",
     "copy_screen",
     "draft",
+    "ai",
 ];
 
 /// Default bindings as `(chord, action)`; an action may appear more than once.
@@ -87,6 +88,7 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("cmd+ctrl+up", "resize_up"),
     ("cmd+ctrl+down", "resize_down"),
     ("cmd+ctrl+=", "equalize"),
+    ("cmd+j", "ai"),
     ("cmd+f", "find"),
     ("cmd+g", "find_next"),
     ("cmd+shift+g", "find_prev"),

@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — AI assistant
 
+- `teryon ai` and a ⌘J panel in the desktop app: chat with Claude and let it open or quit apps, open SSH terminals, answer questions about your Mac and work with your panes. Anything that changes something shows an approval card (Allow / Always this session / Deny); a few dangerous commands are refused outright. Needs `ANTHROPIC_API_KEY` (or `teryon ai --set-key` for the Keychain); `teryon ai --check` verifies it. See `docs/AI.md` for the permission and privacy model.
+- `[ai]` config section (`model`, `max_tokens`, `auto_allow`); no key is ever stored in config.
+- Requests go through the system `curl` (no new dependencies); the key is passed on stdin, not in the process list.
 - File and folder icons work out of the box: the desktop bundles the Symbols Nerd Font (MIT, `assets/fonts/`) as the last monospace fallback, so `eza --icons`, `lsd`, oh-my-posh and similar tools show their glyphs without installing a patched font. The binary grows by about 2.5 MB.
 - Mouse menus: right-click in a pane for Copy, Paste, Select all, Copy last output, Find, Quick select, splits, float, zoom, rename and close; a ▾ dropdown next to "+" in the bar holds the same, grouped into short submenus (Copy Special, Pane, Layout, Snippets, View), plus New tab, Open workspace, Layout, Snippets, View and Help. Programs that track the mouse keep the right button (Shift+right-click opens the menu).
 - `Makefile`: `make run`, `make app`, `make check` and friends (`make help`).

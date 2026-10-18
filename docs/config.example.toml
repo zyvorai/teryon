@@ -51,3 +51,10 @@ destination = "susant@mini.local"
 # [[desktop.triggers]]
 # pattern = "BUILD (SUCCESSFUL|FAILED)"
 # action = "notify"               # notify/bell fire only while the window is in the background by default
+
+# The AI assistant (⌘J / `teryon ai`); the API key comes from ANTHROPIC_API_KEY or the Keychain, never from here.
+# [ai]
+# enabled = true
+# model = "claude-sonnet-5-5"
+# max_tokens = 2048
+# auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes"]   # read-only tools only

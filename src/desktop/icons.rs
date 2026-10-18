@@ -9,6 +9,7 @@ pub(super) enum Icon {
     Close,
     Zoom,
     Chevron,
+    Spark,
     Layout(LayoutMode),
 }
 pub(super) fn paint_icon(p: &egui::Painter, area: Rect, icon: Icon, stroke: Stroke) {
@@ -34,6 +35,21 @@ pub(super) fn paint_icon(p: &egui::Painter, area: Rect, icon: Icon, stroke: Stro
         Icon::List => {
             for y in [-4., 0., 4.] {
                 line(at(-6., y), at(6., y));
+            }
+        }
+        Icon::Spark => {
+            // A four-pointed sparkle.
+            for (a, b) in [
+                ((0., -7.), (1.6, -1.6)),
+                ((1.6, -1.6), (7., 0.)),
+                ((7., 0.), (1.6, 1.6)),
+                ((1.6, 1.6), (0., 7.)),
+                ((0., 7.), (-1.6, 1.6)),
+                ((-1.6, 1.6), (-7., 0.)),
+                ((-7., 0.), (-1.6, -1.6)),
+                ((-1.6, -1.6), (0., -7.)),
+            ] {
+                line(at(a.0, a.1), at(b.0, b.1));
             }
         }
         Icon::Chevron => {

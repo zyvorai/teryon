@@ -17,6 +17,6 @@ python3 - "$app" <<'PY'
 import plistlib,sys
 from pathlib import Path
 with (Path(sys.argv[1])/'Contents/Info.plist').open('wb') as f:
- plistlib.dump({'CFBundleIdentifier':'dev.zyvor.teryon','CFBundleName':'TERYON','CFBundleExecutable':'launch-teryon','CFBundleIconFile':'Teryon','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.10.0','NSHighResolutionCapable':True},f)
+ plistlib.dump({'CFBundleIdentifier':'dev.zyvor.teryon','CFBundleName':'TERYON','CFBundleExecutable':'launch-teryon','CFBundleIconFile':'Teryon','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.11.0','NSHighResolutionCapable':True},f)
 PY
 echo "Created $app (unsigned; opens a local workspace). Use CLI for remote hosts."

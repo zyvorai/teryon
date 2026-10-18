@@ -126,6 +126,9 @@ impl Desktop {
                     ui.add_space(4.);
                     self.pane_chips(ui, compact);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icon_button(ui, &t, Icon::Spark, "Ask AI  ⌘J").clicked() {
+                            self.run_action(ActionKind::Ai);
+                        }
                         if icon_button(ui, &t, Icon::List, "Commands").clicked() {
                             self.palette = true;
                         }

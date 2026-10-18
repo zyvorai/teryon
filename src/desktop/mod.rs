@@ -20,6 +20,7 @@ use std::{
 };
 
 mod actions;
+mod ai;
 mod bar;
 mod dropzone;
 mod find;
@@ -172,6 +173,7 @@ pub struct Desktop {
     latency: Option<u64>,
     /// Text queued for the clipboard; flushed with the egui context each frame.
     copy_text: Option<String>,
+    ai: ai::Panel,
     /// A choice from the right-click or dropdown menu, applied next frame.
     menu_pick: Option<(u64, menus::MenuPick)>,
     renaming: Option<(u64, String)>,
@@ -314,6 +316,7 @@ impl Desktop {
             window_title: String::new(),
             latency: None,
             copy_text: None,
+            ai: ai::Panel::new(),
             menu_pick: None,
             renaming: None,
             zoom_prev: None,
@@ -791,6 +794,7 @@ impl Desktop {
             self.window_title = title;
         }
         self.top_bar(ctx);
+        self.ai_panel(ctx);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1231,6 +1235,7 @@ impl Desktop {
                 }
             }
             ActionKind::Draft => self.draft_open = true,
+            ActionKind::Ai => self.ai_toggle(),
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
@@ -2298,6 +2303,113 @@ mod tests {
                 .is_none());
             });
         });
+    }
+    #[test]
+    fn assistant_panel_asks_before_acting_and_shows_the_result() {
+        use crate::ai::api::{Event, Model, Turn};
+        use serde_json::{json, Value};
+        use std::sync::{Arc, Mutex};
+        struct Script(Mutex<Vec<Turn>>);
+        impl Model for Script {
+            fn stream(
+                &self,
+                _: &str,
+                _: &Value,
+                _: &[Value],
+                on: &mut dyn FnMut(Event),
+            ) -> Result<Turn, String> {
+                let t = self.0.lock().unwrap().remove(0);
+                for b in &t.content {
+                    if b["type"] == "text" {
+                        on(Event::Text(b["text"].as_str().unwrap().into()));
+                    }
+                }
+                Ok(t)
+            }
+        }
+        struct Ran(Mutex<Vec<String>>);
+        impl crate::ai::tools::Runner for Ran {
+            fn run(&self, p: &str, a: &[String], _: Duration) -> Result<String, String> {
+                self.0.lock().unwrap().push(format!("{p} {}", a.join(" ")));
+                Ok(String::new())
+            }
+        }
+        let tool = Turn {
+            content: vec![
+                json!({"type": "tool_use", "id": "t1", "name": "close_pane", "input": {"pane": 1}}),
+            ],
+            stop_reason: None,
+        };
+        let text = Turn {
+            content: vec![json!({"type": "text", "text": "Closed it."})],
+            stop_reason: None,
+        };
+        let (mut app, rx) = app_with_screen("hi");
+        let ran = Arc::new(Ran(Mutex::new(Vec::new())));
+        app.ai_attach(Box::new(Script(Mutex::new(vec![tool, text]))), ran, vec![]);
+        app.ai.open = true;
+        app.ai_send("close the first pane");
+        let ctx = egui::Context::default();
+        let frame = |app: &mut Desktop| {
+            let _ = ctx.run(egui::RawInput::default(), |ctx| app.ai_panel(ctx));
+        };
+        let wait = |app: &mut Desktop, done: &dyn Fn(&Desktop) -> bool| {
+            for _ in 0..200 {
+                frame(app);
+                if done(app) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("timed out");
+        };
+        // The changing tool waits for approval and nothing has been sent to the daemon yet.
+        wait(&mut app, &|a| {
+            a.ai.items.iter().any(|i| {
+                matches!(
+                    i,
+                    ai::Item::Tool {
+                        state: ai::ToolState::Waiting,
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(drain(&rx).is_empty());
+        app.ai
+            .agent
+            .as_ref()
+            .unwrap()
+            .decide("t1", crate::ai::Decision::Allow);
+        wait(&mut app, &|a| !a.ai.busy);
+        assert!(matches!(&drain(&rx)[..], [Command::Close(1)]));
+        assert!(app
+            .ai
+            .items
+            .iter()
+            .any(|i| matches!(i, ai::Item::Assistant(t) if t == "Closed it.")));
+        assert!(app.ai.items.iter().any(|i| matches!(
+            i,
+            ai::Item::Tool {
+                state: ai::ToolState::Done(true, _),
+                ..
+            }
+        )));
+        // The panel draws with a transcript.
+        frame(&mut app);
+    }
+    #[test]
+    fn assistant_panel_without_a_key_shows_setup_help_and_the_empty_state() {
+        let (mut app, _rx) = app_with_screen("hi");
+        let ctx = egui::Context::default();
+        app.ai.open = true;
+        app.ai.set_key_found(false);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.ai_panel(ctx));
+        app.ai.set_key_found(true);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.ai_panel(ctx));
+        // Sending without a key never starts a request.
+        app.ai.set_key_found(false);
+        assert!(app.ai.agent.is_none());
     }
     #[test]
     fn find_toggles_rebuild_the_query_and_report_bad_regexes() {

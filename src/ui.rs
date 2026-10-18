@@ -63,6 +63,7 @@ pub(crate) enum Update {
     State(Vec<PaneView>),
     Message(String),
     Created(u64),
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Captured(String, u64, CapturePurpose),
     Latency(u64),
 }

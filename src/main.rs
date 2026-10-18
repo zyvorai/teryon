@@ -196,6 +196,17 @@ enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+    /// Chat with Claude and let it open apps or SSH terminals (asks before anything changes). Needs ANTHROPIC_API_KEY.
+    Ai {
+        /// What to ask; leave empty for an interactive chat.
+        prompt: Vec<String>,
+        /// Store your API key in the macOS Keychain (the secret is typed into `security`, never into TERYON).
+        #[arg(long)]
+        set_key: bool,
+        /// Verify the key with one tiny request.
+        #[arg(long)]
+        check: bool,
+    },
     /// Show the desktop configuration, or validate it with --check.
     Config {
         /// Exit with an error if `[desktop]` in config.toml is invalid.
@@ -860,6 +871,13 @@ fn run() -> Result<i32> {
         Commands::Setup { yes } => {
             let mut io = teryon::setup::Console { assume_yes: yes };
             teryon::setup::run(&mut io, &mut teryon::setup::Real { bin })?;
+        }
+        Commands::Ai {
+            prompt,
+            set_key,
+            check,
+        } => {
+            return teryon::ai::cli::run(prompt, set_key, check);
         }
         Commands::Config { check, keys } => {
             let path = config::path()?;

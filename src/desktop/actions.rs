@@ -62,6 +62,7 @@ pub(super) enum ActionKind {
     History,
     CopyScreen,
     Draft,
+    Ai,
 }
 
 impl ActionKind {
@@ -124,6 +125,7 @@ impl ActionKind {
                 Self::History => "history",
                 Self::CopyScreen => "copy_screen",
                 Self::Draft => "draft",
+                Self::Ai => "ai",
                 Self::Layout(_)
                 | Self::Theme(_)
                 | Self::TabMove(_)
@@ -195,6 +197,7 @@ impl ActionKind {
             "history" => Self::History,
             "copy_screen" => Self::CopyScreen,
             "draft" => Self::Draft,
+            "ai" => Self::Ai,
             _ => return None,
         })
     }
@@ -214,6 +217,7 @@ pub(super) fn actions(
 ) -> Vec<Action> {
     let plain = [
         ("Command palette", ActionKind::Palette),
+        ("Ask AI…", ActionKind::Ai),
         ("Open workspace…", ActionKind::OpenWorkspace),
         ("Shortcut cheat sheet", ActionKind::CheatSheet),
         ("New pane", ActionKind::NewPane),
