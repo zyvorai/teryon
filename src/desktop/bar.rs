@@ -122,6 +122,7 @@ impl Desktop {
                     if icon_button(ui, &t, Icon::Plus, "New tab").clicked() {
                         self.run_action(ActionKind::NewTab);
                     }
+                    self.dropdown_menu(ui);
                     ui.add_space(4.);
                     self.pane_chips(ui, compact);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

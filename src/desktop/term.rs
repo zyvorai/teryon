@@ -100,7 +100,7 @@ impl Desktop {
             uikit::selected_text(screen, sel.a, sel.b)
         })
     }
-    fn copy_selection(&mut self) {
+    pub(super) fn copy_selection(&mut self) {
         if let Some(text) = self.selection.and_then(|s| self.selection_text(&s)) {
             if !text.is_empty() {
                 self.copy_text = Some(text);
@@ -595,6 +595,26 @@ impl Desktop {
             egui::Id::new(("teryon-terminal", id)),
             Sense::click_and_drag(),
         );
+        let menu_state = menus::MenuState {
+            selection: self.selection.is_some_and(|s| s.pane == id),
+            broadcast: self.broadcast,
+            full: false,
+        };
+        let mut picked = None;
+        // Right-click menu; programs that track the mouse keep the right button (Shift+right-click still opens it).
+        if self
+            .panes
+            .get(&id)
+            .is_some_and(|p| p.parser.screen().mouse_protocol_mode() == MouseMode::None)
+            || ui.input(|i| i.modifiers.shift)
+        {
+            response.context_menu(|ui| {
+                picked = menus::menu_body(ui, &self.keymap, &self.cfg.snippets, &menu_state);
+            });
+        }
+        if let Some(p) = picked {
+            self.menu_pick = Some((id, p));
+        }
         let font = FontId::monospace(self.font_size);
         let cw = ui.fonts(|f| f.glyph_width(&font, 'M'));
         let ch = self.font_size * self.cfg.line_height;

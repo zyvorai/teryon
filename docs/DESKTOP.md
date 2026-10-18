@@ -12,6 +12,14 @@ with latency, the layout switch, **New pane**, and the command palette. Messages
 toast in the bottom-left corner instead of a status bar. Drag empty bar space to move the window;
 double-click it to maximize.
 
+## Mouse menus
+
+Right-click in a pane for Copy, Paste, Select all, Copy last output, Find, Quick select, split, float, zoom, rename
+and close. The ▾ next to "+" in the bar opens the same menu plus New tab, Open workspace, Layout, Snippets, View
+(broadcast, text size, theme, full screen) and Help. Shortcuts are shown beside each entry. When a program tracks
+the mouse (vim, tmux, htop) it keeps the right button; hold Shift to open the menu anyway. Paste reads the system
+clipboard through `pbpaste` (macOS), `wl-paste`/`xclip`/`xsel` (Linux) or PowerShell (Windows).
+
 ## Getting around
 
 * **Welcome card**: while a workspace has no panes the window explains what is happening; if the host cannot

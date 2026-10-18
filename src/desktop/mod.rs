@@ -26,6 +26,7 @@ mod find;
 mod floating;
 mod hints;
 mod icons;
+mod menus;
 mod panes;
 mod restore;
 mod snippets;
@@ -171,6 +172,8 @@ pub struct Desktop {
     latency: Option<u64>,
     /// Text queued for the clipboard; flushed with the egui context each frame.
     copy_text: Option<String>,
+    /// A choice from the right-click or dropdown menu, applied next frame.
+    menu_pick: Option<(u64, menus::MenuPick)>,
     renaming: Option<(u64, String)>,
     zoom_prev: Option<LayoutMode>,
     selection: Option<Selection>,
@@ -311,6 +314,7 @@ impl Desktop {
             window_title: String::new(),
             latency: None,
             copy_text: None,
+            menu_pick: None,
             renaming: None,
             zoom_prev: None,
             selection: None,
@@ -752,6 +756,9 @@ impl Desktop {
         }
         let t = self.theme.clone();
         apply_style(ctx, &t);
+        if let Some((pane, pick)) = self.menu_pick.take() {
+            self.run_menu(pane, pick);
+        }
         if let Some(text) = self.copy_text.take() {
             ctx.copy_text(text);
         }
@@ -2247,6 +2254,32 @@ mod tests {
         // Typing in a pane while copy mode is off still reaches the shell.
         typed(&mut app, "q");
         assert!(matches!(&drain(&rx)[..], [Command::Input { pane: 1, data }] if data == b"q"));
+    }
+    #[test]
+    fn menu_choices_select_copy_and_run_actions() {
+        let (mut app, rx) = app_with_screen("one\r\ntwo");
+        app.run_menu(1, menus::MenuPick::SelectAll);
+        assert!(app.selection.is_some());
+        app.run_menu(1, menus::MenuPick::Copy);
+        assert!(app
+            .copy_text
+            .as_deref()
+            .is_some_and(|t| t.starts_with("one\ntwo")));
+        app.run_menu(1, menus::MenuPick::Act(ActionKind::NewPane));
+        assert!(matches!(&drain(&rx)[..], [Command::New(_)]));
+        // The dropdown and the context menu both draw without panicking.
+        let ctx = egui::Context::default();
+        let st = |full| menus::MenuState {
+            selection: true,
+            broadcast: false,
+            full,
+        };
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                assert!(menus::menu_body(ui, &app.keymap, &app.cfg.snippets, &st(true)).is_none());
+                assert!(menus::menu_body(ui, &app.keymap, &app.cfg.snippets, &st(false)).is_none());
+            });
+        });
     }
     #[test]
     fn find_toggles_rebuild_the_query_and_report_bad_regexes() {

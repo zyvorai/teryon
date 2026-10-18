@@ -8,6 +8,7 @@ pub(super) enum Icon {
     List,
     Close,
     Zoom,
+    Chevron,
     Layout(LayoutMode),
 }
 pub(super) fn paint_icon(p: &egui::Painter, area: Rect, icon: Icon, stroke: Stroke) {
@@ -34,6 +35,10 @@ pub(super) fn paint_icon(p: &egui::Painter, area: Rect, icon: Icon, stroke: Stro
             for y in [-4., 0., 4.] {
                 line(at(-6., y), at(6., y));
             }
+        }
+        Icon::Chevron => {
+            line(at(-4., -2.), at(0., 2.));
+            line(at(0., 2.), at(4., -2.));
         }
         Icon::Close => {
             line(at(-4.5, -4.5), at(4.5, 4.5));

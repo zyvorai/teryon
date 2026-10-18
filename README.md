@@ -32,6 +32,8 @@ cargo build --release --locked
 ./target/release/teryon connect local --workspace hello
 ```
 
+Or use the Makefile: `make run` (desktop app), `make tui`, `make app` (macOS bundle), `make check`, `make help`.
+
 Press **Ctrl+Space**, release, then **?** for help. **Ctrl+Space → d** detaches; your shells remain running. Open the same command again to reattach.
 
 Build the native desktop app:
