@@ -20,6 +20,7 @@ destination = "susant@mini.local"
 # font_size = 13.0
 # line_height = 1.45
 # padding = 8.0
+# pane_inset = 10.0                # space around the panes; 0 runs them edge to edge
 # cursor_style = "block"           # block | bar | underline
 # cursor_blink = false
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect

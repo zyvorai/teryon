@@ -861,12 +861,38 @@ impl Desktop {
         let painter = ui.painter_at(full);
         let opacity = self.cfg.window_opacity;
         let bg_default = color(t.background);
+        let card = self.cfg.pane_inset > 0.;
+        let radius = if card { 10. } else { 6. };
         painter.rect_filled(
             rect,
-            if bar_h > 0. { 0. } else { 6. },
+            if bar_h > 0. {
+                egui::CornerRadius {
+                    nw: 0,
+                    ne: 0,
+                    sw: radius as u8,
+                    se: radius as u8,
+                }
+            } else {
+                egui::CornerRadius::same(radius as u8)
+            },
             bg_default.gamma_multiply(opacity),
         );
-        if bar_h > 0. && id == self.focus {
+        if card {
+            // A hairline edge, and a soft accent ring on the focused pane when there are several.
+            let ring = id == self.focus && self.pane_rects.len() > 1;
+            let edge = if ring {
+                Stroke::new(1.5_f32, color(t.accent).gamma_multiply(0.55))
+            } else {
+                Stroke::new(1_f32, color(t.border).gamma_multiply(0.8))
+            };
+            painter.rect_stroke(
+                full,
+                egui::CornerRadius::same(radius as u8),
+                edge,
+                egui::StrokeKind::Inside,
+            );
+        }
+        if bar_h > 0. && id == self.focus && !card {
             painter.line_segment(
                 [rect.left_bottom(), rect.right_bottom()],
                 Stroke::new(1_f32, color(t.accent).gamma_multiply(0.5)),

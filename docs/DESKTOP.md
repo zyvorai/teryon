@@ -124,6 +124,7 @@ binding using `teryon config --keys`.
 |---|---|---|
 | `font_family` | SF Mono | Family or file name in the font folders, or an absolute path |
 | `font_size`, `line_height`, `padding` | 13, 1.45, 8 | Terminal text metrics |
+| `pane_inset` | 10 | Space around the pane cards; 0 runs panes edge to edge |
 | `cursor_style`, `cursor_blink` | block, false | Cursor shape |
 | `window_opacity` | 1.0 | 0.3 to 1.0; turning transparency on needs a restart |
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |

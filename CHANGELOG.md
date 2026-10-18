@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — a calmer display
+
+- Panes are now rounded cards inset from the window edge (`[desktop] pane_inset`, default 10, 0 restores edge to edge) with a hairline border and a soft accent ring on the focused pane; dividers show only while hovered or dragged.
+- Palette shortcuts are drawn as keycaps at the row's right edge, and menu and palette rows span the full width, so hints and submenus no longer overlap their labels.
+- The top bar shows latency only when it is above 150 ms (the status dot still has it in its tooltip).
+
 ## 0.14.0 — `teryon mcp`
 
 - **MCP server for agents**: `teryon mcp [--allow-write] [--host H] [--workspace W]` lets Claude Code, Codex and other MCP clients use TERYON's persistent panes, local or over SSH. Read tools (`list_workspaces`, `list_panes`, `read_pane`, `search_scrollback`, `wait_for`) are always on; `new_pane`, `send_keys` and `close_pane` need `--allow-write` and only touch the server's own workspace. Hosts are limited to `local`, configured hosts and SSH aliases; returned text is redacted. `--print-config` prints the setup line for Claude Code and a Claude Desktop snippet. See `docs/MCP.md`.

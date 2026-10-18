@@ -169,7 +169,7 @@ impl Desktop {
                         );
                         resp.on_hover_text(tip);
                         if wide && self.online {
-                            if let Some(ms) = self.latency {
+                            if let Some(ms) = self.latency.filter(|ms| *ms > 150) {
                                 ui.label(
                                     RichText::new(format!("{ms} ms"))
                                         .size(11.)

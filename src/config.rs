@@ -153,6 +153,8 @@ pub struct DesktopConfig {
     pub line_height: f32,
     /// Space around the terminal text, in pixels.
     pub padding: f32,
+    /// Space between the window edge and the panes, in pixels (0 = edge to edge).
+    pub pane_inset: f32,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     /// Window transparency, 0.3 (see-through) to 1.0 (opaque).
@@ -187,6 +189,7 @@ impl Default for DesktopConfig {
             font_size: 13.,
             line_height: 1.45,
             padding: 8.,
+            pane_inset: 10.,
             cursor_style: CursorStyle::Block,
             cursor_blink: false,
             window_opacity: 1.,
@@ -217,6 +220,7 @@ impl DesktopConfig {
         check("font_size", self.font_size, 6., 72.)?;
         check("line_height", self.line_height, 1., 2.5)?;
         check("padding", self.padding, 0., 48.)?;
+        check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
         if self.notify_after_seconds > 86_400 {

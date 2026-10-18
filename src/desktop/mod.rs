@@ -824,8 +824,15 @@ impl Desktop {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(color(t.background).gamma_multiply(self.cfg.window_opacity))
-                    .inner_margin(egui::Margin::same(4)),
+                    .fill(
+                        color(if self.cfg.pane_inset > 0. {
+                            mix(t.background, t.foreground, 0.04)
+                        } else {
+                            t.background
+                        })
+                        .gamma_multiply(self.cfg.window_opacity),
+                    )
+                    .inner_margin(egui::Margin::same(self.cfg.pane_inset.round() as i8)),
             )
             .show(ctx, |ui| {
                 if self.find_open {
@@ -940,11 +947,11 @@ impl Desktop {
                         panes::drag(w, d.index, delta);
                         moved = true;
                     }
-                    let line = if handle.hovered() || handle.dragged() {
-                        t.accent
-                    } else {
-                        t.border
-                    };
+                    let active = handle.hovered() || handle.dragged();
+                    if !active && self.cfg.pane_inset > 0. {
+                        continue;
+                    }
+                    let line = if active { t.accent } else { t.border };
                     let c = d.rect.center();
                     let seg = if d.between_columns {
                         [
@@ -1338,11 +1345,27 @@ impl Desktop {
                         egui::SelectableLabel::new(selected, &action.title),
                     );
                     if !action.hint.is_empty() {
-                        ui.painter().text(
-                            resp.rect.right_center() - Vec2::new(8., 0.),
-                            egui::Align2::RIGHT_CENTER,
+                        // The shortcut as a small keycap at the row's right edge.
+                        let galley = ui.painter().layout_no_wrap(
                             action.hint.clone(),
                             FontId::proportional(11.),
+                            color(self.theme.muted),
+                        );
+                        let cap = Rect::from_min_size(
+                            Pos2::new(
+                                resp.rect.right() - 8. - galley.size().x - 10.,
+                                resp.rect.center().y - 9.,
+                            ),
+                            Vec2::new(galley.size().x + 10., 18.),
+                        );
+                        ui.painter().rect_filled(
+                            cap,
+                            5.,
+                            color(mix(self.theme.panel, self.theme.foreground, 0.1)),
+                        );
+                        ui.painter().galley(
+                            cap.min + Vec2::new(5., (18. - galley.size().y) / 2.),
+                            galley,
                             color(self.theme.muted),
                         );
                     }
