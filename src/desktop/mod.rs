@@ -1485,6 +1485,10 @@ impl Desktop {
             self.font_size = cfg.font_size;
         }
         self.triggers = triggers::compile(&cfg.triggers);
+        // Only a change of the option opens or closes the sidebar, so a reload never undoes ⌘B.
+        if cfg.file_browser != self.cfg.file_browser {
+            self.files.open = cfg.file_browser;
+        }
         self.cfg = cfg;
         if let Some(first) = problems.first() {
             self.toast(format!("Config keys: {first}"));

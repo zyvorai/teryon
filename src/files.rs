@@ -268,6 +268,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Opt-in: `TERYON_TEST_SSH_HOST=mini cargo test remote_listing` against a real SSH host.
+    #[test]
+    fn remote_listing_and_reading_work_over_ssh() {
+        let Ok(host) = std::env::var("TERYON_TEST_SSH_HOST") else {
+            return;
+        };
+        let target = Target::new(host, None).unwrap();
+        let root = arrange(list(&target, "/").unwrap(), true);
+        assert!(root
+            .iter()
+            .any(|e| e.dir && e.name == "Users" || e.name == "etc"));
+        let head = read_head(&target, "/etc/hosts").unwrap();
+        assert!(matches!(classify(&head), Preview::Text { .. }));
+        assert!(list(&target, "/definitely/not/here").is_err());
+        // A name with a quote and a space must survive the remote shell.
+        assert!(read_head(&target, "/tmp/it's here").is_err());
+    }
+
     #[test]
     fn sizes_read_naturally() {
         assert_eq!(human(12), "12 B");

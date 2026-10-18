@@ -167,6 +167,8 @@ pub struct DesktopConfig {
     pub notify_after_seconds: u32,
     /// Notify when an AI coding agent in the background needs you or finishes.
     pub agent_notifications: bool,
+    /// Open the file browser sidebar when the app starts.
+    pub file_browser: bool,
     /// Themes to switch to when macOS goes light or dark (either may be left out).
     pub theme_light: Option<String>,
     pub theme_dark: Option<String>,
@@ -197,6 +199,7 @@ impl Default for DesktopConfig {
             copy_on_select: false,
             notify_after_seconds: 10,
             agent_notifications: true,
+            file_browser: false,
             theme_light: None,
             theme_dark: None,
             scrollback_lines: 10_000,
