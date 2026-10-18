@@ -1,0 +1,2 @@
+    Checking zylink v0.1.0 (/workspace/scratch/b1b424ec5085/zylink)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.77s

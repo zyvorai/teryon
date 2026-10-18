@@ -1,0 +1,43 @@
+   Compiling zylink v0.1.0 (/workspace/scratch/b1b424ec5085/zylink)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.61s
+     Running unittests src/lib.rs (target/debug/deps/zylink-e54aae7921d82804)
+
+running 12 tests
+test keys::tests::clipboard_cannot_escape_bracketed_paste ... ok
+test keys::tests::controls_unicode_and_arrows ... ok
+test protocol::tests::frames_roundtrip_and_eof ... ok
+test protocol::tests::validates_names_and_geometry ... ok
+test theme::tests::colors_reject_bad_values ... ok
+test transport::tests::destinations_are_not_options_or_commands ... ok
+test theme::tests::all_builtin_themes_parse ... ok
+test theme::tests::theme_text_has_readable_contrast ... ok
+test util::tests::quoting_handles_shell_metacharacters ... ok
+test protocol::tests::rejects_truncated_and_oversized ... ok
+test ui::tests::terminal_ui_renders_small_and_large_light_dark_disconnected_views ... ok
+test desktop::tests::native_ui_renders_themes_sizes_and_disconnect_states ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running unittests src/main.rs (target/debug/deps/zylink-bfda1637a270466f)
+
+running 2 tests
+test tests::command_tree_is_consistent ... ok
+test tests::argv_task_and_explicit_send_parse ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sessions.rs (target/debug/deps/sessions-f50ec7f6896c3467)
+
+running 10 tests
+test ipc_rejects_a_wrong_local_token ... ok
+test explicit_pane_close_terminates_a_job_that_ignores_hangup ... ok
+test exited_tasks_report_status_and_scrollback_retains_old_output ... ok
+test terminal_cursor_queries_are_answered_without_a_client_terminal ... ok
+test resize_unicode_color_and_incremental_snapshot ... ok
+test input_sequence_deduplicates_and_rejects_gaps ... ok
+test exclusive_controller_and_readonly_are_enforced_server_side ... ok
+test blocked_pane_input_does_not_stall_the_session_service ... ok
+test validation_shutdown_and_workspace_removal ... ok
+test process_and_shell_survive_disconnect ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s

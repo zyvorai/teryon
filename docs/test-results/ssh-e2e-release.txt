@@ -1,0 +1,21 @@
+PASS OpenSSH/SFTP deployment and remote doctor
+PASS Remote task execution, captured output and exit status
+PASS Layout save and fresh-shell restoration
+PASS TUI reconnect after SSH transport loss with same shell PID, pane creation and keyboard controls
+PASS Resumable-transfer path with special characters and SHA-256 round trip
+PASS Interrupted upload retains partial data and resumes to the correct SHA-256
+PASS Loopback HTTP port forwarding and automatic tunnel reconnection
+PASS Explicit forced remote shutdown
+{
+  "passed": 8,
+  "scenarios": [
+    "OpenSSH/SFTP deployment and remote doctor",
+    "Remote task execution, captured output and exit status",
+    "Layout save and fresh-shell restoration",
+    "TUI reconnect after SSH transport loss with same shell PID, pane creation and keyboard controls",
+    "Resumable-transfer path with special characters and SHA-256 round trip",
+    "Interrupted upload retains partial data and resumes to the correct SHA-256",
+    "Loopback HTTP port forwarding and automatic tunnel reconnection",
+    "Explicit forced remote shutdown"
+  ]
+}

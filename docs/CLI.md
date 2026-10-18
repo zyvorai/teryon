@@ -1,0 +1,81 @@
+# Commands and controls
+
+Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
+
+| Command | Purpose |
+|---|---|
+| `connect HOST -w NAME` | Reconnecting terminal UI; HOST defaults to `local` |
+| `desktop HOST -w NAME` | Native app; requires the `desktop` Cargo feature |
+| `sessions HOST` | JSON list of workspaces and controller status |
+| `panes HOST -w NAME` | Pane IDs, titles, initial directories, PIDs and exit status |
+| `capture HOST -w NAME --pane ID` | Plain retained output to stdout; read-only attachment |
+| `exec HOST -w NAME -- COMMAND ARGS` | Durable command in a new pane |
+| `exec … --wait --timeout SECONDS` | Wait for exit and return its status; timeout leaves job running |
+| `exec … --wait --notify` | Also ring the bell, send OSC 9 and (macOS) a desktop notification on exit |
+| `send HOST -w NAME --pane ID --enter TEXT` | Explicit input, requiring exclusive controller access |
+| `push HOST SOURCE DESTINATION` | Upload via rsync 3+ |
+| `pull HOST SOURCE DESTINATION` | Download via rsync 3+ |
+| `forward HOST LOCAL:REMOTE --reconnect` | Foreground loopback tunnel with optional restart |
+| `deploy HOST --binary PATH` | Verify and install an explicitly supplied target binary |
+| `doctor HOST [--fix --binary PATH] [-y]` | Report daemon platform and reachability; with `--fix`, confirm then deploy the binary |
+| `record HOST -w NAME --pane N -o FILE.cast` | Record a pane as asciicast v2 (screen snapshots; new 0600 file) |
+| `layout save HOST -w NAME FILE` | Save initial directories and pane titles to a new local file |
+| `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
+| `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
+| `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
+| `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
+| `completions SHELL` | Shell completion script (bash, zsh, fish, elvish, powershell) |
+| `about` | Banner, version and active theme |
+| `config [--check] [--keys]` | Show or validate the `[desktop]` configuration, or list key bindings |
+| `themes --preview` | Show built-in palettes |
+| `themes --export wezterm NAME` | Print a WezTerm `config.colors` block for a theme |
+| `init` | Create config; never overwrite |
+| `remove HOST -w NAME --force` | Remove a detached workspace, terminating live panes |
+| `stop HOST --force` | Stop the daemon and all live panes |
+
+`HOST` may be a TERYON config alias, an OpenSSH alias, or `user@host`. `local` means the current machine. Host values cannot contain options, whitespace, or shell commands. For a nonstandard SSH port, create an SSH alias rather than appending `:PORT`.
+
+Transfers accept `--limit-kbps N` to limit bandwidth in KiB/s. Repeat the same command after interruption to reuse retained partial data.
+
+Global `--remote-bin /absolute/path` overrides the remote executable path. `TERYON_SSH_CONFIG=/path/to/ssh_config` supplies an alternate OpenSSH configuration to connections, deployment, transfers, and forwards.
+
+## Command palette
+
+TUI: Ctrl+Space, release, then `:`. Desktop: visible Commands button, ⌘K, or Ctrl+Shift+K.
+
+| Palette command | Action |
+|---|---|
+| `new` | Create a login shell at the remote user's home |
+| `new /remote/directory` | Create a shell in an explicit remote directory |
+| `rename Build logs` | Rename focused pane |
+| `close` | Require confirmation, then kill/remove focused pane; last pane cannot be removed |
+| `split` | Toggle between a single pane and a vertical split |
+| `layout single\|vertical\|horizontal\|grid` | Choose how many panes (up to 4) are shown and how they tile |
+| `zoom` | Temporarily show only the focused pane |
+| `switch [TEXT]` | TUI: fuzzy pane switcher |
+| `theme NAME_OR_PATH` | Change local appearance |
+| `search TEXT` | Case-insensitive search in retained plain output |
+| `capture` | Open retained-output viewer |
+| `export /local/new-file.txt` | Write private output export; refuse overwrite |
+| `draft` | Open local draft editor |
+| `send-draft` | TUI: review saved draft before sending |
+| `focus ID` | TUI: focus a pane by ID |
+| `detach` | TUI: leave shells running |
+| `help` | TUI: help overlay |
+
+At most four panes are shown at once; with more, the visible window follows the focused pane. A short last row stretches its panes across the full width.
+
+Mouse support is off by default (`mouse = true` in the config) because capturing the mouse replaces the terminal's own text selection. When on, click a pane or sidebar entry to focus it; the wheel opens retained output. In the retained-output viewer, `y` copies the shown lines through OSC 52, which needs a terminal that allows clipboard writes.
+
+Close a desktop window to detach. Use its draft review controls to submit drafts. Ctrl+C normally goes to the remote foreground process in the TUI; use the prefix detach command to leave the client. Clipboard pastes strip ESC bytes to prevent bracketed-paste delimiter injection. Multiline pastes may execute commands when the receiving application does not enable bracketed paste; review pasted commands first.
+
+## Retention and limits
+
+16 workspaces, 16 total panes, 8 panes per workspace. Each pane retains up to 2,000 terminal scrollback lines. Terminal geometry is limited to 2–160 rows and 10–400 columns; larger views show a bounded terminal. Input is capped at 64 KiB per action. Use a file transfer for larger content. Pane titles accept 1–80 bytes without control characters; workspace names accept 1–64 ASCII letters, digits, `_` and `-`.
+
+Pane directories represent the directory used at creation. `cd` in the shell does not update layout metadata in this release.
+
+## Desktop
+
+`teryon desktop HOST -w NAME` opens the native app. Shortcuts, options and limits are in [DESKTOP.md](DESKTOP.md);
+`teryon config --keys` lists every binding and `teryon config --check` validates your `[desktop]` section.

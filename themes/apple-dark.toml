@@ -1,0 +1,11 @@
+name = "Apple Dark"
+background = "#000000"
+panel = "#1D1D1F"
+foreground = "#F5F5F7"
+muted = "#A1A1A6"
+accent = "#2997FF"
+success = "#30D158"
+warning = "#FF9F0A"
+border = "#3A3A3C"
+primary = "#0071E3"
+ansi = ["#3A3A3C", "#FF453A", "#30D158", "#FFD60A", "#0A84FF", "#BF5AF2", "#64D2FF", "#D1D1D6", "#636366", "#FF6961", "#4AE06F", "#FFE04A", "#409CFF", "#DA8FFF", "#8CE0FF", "#F5F5F7"]

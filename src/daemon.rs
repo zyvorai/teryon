@@ -1,0 +1,642 @@
+//! The daemon, never a connection handler, owns every PTY.
+use crate::protocol::*;
+use crate::{ipc, util};
+use anyhow::{bail, Context, Result};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use std::collections::{BTreeMap, HashMap};
+use std::fs::{self, OpenOptions};
+use std::io::{BufReader, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const MAX_WORKSPACES: usize = 16;
+const MAX_PANES: usize = 16;
+const SCROLLBACK: usize = 2000;
+struct TerminalCallbacks {
+    input: std::sync::mpsc::SyncSender<Vec<u8>>,
+}
+impl vt100::Callbacks for TerminalCallbacks {
+    fn unhandled_csi(
+        &mut self,
+        screen: &mut vt100::Screen,
+        i1: Option<u8>,
+        _i2: Option<u8>,
+        params: &[&[u16]],
+        c: char,
+    ) {
+        let n = params.first().and_then(|p| p.first()).copied().unwrap_or(0);
+        let response = match (c, i1, n) {
+            ('n', None, 6) => {
+                let (r, c) = screen.cursor_position();
+                Some(format!("\x1b[{};{}R", r + 1, c + 1))
+            }
+            ('n', None, 5) => Some("\x1b[0n".into()),
+            ('c', None, 0) => Some("\x1b[?1;2c".into()),
+            ('c', Some(b'>'), 0) => Some("\x1b[>0;1;0c".into()),
+            _ => None,
+        };
+        if let Some(response) = response {
+            let _ = self.input.try_send(response.into_bytes());
+        }
+    }
+}
+struct TerminalState {
+    parser: vt100::Parser<TerminalCallbacks>,
+    revision: u64,
+    exited: Option<u32>,
+}
+struct Pane {
+    id: u64,
+    title: Mutex<String>,
+    cwd: String,
+    pid: Option<u32>,
+    state: Arc<Mutex<TerminalState>>,
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    input: std::sync::mpsc::SyncSender<Vec<u8>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+}
+
+/// Friendly `ls` colors for new shells: directories blue, executables green, symlinks cyan, archives
+/// red, media purple. They use ANSI indexes, so every TERYON theme repaints them. Variables the
+/// daemon's environment already sets are left alone, and a shell rc file can still override these.
+fn file_type_env(already_set: impl Fn(&str) -> bool) -> Vec<(&'static str, &'static str)> {
+    const LS_COLORS: &str = "di=1;34:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=33;40:su=30;41:sg=30;46:tw=30;42:ow=34;42:*.tar=31:*.tgz=31:*.gz=31:*.zip=31:*.xz=31:*.bz2=31:*.7z=31:*.dmg=31:*.png=35:*.jpg=35:*.jpeg=35:*.gif=35:*.svg=35:*.webp=35:*.mp3=36:*.wav=36:*.flac=36:*.mp4=35:*.mov=35:*.mkv=35";
+    const LSCOLORS: &str = "Exgxfxdxcxegedabagacad";
+    [
+        ("CLICOLOR", "1"),
+        ("LSCOLORS", LSCOLORS),
+        ("LS_COLORS", LS_COLORS),
+    ]
+    .into_iter()
+    .filter(|(name, _)| !already_set(name))
+    .collect()
+}
+
+impl Pane {
+    fn spawn(
+        id: u64,
+        cwd: Option<String>,
+        command: Vec<String>,
+        rows: u16,
+        cols: u16,
+    ) -> Result<Arc<Self>> {
+        if !valid_size(rows, cols) {
+            bail!("terminal size outside supported bounds");
+        }
+        let cwd = cwd.map(std::path::PathBuf::from).unwrap_or(util::home()?);
+        let cwd = cwd
+            .canonicalize()
+            .context("working directory does not exist")?;
+        if !cwd.is_dir() {
+            bail!("working directory must be a directory");
+        }
+        let pty = native_pty_system().openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+        let is_shell = command.is_empty();
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let mut cmd = CommandBuilder::new(command.first().unwrap_or(&shell));
+        if is_shell {
+            cmd.arg("-l");
+        } else {
+            cmd.args(&command[1..]);
+        }
+        cmd.cwd(&cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("TERYON", "1");
+        for (name, value) in file_type_env(|n| std::env::var_os(n).is_some()) {
+            cmd.env(name, value);
+        }
+        let mut child = pty.slave.spawn_command(cmd).context("spawn PTY process")?;
+        drop(pty.slave);
+        let pid = child.process_id();
+        let killer = child.clone_killer();
+        let mut reader = pty.master.try_clone_reader()?;
+        let mut writer = pty.master.take_writer()?;
+        let (input, input_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(8);
+        thread::spawn(move || {
+            while let Ok(data) = input_rx.recv() {
+                if writer
+                    .write_all(&data)
+                    .and_then(|_| writer.flush())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let state = Arc::new(Mutex::new(TerminalState {
+            parser: vt100::Parser::new_with_callbacks(
+                rows,
+                cols,
+                SCROLLBACK,
+                TerminalCallbacks {
+                    input: input.clone(),
+                },
+            ),
+            revision: 1,
+            exited: None,
+        }));
+        let pane = Arc::new(Self {
+            id,
+            title: Mutex::new(if is_shell {
+                "Shell".into()
+            } else {
+                command[0].clone()
+            }),
+            cwd: cwd.to_string_lossy().into(),
+            pid,
+            state: state.clone(),
+            master: Mutex::new(pty.master),
+            input,
+            killer: Mutex::new(killer),
+        });
+        let read_state = state.clone();
+        thread::spawn(move || {
+            let mut buf = [0u8; 16384];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let mut st = read_state.lock().unwrap();
+                        st.parser.process(&buf[..n]);
+                        st.revision += 1;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break, // Linux PTYs use EIO at EOF.
+                }
+            }
+        });
+        thread::spawn(move || {
+            let exit = child.wait().map(|s| s.exit_code()).unwrap_or(255);
+            let mut st = state.lock().unwrap();
+            st.exited = Some(exit);
+            st.revision += 1;
+        });
+        Ok(pane)
+    }
+    fn view(&self, known: Option<u64>) -> PaneView {
+        let st = self.state.lock().unwrap();
+        let (rows, cols) = st.parser.screen().size();
+        PaneView {
+            id: self.id,
+            title: self.title.lock().unwrap().clone(),
+            cwd: self.cwd.clone(),
+            pid: self.pid,
+            rows,
+            cols,
+            revision: st.revision,
+            screen: (known != Some(st.revision)).then(|| st.parser.screen().state_formatted()),
+            exited: st.exited,
+        }
+    }
+    fn resize(&self, rows: u16, cols: u16) -> Result<()> {
+        if !valid_size(rows, cols) {
+            bail!("terminal size outside supported bounds");
+        }
+        self.master.lock().unwrap().resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+        let mut st = self.state.lock().unwrap();
+        st.parser.screen_mut().set_size(rows, cols);
+        st.revision += 1;
+        Ok(())
+    }
+    fn capture(&self) -> String {
+        let mut st = self.state.lock().unwrap();
+        let rows = st.parser.screen().size().0 as usize;
+        // Query the actual bounded scrollback length, then walk oldest to newest.
+        st.parser.screen_mut().set_scrollback(usize::MAX);
+        let max = st.parser.screen().scrollback();
+        let mut lines = Vec::new();
+        let mut offset = max;
+        while offset > 0 {
+            st.parser.screen_mut().set_scrollback(offset);
+            let text = st.parser.screen().contents();
+            let take = offset.min(rows);
+            lines.extend(text.split('\n').take(take).map(str::to_owned));
+            offset = offset.saturating_sub(rows);
+        }
+        st.parser.screen_mut().set_scrollback(0);
+        lines.extend(st.parser.screen().contents().split('\n').map(str::to_owned));
+        lines.join("\n")
+    }
+    fn kill(&self) -> Result<()> {
+        if self.state.lock().unwrap().exited.is_some() {
+            return Ok(());
+        }
+        let foreground = self.master.lock().unwrap().process_group_leader();
+        let result = self.killer.lock().unwrap().kill().context("terminate pane");
+        // Explicit termination must also stop a foreground job that ignores HUP.
+        // SAFETY: group IDs come from this pane's PTY and spawned child. Never
+        // signal the daemon's own group, zero, or process group 1.
+        let own_group = unsafe { libc::getpgrp() };
+        for group in [foreground, self.pid.map(|p| p as i32)]
+            .into_iter()
+            .flatten()
+        {
+            if group > 1 && group != own_group {
+                unsafe {
+                    libc::kill(-group, libc::SIGKILL);
+                }
+            }
+        }
+        result
+    }
+}
+
+struct Workspace {
+    panes: BTreeMap<u64, Arc<Pane>>,
+    controller: Option<String>,
+    next_id: u64,
+    last_seq: u64,
+}
+struct State {
+    instance: String,
+    workspaces: HashMap<String, Workspace>,
+}
+struct Connection {
+    id: String,
+    workspace: Option<String>,
+    readonly: bool,
+    hello: bool,
+}
+
+fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Response> {
+    if let Request::Hello { version } = req {
+        if version != VERSION {
+            bail!("protocol version mismatch: client {version}, daemon {VERSION}");
+        }
+        conn.hello = true;
+        return Ok(Response::Hello {
+            version: VERSION,
+            build: env!("CARGO_PKG_VERSION").into(),
+            instance: state.instance.clone(),
+        });
+    }
+    if !conn.hello {
+        bail!("hello handshake required");
+    }
+    if conn.readonly && matches!(req, Request::Shutdown { .. } | Request::Remove { .. }) {
+        bail!("read-only attachment cannot remove workspaces or stop the daemon");
+    }
+    match req {
+        Request::List => {
+            let mut items: Vec<_> = state
+                .workspaces
+                .iter()
+                .map(|(name, w)| WorkspaceInfo {
+                    name: name.clone(),
+                    panes: w.panes.len(),
+                    controlled: w.controller.is_some(),
+                })
+                .collect();
+            items.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(Response::Workspaces { items })
+        }
+        Request::Remove { workspace, force } => {
+            let ws = state
+                .workspaces
+                .get(&workspace)
+                .context("workspace not found")?;
+            if ws.controller.as_ref().is_some_and(|id| id != &conn.id) {
+                bail!("detach the workspace controller before removing it");
+            }
+            let live = ws
+                .panes
+                .values()
+                .any(|p| p.state.lock().unwrap().exited.is_none());
+            if live && !force {
+                bail!("workspace contains live processes; removal requires --force");
+            }
+            for p in ws.panes.values() {
+                if p.state.lock().unwrap().exited.is_none() {
+                    p.kill()?;
+                }
+            }
+            state.workspaces.remove(&workspace);
+            Ok(Response::Ack { seq: None })
+        }
+        Request::Info => Ok(Response::Info {
+            os: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+            sessions: state.workspaces.len(),
+            panes: state.workspaces.values().map(|w| w.panes.len()).sum(),
+            pid: std::process::id(),
+        }),
+        Request::Attach {
+            workspace,
+            readonly,
+            rows,
+            cols,
+            cwd,
+        } => {
+            if !valid_name(&workspace) {
+                bail!("workspace names use 1–64 ASCII letters, digits, '-' or '_'");
+            }
+            if !valid_size(rows, cols) {
+                bail!("invalid terminal size");
+            }
+            if !state.workspaces.contains_key(&workspace) {
+                if readonly {
+                    bail!("workspace does not exist; a read-only attachment cannot create it");
+                }
+                if state.workspaces.len() >= MAX_WORKSPACES || total_panes(state) >= MAX_PANES {
+                    bail!("workspace/pane limit reached");
+                }
+                let pane = Pane::spawn(1, cwd, vec![], rows, cols)?;
+                state.workspaces.insert(
+                    workspace.clone(),
+                    Workspace {
+                        panes: BTreeMap::from([(1, pane)]),
+                        controller: None,
+                        next_id: 2,
+                        last_seq: 0,
+                    },
+                );
+            }
+            let ws = state.workspaces.get(&workspace).unwrap();
+            if !readonly && ws.controller.as_ref().is_some_and(|id| id != &conn.id) {
+                bail!(
+                    "workspace already has a controller; use --readonly or detach the other client"
+                );
+            }
+            release(conn, state);
+            let ws = state.workspaces.get_mut(&workspace).unwrap();
+            if !readonly {
+                ws.controller = Some(conn.id.clone());
+                ws.last_seq = 0;
+            }
+            conn.workspace = Some(workspace.clone());
+            conn.readonly = readonly;
+            Ok(Response::Attached {
+                workspace,
+                readonly,
+            })
+        }
+        Request::Shutdown { force } => {
+            let live = state
+                .workspaces
+                .values()
+                .flat_map(|w| w.panes.values())
+                .filter(|p| p.state.lock().unwrap().exited.is_none())
+                .count();
+            if live > 0 && !force {
+                bail!("{live} live panes; refusing shutdown without --force");
+            }
+            for w in state.workspaces.values() {
+                for p in w.panes.values() {
+                    let _ = p.kill();
+                }
+            }
+            // Caller exits after the acknowledgment is flushed.
+            Ok(Response::Ack { seq: None })
+        }
+        action => {
+            let total = total_panes(state);
+            let ws = state
+                .workspaces
+                .get_mut(
+                    conn.workspace
+                        .as_ref()
+                        .context("attach to a workspace first")?,
+                )
+                .context("workspace no longer exists")?;
+            if !matches!(action, Request::Poll { .. } | Request::Capture { .. })
+                && (conn.readonly || ws.controller.as_ref() != Some(&conn.id))
+            {
+                bail!("read-only connection cannot modify the workspace");
+            }
+            match action {
+                Request::Poll { known } => Ok(Response::State {
+                    panes: ws
+                        .panes
+                        .values()
+                        .map(|p| p.view(known.get(&p.id.to_string()).copied()))
+                        .collect(),
+                }),
+                Request::Input { pane, seq, data } => {
+                    if data.len() > MAX_INPUT {
+                        bail!("input exceeds 64 KiB");
+                    }
+                    if seq <= ws.last_seq {
+                        return Ok(Response::Ack { seq: Some(seq) });
+                    }
+                    if seq != ws.last_seq + 1 {
+                        bail!("input sequence gap");
+                    }
+                    let p = ws.panes.get(&pane).context("pane not found")?;
+                    if p.state.lock().unwrap().exited.is_some() {
+                        bail!("pane has exited");
+                    }
+                    // Acceptance means queued, not executed. A blocked PTY writer
+                    // never holds the global session lock or stalls other panes.
+                    p.input
+                        .try_send(data)
+                        .context("pane input queue is full or closed")?;
+                    ws.last_seq = seq;
+                    Ok(Response::Ack { seq: Some(seq) })
+                }
+                Request::Resize { pane, rows, cols } => {
+                    ws.panes
+                        .get(&pane)
+                        .context("pane not found")?
+                        .resize(rows, cols)?;
+                    Ok(Response::Ack { seq: None })
+                }
+                Request::NewPane {
+                    cwd,
+                    command,
+                    rows,
+                    cols,
+                } => {
+                    if total >= MAX_PANES || ws.panes.len() >= 8 {
+                        bail!("pane limit reached (8 per workspace, 16 total)");
+                    }
+                    if command.len() > 128 || command.iter().any(|s| s.len() > 8192) {
+                        bail!("command too large");
+                    }
+                    let id = ws.next_id;
+                    let p = Pane::spawn(id, cwd, command, rows, cols)?;
+                    ws.next_id += 1;
+                    ws.panes.insert(id, p);
+                    Ok(Response::Created { pane: id })
+                }
+                Request::Rename { pane, title } => {
+                    if title.is_empty() || title.len() > 80 || title.chars().any(char::is_control) {
+                        bail!("title must be 1–80 bytes with no control characters");
+                    }
+                    *ws.panes
+                        .get(&pane)
+                        .context("pane not found")?
+                        .title
+                        .lock()
+                        .unwrap() = title;
+                    Ok(Response::Ack { seq: None })
+                }
+                Request::Close { pane } => {
+                    if ws.panes.len() == 1 {
+                        bail!("cannot remove the last pane; exit its shell instead");
+                    }
+                    let p = ws.panes.get(&pane).context("pane not found")?;
+                    if p.state.lock().unwrap().exited.is_none() {
+                        p.kill()?;
+                    }
+                    ws.panes.remove(&pane);
+                    Ok(Response::Ack { seq: None })
+                }
+                Request::Capture { pane } => Ok(Response::Captured {
+                    text: ws.panes.get(&pane).context("pane not found")?.capture(),
+                }),
+                _ => bail!("unsupported request"),
+            }
+        }
+    }
+}
+fn total_panes(state: &State) -> usize {
+    state.workspaces.values().map(|w| w.panes.len()).sum()
+}
+fn release(conn: &Connection, state: &mut State) {
+    if let Some(name) = &conn.workspace {
+        if let Some(ws) = state.workspaces.get_mut(name) {
+            if ws.controller.as_ref() == Some(&conn.id) {
+                ws.controller = None;
+            }
+        }
+    }
+}
+fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<()> {
+    stream.timeout(Duration::from_secs(45))?;
+    let mut writer = stream.try_clone()?;
+    let mut reader = BufReader::new(stream);
+    ipc::authenticate(&mut reader, token)?;
+    let mut conn = Connection {
+        id: util::nonce()?,
+        workspace: None,
+        readonly: false,
+        hello: false,
+    };
+    let result = (|| -> Result<()> {
+        while let Some(req) = read_frame::<Request>(&mut reader)? {
+            let shutdown = matches!(req, Request::Shutdown { .. });
+            let response =
+                process(req, &mut conn, &mut state.lock().unwrap()).unwrap_or_else(|e| {
+                    Response::Error {
+                        message: format!("{e:#}"),
+                    }
+                });
+            let stop = shutdown && matches!(response, Response::Ack { .. });
+            write_frame(&mut writer, &response)?;
+            if stop {
+                let _ = fs::remove_file(util::socket_path()?);
+                std::process::exit(0);
+            }
+        }
+        Ok(())
+    })();
+    release(&conn, &mut state.lock().unwrap());
+    result
+}
+
+pub fn run() -> Result<()> {
+    let dir = util::runtime_dir()?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join("daemon.lock"))?;
+    // SAFETY: the file descriptor stays open for this daemon's entire lifetime.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        bail!("another daemon holds the runtime lock");
+    }
+    let (listener, token) = ipc::Listener::bind()?;
+    let state = Arc::new(Mutex::new(State {
+        instance: util::nonce()?,
+        workspaces: HashMap::new(),
+    }));
+    loop {
+        let stream = listener.accept()?;
+        let state = state.clone();
+        let token = token.clone();
+        thread::spawn(move || {
+            let _ = serve(stream, state, &token);
+        });
+    }
+}
+pub fn ensure() -> Result<()> {
+    if ipc::connect().is_ok() {
+        return Ok(());
+    }
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(util::runtime_dir()?.join("daemon.log"))?;
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(std::env::current_exe()?);
+    cmd.arg("daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    // SAFETY: setsid is async-signal-safe and invoked only in the pre-exec child.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn()?;
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if ipc::connect().is_ok() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(40));
+    }
+    bail!("daemon did not start; inspect ~/.teryon/run/daemon.log")
+}
+pub fn relay() -> Result<()> {
+    ensure()?;
+    let mut stream = ipc::connect()?;
+    stream.timeout(Duration::from_secs(3600))?;
+    let mut write = stream.try_clone()?;
+    thread::spawn(move || {
+        let _ = std::io::copy(&mut std::io::stdin().lock(), &mut write);
+        write.shutdown_write();
+    });
+    std::io::copy(&mut stream, &mut std::io::stdout().lock())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_type_env;
+
+    #[test]
+    fn file_type_colors_never_override_user_settings() {
+        let all = file_type_env(|_| false);
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().any(|(n, v)| *n == "CLICOLOR" && *v == "1"));
+        let none = file_type_env(|_| true);
+        assert!(none.is_empty());
+        let some = file_type_env(|n| n == "LS_COLORS");
+        assert!(some.iter().all(|(n, _)| *n != "LS_COLORS") && some.len() == 2);
+    }
+}

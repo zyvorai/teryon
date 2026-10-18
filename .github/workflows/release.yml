@@ -1,0 +1,38 @@
+name: Build release archives
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+          - os: macos-latest
+            artifact: macos-native-runner
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-targets --all-features --locked
+      - run: cargo build --release --features desktop --locked
+      - name: Create archive with checksums
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          mkdir -p dist
+          cp target/release/teryon dist/teryon
+          cp LICENSE README.md dist/
+          cd dist
+          shasum -a 256 teryon > SHA256SUMS
+          tar czf "teryon-${ARTIFACT}.tar.gz" teryon LICENSE README.md SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teryon-${{ matrix.artifact }}
+          path: dist/*.tar.gz

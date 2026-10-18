@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TERYON — Your Mac mini. Wherever you work.</title>
+<meta name="description" content="A Rust remote workspace: persistent shells on your Mac mini or Linux host, a colorful terminal UI, and a native desktop app, over plain OpenSSH.">
+<meta property="og:title" content="TERYON — Your Mac mini. Wherever you work.">
+<meta property="og:description" content="Persistent shells that outlive your connection. Terminal UI, native desktop app, 20 themes, over plain OpenSSH.">
+<meta property="og:image" content="img/desktop-mac27-dark.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+:root{
+  --bg:#000;--panel:#1d1d1f;--raised:#2c2c2e;--text:#f5f5f7;--muted:#a1a1a6;
+  --hair:rgba(255,255,255,.14);--blue:#0071e3;--link:#2997ff;--orange:#ff5a15;
+  --green:#30d158;--amber:#ff9f0a;--red:#ff453a;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){--bg:#fff;--panel:#f5f5f7;--raised:#fff;--text:#1d1d1f;--muted:#6e6e73;--hair:rgba(0,0,0,.12);--link:#0066cc}
+}
+:root[data-theme="light"]{--bg:#fff;--panel:#f5f5f7;--raised:#fff;--text:#1d1d1f;--muted:#6e6e73;--hair:rgba(0,0,0,.12);--link:#0066cc}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+nav{position:sticky;top:0;z-index:10;backdrop-filter:saturate(180%) blur(20px);background:color-mix(in srgb,var(--bg) 78%,transparent);border-bottom:1px solid var(--hair)}
+nav .wrap{display:flex;align-items:center;gap:24px;height:56px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:600;letter-spacing:.02em}
+.brand img{width:26px;height:26px;border-radius:7px}
+nav .links{margin-left:auto;display:flex;gap:22px;font-size:14px}
+nav .links a{color:var(--muted)}nav .links a:hover{color:var(--text);text-decoration:none}
+.pill{display:inline-block;border-radius:980px;padding:11px 22px;font-size:16px;border:1px solid var(--hair);color:var(--text);transition:.2s}
+.pill:hover{text-decoration:none;background:var(--panel)}
+.pill.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.pill.primary:hover{background:#0077ed;box-shadow:0 0 0 4px rgba(0,113,227,.25)}
+.hero{text-align:center;padding:96px 0 40px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-40% -10% auto;height:90%;background:radial-gradient(60% 60% at 50% 0,rgba(255,90,21,.22),transparent 70%);pointer-events:none}
+.eyebrow{color:var(--orange);font-weight:600;letter-spacing:.14em;font-size:13px;text-transform:uppercase}
+h1{font-size:clamp(40px,7vw,80px);line-height:1.04;letter-spacing:-.03em;margin:14px 0 18px;font-weight:700}
+h1 em{font-style:normal;background:linear-gradient(90deg,#ff5a15,#ff9a5c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{max-width:660px;margin:0 auto 32px;color:var(--muted);font-size:clamp(18px,2.4vw,22px)}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.shot{margin:56px auto 0;max-width:980px;border-radius:14px;border:1px solid var(--hair);box-shadow:0 40px 120px rgba(0,0,0,.55);overflow:hidden;background:var(--panel)}
+.shot img{display:block;width:100%;height:auto}
+.shot img.light-only{display:none}
+:root[data-theme="light"] .shot img.dark-only{display:none}:root[data-theme="light"] .shot img.light-only{display:block}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .shot img.dark-only{display:none}:root:not([data-theme="dark"]) .shot img.light-only{display:block}}
+section{padding:96px 0}
+h2{font-size:clamp(30px,4.5vw,48px);letter-spacing:-.025em;line-height:1.1;margin:0 0 14px;text-align:center}
+.lead{max-width:640px;margin:0 auto 48px;text-align:center;color:var(--muted);font-size:19px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(235px,1fr))}
+.card{background:var(--panel);border:1px solid var(--hair);border-radius:18px;padding:26px;transition:transform .25s,border-color .25s}
+.card:hover{transform:translateY(-3px);border-color:rgba(255,90,21,.55)}
+.card .ico{font-size:26px;margin-bottom:10px;display:block}
+.card h3{margin:0 0 6px;font-size:19px}
+.card p{margin:0;color:var(--muted);font-size:15.5px}
+.term{background:#0b0b0d;border:1px solid var(--hair);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.4);max-width:760px;margin:0 auto;text-align:left}
+.term .bar{display:flex;gap:7px;padding:12px 14px;background:#1d1d1f}
+.term .bar i{width:12px;height:12px;border-radius:50%;background:#ff5f57}.term .bar i:nth-child(2){background:#febc2e}.term .bar i:nth-child(3){background:#28c840}
+.term pre{margin:0;padding:20px 22px;font:14px/1.7 var(--mono);color:#f5f5f7;overflow-x:auto}
+.p{color:#ff5a15}.d{color:#0a84ff;font-weight:600}.g{color:#30d158}.m{color:#98989d}.y{color:#ffd60a}.r{color:#ff453a}.c{color:#64d2ff}.v{color:#bf5af2}
+.split{display:grid;gap:40px;grid-template-columns:1fr 1fr;align-items:center}
+@media(max-width:820px){.split{grid-template-columns:1fr}nav .links a:not(.keep){display:none}}
+.split h2{text-align:left}.split .lead{text-align:left;margin-left:0}
+.sw-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.sw{border:1px solid;border-radius:12px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;font-size:14px}
+.sw span{display:flex;gap:5px}.sw i{width:11px;height:11px;border-radius:50%}
+.steps{counter-reset:s;display:grid;gap:16px;max-width:760px;margin:0 auto}
+.step{background:var(--panel);border:1px solid var(--hair);border-radius:16px;padding:20px 24px 20px 70px;position:relative}
+.step::before{counter-increment:s;content:counter(s);position:absolute;left:22px;top:20px;width:30px;height:30px;border-radius:50%;background:var(--orange);color:#fff;font-weight:700;display:grid;place-items:center}
+.step b{display:block;margin-bottom:6px}
+code,.code{font-family:var(--mono);font-size:14px}
+.code{display:block;background:var(--bg);border:1px solid var(--hair);border-radius:10px;padding:10px 14px;margin-top:8px;overflow-x:auto;white-space:pre;color:var(--text)}
+.stats{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:8px}
+.stat{border:1px solid var(--hair);border-radius:980px;padding:8px 16px;color:var(--muted);font-size:14px}
+.stat b{color:var(--text)}
+footer{border-top:1px solid var(--hair);padding:40px 0;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .7s,transform .7s}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}
+button.theme{background:none;border:1px solid var(--hair);color:var(--muted);border-radius:980px;padding:5px 12px;cursor:pointer;font:inherit;font-size:13px}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="brand" href="#top"><img src="img/mark.svg" alt="">TERYON</a>
+  <div class="links">
+    <a href="#features">Features</a><a href="#desktop">Desktop</a><a href="#themes">Themes</a><a href="#start" class="keep">Get started</a>
+    <a href="__REPO__" class="keep">GitHub</a>
+  </div>
+  <button class="theme" id="theme" aria-label="Toggle light or dark">◐</button>
+</div></nav>
+
+<header class="hero" id="top"><div class="wrap">
+  <div class="eyebrow">Remote workspace · Rust · OpenSSH</div>
+  <h1>Your Mac mini.<br><em>Wherever you work.</em></h1>
+  <p class="sub">Shells that outlive your connection. Close the lid, switch networks, come back tomorrow — everything is exactly where you left it.</p>
+  <div class="cta">
+    <a class="pill primary" href="#start">Get started</a>
+    <a class="pill" href="__REPO__">View on GitHub</a>
+  </div>
+  <div class="shot">
+    <img class="dark-only" src="img/desktop-mac27-dark.png" alt="TERYON desktop app, Mac27 Dark theme" width="2360" height="1584">
+    <img class="light-only" src="img/desktop-mac27-light.png" alt="TERYON desktop app, Mac27 Light theme" width="2360" height="1584">
+  </div>
+</div></header>
+
+<section id="why"><div class="wrap reveal">
+  <h2>Separate the shell from the connection.</h2>
+  <p class="lead">A small per-user service on your Mac mini or Linux host owns the terminals. Your laptop just connects over the OpenSSH you already trust — no new ports, no new accounts.</p>
+  <div class="stats">
+    <span class="stat"><b>Persistent</b> PTYs</span><span class="stat"><b>Plain</b> OpenSSH</span>
+    <span class="stat"><b>20</b> themes</span><span class="stat"><b>4</b> layouts</span><span class="stat"><b>macOS</b> &amp; Linux</span>
+  </div>
+</div></section>
+
+<section id="features" style="padding-top:0"><div class="wrap">
+  <h2 class="reveal">Everything a remote workspace needs.</h2>
+  <p class="lead reveal">Built for the way you actually use a headless Mac mini.</p>
+  <div class="grid">
+    <div class="card reveal"><span class="ico">🧵</span><h3>Survives everything</h3><p>Disconnect, sleep, or crash the client. Reattach to the same live shells with capped-backoff reconnect.</p></div>
+    <div class="card reveal"><span class="ico">🪟</span><h3>Splits you can drag</h3><p>Single, stacked, side-by-side or 2×2 grid with draggable dividers, keyboard focus and resize, zoom and dimmed unfocused panes.</p></div>
+    <div class="card reveal"><span class="ico">🗂️</span><h3>Workspace tabs</h3><p>Hop between workspaces in one window. Background tabs keep streaming.</p></div>
+    <div class="card reveal"><span class="ico">🎨</span><h3>20 themes, real ANSI</h3><p>Every theme repaints colors 0–15, so <code>ls</code>, <code>git</code> and editors look right everywhere.</p></div>
+    <div class="card reveal"><span class="ico">🔐</span><h3>Safe by construction</h3><p>One controller per workspace, server-enforced read-only viewers, input sequence numbers, no replay of uncertain input.</p></div>
+    <div class="card reveal"><span class="ico">🎬</span><h3>Record a pane</h3><p><code>teryon record</code> writes an asciicast v2 file — private, and never overwrites.</p></div>
+    <div class="card reveal"><span class="ico">🩺</span><h3>Doctor &amp; deploy</h3><p><code>doctor --fix</code> checks the host and installs a binary you supply, after asking.</p></div>
+    <div class="card reveal"><span class="ico">📊</span><h3>Dashboard</h3><p>One command shows every configured host: reachability, system, workspaces and panes.</p></div>
+    <div class="card reveal"><span class="ico">⚙️</span><h3>Config that reloads</h3><p>Fonts, cursor, opacity and every key binding live in <code>config.toml</code> and apply the moment you save. <code>teryon config --check</code> validates it.</p></div>
+    <div class="card reveal"><span class="ico">🖱️</span><h3>Real terminal behavior</h3><p>Word, line and block selection, wheel scrollback, mouse reporting for vim and tmux, clickable links.</p></div>
+  </div>
+</div></section>
+
+<section id="terminal" style="padding-top:0"><div class="wrap reveal">
+  <h2>A terminal that’s a pleasure to live in.</h2>
+  <p class="lead">Graphite header, one orange Z, and file-type colors that just work.</p>
+  <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">Z</span> <b>TERYON</b>  <span class="g">●</span> <span class="m">connected · mini.local · fluxvm</span>
+
+<span class="g">➜</span> <span class="d">~/projects</span> ls -la
+<span class="d">drwxr-xr-x</span>  <span class="d">teryon/</span>      <span class="d">netra/</span>      <span class="d">zyvor-site/</span>
+<span class="g">-rwxr-xr-x</span>  <span class="g">deploy.sh</span>     <span class="c">current -&gt; releases/42</span>
+<span class="r">-rw-r--r--</span>  <span class="r">backup.tar.gz</span> <span class="v">demo.mov</span>
+<span class="g">➜</span> <span class="d">~/projects</span> <span class="m"># Ctrl+Space then z zooms a pane</span>
+<span class="g">➜</span> <span class="d">~/projects</span> █</pre></div>
+</div></section>
+
+<section id="desktop" style="padding-top:0"><div class="wrap split">
+  <div class="reveal">
+    <h2>One slim bar. Everything else is terminal.</h2>
+    <p class="lead">No sidebar, no status bar: a single 30 px bar with your tabs, panes and layout, merged into the window title bar. It follows your macOS accent color. Optional, GPU-rendered, with SF Pro loaded straight from the system.</p>
+    <a class="pill" href="#start">Build the desktop app</a>
+  </div>
+  <div class="shot reveal" style="margin:0">
+    <img class="dark-only" src="img/desktop-mac27-dark.png" alt="Mac27 Dark" loading="lazy">
+    <img class="light-only" src="img/desktop-mac27-light.png" alt="Mac27 Light" loading="lazy">
+  </div>
+</div></section>
+
+<section id="themes" style="padding-top:0"><div class="wrap">
+  <h2 class="reveal">Twenty themes. One WezTerm export.</h2>
+  <p class="lead reveal">Mac27, Apple, Tokyo Night, Catppuccin, Dracula, Nord and more. <code>teryon themes --export wezterm NAME</code> gives your terminal the same palette.</p>
+  <div class="sw-grid reveal">
+<!--SWATCHES-->
+  </div>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <h2 class="reveal">Up and running in minutes.</h2>
+  <p class="lead reveal">Requires Rust, macOS or Linux, and a UTF-8 terminal.</p>
+  <div class="steps">
+    <div class="step reveal"><b>Build and try it locally</b>
+      <span class="code">cargo build --release --locked
+./target/release/teryon connect local --workspace hello</span></div>
+    <div class="step reveal"><b>Install on your Mac mini</b>Enable Remote Login, set up SSH keys, then:
+      <span class="code">./scripts/install.sh ./target/release/teryon</span></div>
+    <div class="step reveal"><b>Connect from your MacBook</b>
+      <span class="code">teryon doctor you@mini.local
+teryon connect you@mini.local --workspace fluxvm</span></div>
+    <div class="step reveal"><b>Want the desktop app?</b>
+      <span class="code">cargo build --release --features desktop --locked
+teryon desktop you@mini.local --workspace fluxvm</span></div>
+  </div>
+  <p class="lead" style="margin-top:32px">Press <b>Ctrl+Space</b> then <b>?</b> for help. <b>Ctrl+Space → d</b> detaches; your shells keep running.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <span><b style="color:var(--text)">TERYON</b> · 0.6.0 engineering preview · Apache-2.0</span>
+  <span><a href="__REPO__">GitHub</a> · <a href="__REPO__/blob/main/docs/CLI.md">CLI reference</a> · <a href="__REPO__/blob/main/docs/LIMITATIONS.md">Known limits</a></span>
+</div></footer>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('theme');
+  try{var saved=localStorage.getItem('teryon-theme');if(saved)root.dataset.theme=saved}catch(e){}
+  btn.addEventListener('click',function(){
+    var dark=root.dataset.theme?root.dataset.theme==='dark':!matchMedia('(prefers-color-scheme: light)').matches;
+    root.dataset.theme=dark?'light':'dark';
+    try{localStorage.setItem('teryon-theme',root.dataset.theme)}catch(e){}
+  });
+  var els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return}
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+  els.forEach(function(e){io.observe(e)});
+})();
+</script>
+</body>
+</html>

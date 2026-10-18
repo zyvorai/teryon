@@ -1,0 +1,1219 @@
+use crate::{
+    keys,
+    protocol::*,
+    theme::{Theme, BUILTINS},
+    transport::Target,
+    util,
+};
+use anyhow::{bail, Result};
+use crossterm::{
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    },
+    execute,
+};
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    Frame,
+};
+use std::{
+    collections::BTreeMap,
+    sync::mpsc::{self, Receiver, SyncSender},
+    thread,
+    time::{Duration, Instant},
+};
+
+/// One-line hints rotated in the footer while the session is idle.
+const TIPS: [&str; 6] = [
+    "Ctrl+Space then z zooms a pane",
+    "Ctrl+Space then w jumps to any pane",
+    "Ctrl+Space then s cycles layouts: single, vertical, horizontal, grid",
+    "Ctrl+Space then h opens retained output; y copies it",
+    "Ctrl+Space then t tries another theme",
+    "Closing this window only detaches: your shells keep running",
+];
+fn tip(elapsed: Duration) -> &'static str {
+    TIPS[(elapsed.as_secs() / 12) as usize % TIPS.len()]
+}
+
+pub(crate) enum Command {
+    Input { pane: u64, data: Vec<u8> },
+    Resize(u16, u16),
+    New(Option<String>),
+    Close(u64),
+    Rename(u64, String),
+    Capture(u64, CapturePurpose),
+    Stop,
+}
+#[derive(Clone)]
+pub(crate) enum CapturePurpose {
+    View(String),
+    Export(String),
+    /// Full retained text for the desktop's scrollback view of this pane.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Scrollback(u64),
+}
+pub(crate) enum Update {
+    Online,
+    Offline(String),
+    State(Vec<PaneView>),
+    Message(String),
+    Created(u64),
+    Captured(String, CapturePurpose),
+    Latency(u64),
+}
+
+pub(crate) fn worker(
+    target: Target,
+    workspace: String,
+    readonly: bool,
+    cwd: Option<String>,
+    rx: Receiver<Command>,
+    tx: SyncSender<Update>,
+    initial: (u16, u16),
+) {
+    let mut size = initial;
+    let mut backoff = 250u64;
+    let mut previous_instance: Option<String> = None;
+    loop {
+        let connection = (|| -> Result<_> {
+            let mut rpc = target.connect()?;
+            rpc.call(Request::Attach {
+                workspace: workspace.clone(),
+                readonly,
+                rows: size.0,
+                cols: size.1,
+                cwd: cwd.clone(),
+            })?;
+            Ok(rpc)
+        })();
+        match connection {
+            Ok(mut rpc) => {
+                backoff = 250;
+                let _ = tx.send(Update::Online);
+                if previous_instance
+                    .as_ref()
+                    .is_some_and(|old| old != &rpc.instance)
+                {
+                    let _=tx.send(Update::Message("Remote session daemon changed: previous live sessions are unavailable; this is a fresh attachment.".into()));
+                }
+                previous_instance = Some(rpc.instance.clone());
+                let mut known = BTreeMap::new();
+                let mut seq = 0;
+                let result = (|| -> Result<()> {
+                    loop {
+                        match rx.recv_timeout(Duration::from_millis(60)) {
+                            Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                return Ok(())
+                            }
+                            Ok(command) => {
+                                let req = match command {
+                                    Command::Input { pane, data } => {
+                                        seq += 1;
+                                        Request::Input { pane, seq, data }
+                                    }
+                                    Command::Resize(rows, cols) => {
+                                        size = (rows, cols);
+                                        if !readonly {
+                                            for &pane in known.keys() {
+                                                rpc.call(Request::Resize { pane, rows, cols })?;
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                    Command::New(cwd) => Request::NewPane {
+                                        cwd,
+                                        command: vec![],
+                                        rows: size.0,
+                                        cols: size.1,
+                                    },
+                                    Command::Close(pane) => Request::Close { pane },
+                                    Command::Rename(pane, title) => Request::Rename { pane, title },
+                                    Command::Capture(pane, purpose) => {
+                                        if let Response::Captured { text } =
+                                            rpc.call(Request::Capture { pane })?
+                                        {
+                                            let _ = tx.send(Update::Captured(text, purpose));
+                                        }
+                                        continue;
+                                    }
+                                    Command::Stop => unreachable!(),
+                                };
+                                let is_input = matches!(req, Request::Input { .. });
+                                match rpc.call(req) {
+                                    Ok(Response::Created { pane }) => {
+                                        let _ = tx.send(Update::Created(pane));
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) if e.to_string().starts_with("server:") => {
+                                        if is_input {
+                                            seq = seq.saturating_sub(1);
+                                        }
+                                        let _ = tx.send(Update::Message(e.to_string()));
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        }
+                        let polled = Instant::now();
+                        let state = rpc.call(Request::Poll {
+                            known: known
+                                .iter()
+                                .map(|(id, revision)| (id.to_string(), *revision))
+                                .collect(),
+                        })?;
+                        let _ = tx.try_send(Update::Latency(polled.elapsed().as_millis() as u64));
+                        if let Response::State { panes } = state {
+                            if !readonly {
+                                for pane in &panes {
+                                    if (pane.rows, pane.cols) != size {
+                                        rpc.call(Request::Resize {
+                                            pane: pane.id,
+                                            rows: size.0,
+                                            cols: size.1,
+                                        })?;
+                                    }
+                                }
+                            }
+                            known = panes.iter().map(|p| (p.id, p.revision)).collect();
+                            if tx.send(Update::State(panes)).is_err() {
+                                return Ok(());
+                            }
+                        }
+                    }
+                })();
+                if result.is_ok() {
+                    return;
+                }
+                let _ = tx.send(Update::Offline(format!(
+                    "{} · uncertain input discarded",
+                    result.unwrap_err()
+                )));
+            }
+            Err(e) => {
+                if tx.send(Update::Offline(format!("{e:#}"))).is_err() {
+                    return;
+                }
+            }
+        }
+        // Discard stale actions throughout backoff, including buffered keystrokes.
+        let until = Instant::now() + Duration::from_millis(backoff);
+        while Instant::now() < until {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Ok(Command::Resize(r, c)) => size = (r, c),
+                _ => {}
+            }
+        }
+        while let Ok(cmd) = rx.try_recv() {
+            if matches!(cmd, Command::Stop) {
+                return;
+            }
+        }
+        backoff = (backoff * 2).min(5000);
+    }
+}
+
+struct Pane {
+    info: PaneView,
+    parser: vt100::Parser,
+}
+enum Mode {
+    Terminal,
+    Command(String),
+    Help,
+    History {
+        lines: Vec<String>,
+        offset: usize,
+        query: String,
+    },
+    Draft,
+    ConfirmDraft,
+    Switch {
+        query: String,
+        selected: usize,
+    },
+}
+struct App {
+    target: String,
+    workspace: String,
+    readonly: bool,
+    online: bool,
+    notice: String,
+    panes: BTreeMap<u64, Pane>,
+    focus: u64,
+    layout: LayoutMode,
+    zoom: bool,
+    latency: Option<u64>,
+    theme: Theme,
+    mode: Mode,
+    prefix: bool,
+    draft: String,
+    tx: SyncSender<Command>,
+    last_size: (u16, u16),
+    started: Instant,
+}
+impl App {
+    fn send(&mut self, command: Command) {
+        if !self.online {
+            self.notice =
+                "Offline: action not sent. Use the draft editor to compose locally.".into();
+            return;
+        }
+        if self.readonly && !matches!(command, Command::Capture(..)) {
+            self.notice = "Read-only attachment".into();
+            return;
+        }
+        if self.tx.try_send(command).is_err() {
+            self.notice = "Input queue full; action was not queued".into();
+        }
+    }
+    fn input(&mut self, data: Vec<u8>) {
+        if data.len() > MAX_INPUT {
+            self.notice = "Paste exceeds 64 KiB; use file transfer".into();
+            return;
+        }
+        self.send(Command::Input {
+            pane: self.focus,
+            data,
+        });
+    }
+    fn command(&mut self, text: &str) -> bool {
+        let (name, arg) = text.trim().split_once(' ').unwrap_or((text.trim(), ""));
+        match name {
+            "detach" | "quit" => return true,
+            "new" => self.send(Command::New(if arg.is_empty() {
+                None
+            } else {
+                Some(arg.into())
+            })),
+            "close" => {
+                self.mode = Mode::Command("confirm-close".into());
+                self.notice = "Press Enter again to terminate and remove this pane".into();
+            }
+            "confirm-close" => self.send(Command::Close(self.focus)),
+            "rename" => self.send(Command::Rename(self.focus, arg.into())),
+            "split" => {
+                self.layout = if self.layout == LayoutMode::Single {
+                    LayoutMode::Vertical
+                } else {
+                    LayoutMode::Single
+                };
+            }
+            "layout" => match LayoutMode::parse(arg) {
+                Some(mode) => self.layout = mode,
+                None => self.notice = "Usage: layout single|vertical|horizontal|grid".into(),
+            },
+            "zoom" => self.zoom = !self.zoom,
+            "switch" => {
+                self.mode = Mode::Switch {
+                    query: arg.into(),
+                    selected: 0,
+                }
+            }
+            "theme" => match Theme::load(arg) {
+                Ok(t) => self.theme = t,
+                Err(e) => self.notice = e.to_string(),
+            },
+            "capture" => self.send(Command::Capture(
+                self.focus,
+                CapturePurpose::View(String::new()),
+            )),
+            "search" => self.send(Command::Capture(
+                self.focus,
+                CapturePurpose::View(arg.into()),
+            )),
+            "export" => {
+                if arg.is_empty() {
+                    self.notice = "Usage: export /local/new-file.txt".into();
+                } else {
+                    self.send(Command::Capture(
+                        self.focus,
+                        CapturePurpose::Export(arg.into()),
+                    ));
+                }
+            }
+            "draft" => self.mode = Mode::Draft,
+            "send-draft" => {
+                if self.draft.is_empty() {
+                    self.notice = "No saved draft".into();
+                } else {
+                    self.mode = Mode::ConfirmDraft;
+                }
+            }
+            "help" => self.mode = Mode::Help,
+            "focus" => {
+                if let Ok(id) = arg.parse() {
+                    if self.panes.contains_key(&id) {
+                        self.focus = id;
+                    }
+                }
+            }
+            "" => {}
+            _ => self.notice = format!("Unknown command: {name}. Use help."),
+        }
+        false
+    }
+    fn mode_now(&self) -> LayoutMode {
+        if self.zoom {
+            LayoutMode::Single
+        } else {
+            self.layout
+        }
+    }
+    /// Panes on screen and their rectangles inside `area`.
+    fn visible(&self, area: Rect) -> Vec<(u64, Rect)> {
+        let ids: Vec<u64> = self.panes.keys().copied().collect();
+        let mode = self.mode_now();
+        let shown = visible_ids(&ids, self.focus, mode);
+        let rects = pane_rects(area, mode, shown.len());
+        shown.into_iter().zip(rects).collect()
+    }
+    fn cycle(&mut self) {
+        let ids: Vec<_> = self.panes.keys().copied().collect();
+        if !ids.is_empty() {
+            let i = ids.iter().position(|id| *id == self.focus).unwrap_or(0);
+            self.focus = ids[(i + 1) % ids.len()];
+        }
+    }
+    fn update(&mut self, update: Update) {
+        match update {
+            Update::Online => {
+                self.online = true;
+                self.notice =
+                    "Attached. Remote PTYs survived independently of the connection.".into();
+                self.last_size = (0, 0);
+            }
+            Update::Offline(s) => {
+                self.online = false;
+                self.notice = s;
+            }
+            Update::Message(s) => self.notice = s,
+            Update::Latency(ms) => self.latency = Some(ms),
+            Update::Created(id) => self.focus = id,
+            Update::Captured(text, purpose) => match purpose {
+                CapturePurpose::View(query) => {
+                    let lines: Vec<_> = text
+                        .lines()
+                        .filter(|l| {
+                            query.is_empty() || l.to_lowercase().contains(&query.to_lowercase())
+                        })
+                        .map(str::to_owned)
+                        .collect();
+                    self.mode = Mode::History {
+                        lines,
+                        offset: 0,
+                        query,
+                    };
+                }
+                CapturePurpose::Scrollback(_) => {}
+                CapturePurpose::Export(path) => {
+                    self.notice =
+                        match util::private_write(std::path::Path::new(&path), text.as_bytes()) {
+                            Ok(()) => format!("Exported to {path}"),
+                            Err(e) => format!("Export failed: {e}"),
+                        };
+                }
+            },
+            Update::State(views) => {
+                self.panes.retain(|id, _| views.iter().any(|p| p.id == *id));
+                for view in views {
+                    let pane = self.panes.entry(view.id).or_insert_with(|| Pane {
+                        parser: vt100::Parser::new(view.rows, view.cols, 0),
+                        info: view.clone(),
+                    });
+                    if let Some(bytes) = &view.screen {
+                        pane.parser = vt100::Parser::new(view.rows, view.cols, 0);
+                        pane.parser.process(bytes);
+                    }
+                    if let (None, Some(code)) = (pane.info.exited, view.exited) {
+                        self.notice = format!("Pane {} exited ({})", view.id, code);
+                    }
+                    pane.info = view;
+                }
+                if !self.panes.contains_key(&self.focus) {
+                    self.focus = self.panes.keys().next().copied().unwrap_or(1);
+                }
+            }
+        }
+    }
+}
+
+fn terminal_area(size: Rect) -> Rect {
+    let sidebar = if size.width >= 90 { 20 } else { 0 };
+    Rect::new(
+        size.x + sidebar,
+        size.y + 3,
+        size.width.saturating_sub(sidebar),
+        size.height.saturating_sub(6),
+    )
+}
+/// Pane ids whose id, title or directory contains `query` (case-insensitive).
+fn switch_matches(panes: &BTreeMap<u64, Pane>, query: &str) -> Vec<u64> {
+    let q = query.to_lowercase();
+    panes
+        .iter()
+        .filter(|(id, p)| {
+            q.is_empty()
+                || format!("{id} {} {}", p.info.title, p.info.cwd)
+                    .to_lowercase()
+                    .contains(&q)
+        })
+        .map(|(id, _)| *id)
+        .collect()
+}
+const MAX_VISIBLE: usize = 4;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum LayoutMode {
+    Single,
+    Vertical,
+    Horizontal,
+    Grid,
+}
+impl LayoutMode {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        Some(match name.trim() {
+            "single" => Self::Single,
+            "vertical" | "v" => Self::Vertical,
+            "horizontal" | "h" => Self::Horizontal,
+            "grid" => Self::Grid,
+            _ => return None,
+        })
+    }
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Single => Self::Vertical,
+            Self::Vertical => Self::Horizontal,
+            Self::Horizontal => Self::Grid,
+            Self::Grid => Self::Single,
+        }
+    }
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Vertical => "vertical",
+            Self::Horizontal => "horizontal",
+            Self::Grid => "grid",
+        }
+    }
+    /// Cell grid `(rows, columns)` for `n` panes.
+    pub(crate) fn dims(self, n: usize) -> (u16, u16) {
+        let n = n.clamp(1, MAX_VISIBLE) as u16;
+        match self {
+            Self::Single => (1, 1),
+            Self::Vertical => (n, 1),
+            Self::Horizontal => (1, n),
+            Self::Grid => {
+                let cols = if n > 1 { 2 } else { 1 };
+                (n.div_ceil(cols), cols)
+            }
+        }
+    }
+}
+/// Pane ids shown for a layout: all of them when they fit, otherwise a window that contains the focus.
+pub(crate) fn visible_ids(ids: &[u64], focus: u64, mode: LayoutMode) -> Vec<u64> {
+    if mode == LayoutMode::Single || ids.is_empty() {
+        return vec![focus];
+    }
+    if ids.len() <= MAX_VISIBLE {
+        return ids.to_vec();
+    }
+    let at = ids.iter().position(|id| *id == focus).unwrap_or(0);
+    let start = at.min(ids.len() - MAX_VISIBLE);
+    ids[start..start + MAX_VISIBLE].to_vec()
+}
+/// Split `area` into `n` cells; a short last row stretches its panes across the full width.
+fn pane_rects(area: Rect, mode: LayoutMode, n: usize) -> Vec<Rect> {
+    let n = n.clamp(1, MAX_VISIBLE);
+    let (rows, cols) = mode.dims(n);
+    let (rows, cols) = (usize::from(rows), usize::from(cols));
+    let span = |start: usize, count: usize, total: u16| {
+        let t = usize::from(total);
+        (
+            (t * start / count) as u16,
+            (t * (start + 1) / count - t * start / count) as u16,
+        )
+    };
+    (0..n)
+        .map(|i| {
+            let (r, c) = (i / cols, i % cols);
+            let in_row = (n - r * cols).min(cols);
+            let (y, h) = span(r, rows, area.height);
+            let (x, w) = span(c, in_row, area.width);
+            Rect::new(area.x + x, area.y + y, w, h)
+        })
+        .collect()
+}
+fn desired_size(size: Rect, mode: LayoutMode, n: usize) -> (u16, u16) {
+    let a = terminal_area(size);
+    let (rows, cols) = mode.dims(n);
+    (
+        (a.height / rows).saturating_sub(2).clamp(2, 160),
+        (a.width / cols).saturating_sub(2).clamp(10, 400),
+    )
+}
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |a, (i, b)| a | u32::from(*b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+fn vt_color(c: vt100::Color, default: Color, theme: &Theme) -> Color {
+    match c {
+        vt100::Color::Default => default,
+        vt100::Color::Idx(n) => theme.indexed(n),
+        vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
+    }
+}
+fn render_pane(f: &mut Frame, rect: Rect, pane: &Pane, theme: &Theme, focused: bool) {
+    let title = format!(
+        " {} / {}{} ",
+        pane.info.id,
+        pane.info.title,
+        if pane.info.exited.is_some() {
+            " · exited"
+        } else {
+            ""
+        }
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(if focused { theme.accent } else { theme.border }))
+        .style(Style::default().bg(theme.background).fg(theme.foreground));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+    let screen = pane.parser.screen();
+    for row in 0..inner.height.min(pane.info.rows) {
+        for col in 0..inner.width.min(pane.info.cols) {
+            if let Some(cell) = screen.cell(row, col) {
+                if cell.is_wide_continuation() {
+                    continue;
+                }
+                let mut style = Style::default()
+                    .fg(vt_color(cell.fgcolor(), theme.foreground, theme))
+                    .bg(vt_color(cell.bgcolor(), theme.background, theme));
+                if cell.bold() {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
+                if cell.italic() {
+                    style = style.add_modifier(Modifier::ITALIC);
+                }
+                if cell.underline() {
+                    style = style.add_modifier(Modifier::UNDERLINED);
+                }
+                if cell.inverse() {
+                    style = style.add_modifier(Modifier::REVERSED);
+                }
+                let text = cell.contents();
+                f.buffer_mut().set_stringn(
+                    inner.x + col,
+                    inner.y + row,
+                    if text.is_empty() { " " } else { text },
+                    usize::from(inner.width - col),
+                    style,
+                );
+            }
+        }
+    }
+    if focused && !screen.hide_cursor() {
+        let (row, col) = screen.cursor_position();
+        if row < inner.height && col < inner.width {
+            f.set_cursor_position((inner.x + col, inner.y + row));
+        }
+    }
+}
+fn draw(f: &mut Frame, app: &App) {
+    let size = f.area();
+    let t = &app.theme;
+    f.render_widget(
+        Block::default().style(Style::default().bg(t.background).fg(t.foreground)),
+        size,
+    );
+    let top = Rect::new(0, 0, size.width, 3.min(size.height));
+    let (dot, status) = if app.online {
+        ("● ", "CONNECTED")
+    } else {
+        ("◌ ", "RECONNECTING")
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                "  Z ",
+                Style::default()
+                    .fg(Color::Rgb(0xff, 0x5a, 0x15))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "TERYON  ",
+                Style::default()
+                    .fg(t.foreground)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!("{} / {}  ", app.target, app.workspace)),
+            Span::styled(
+                dot,
+                Style::default().fg(if app.online { t.success } else { t.warning }),
+            ),
+            Span::styled(status, Style::default().fg(t.muted)),
+            Span::raw(if app.readonly { " · READ ONLY" } else { "" }),
+            Span::styled(
+                format!(
+                    "  {}{} · {} pane{}{} · {}",
+                    app.layout.name(),
+                    if app.zoom { " (zoom)" } else { "" },
+                    app.panes.len(),
+                    if app.panes.len() == 1 { "" } else { "s" },
+                    app.latency
+                        .map_or(String::new(), |ms| format!(" · {ms} ms")),
+                    util::clock_hhmm()
+                ),
+                Style::default().fg(t.muted),
+            ),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(t.border)),
+        )
+        .style(Style::default().bg(t.panel)),
+        top,
+    );
+    let area = terminal_area(size);
+    if size.width >= 90 {
+        let mut lines = vec![
+            Line::styled(" WORKSPACE", Style::default().fg(t.muted)),
+            Line::raw(format!(" {}", app.workspace)),
+            Line::raw(""),
+            Line::styled(" PANES", Style::default().fg(t.muted)),
+        ];
+        for (id, p) in &app.panes {
+            lines.push(Line::styled(
+                format!(
+                    " {} {} {}",
+                    if *id == app.focus { "›" } else { " " },
+                    id,
+                    p.info.title
+                ),
+                Style::default().fg(if *id == app.focus {
+                    t.accent
+                } else {
+                    t.foreground
+                }),
+            ));
+        }
+        lines.extend([
+            Line::raw(""),
+            Line::styled(" THEME", Style::default().fg(t.muted)),
+            Line::raw(format!(" {}", t.name)),
+            Line::raw(""),
+            Line::styled(" Ctrl+Space → ?", Style::default().fg(t.muted)),
+        ]);
+        f.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .style(Style::default().bg(t.panel)),
+            Rect::new(0, 3, 20, size.height.saturating_sub(6)),
+        );
+    }
+    for (id, rect) in app.visible(area) {
+        if let Some(p) = app.panes.get(&id) {
+            render_pane(f, rect, p, t, id == app.focus);
+        }
+    }
+    if size.height >= 3 {
+        let footer = Rect::new(0, size.height - 3, size.width, 3);
+        let mut notice = app.notice.clone();
+        if app.online && notice.starts_with("Attached.") {
+            notice = format!("{notice}  ·  Tip: {}", tip(app.started.elapsed()));
+        }
+        if !app.online {
+            notice = format!("Cached screen · {notice}");
+        }
+        f.render_widget(Paragraph::new(vec![Line::styled(notice,Style::default().fg(if app.online{t.muted}else{t.warning})),Line::raw(format!(" Ctrl+Space → n new · Tab focus · s layout · z zoom · w switch · t theme · : commands · d detach  |  {}",if app.prefix{"PREFIX: choose action"}else{"remote input"}))]).wrap(Wrap{trim:false}).style(Style::default().bg(t.panel)),footer);
+    }
+    let modal=match &app.mode{
+        Mode::Terminal=>return,
+        Mode::Command(text)=>("Command palette · Enter run / Esc cancel".into(),format!("❯ {text}\n\nnew [remote directory] · rename TITLE · close · split\nlayout single|vertical|horizontal|grid · zoom · switch [TEXT]\ntheme NAME · search TEXT · capture · export /local/file\ndraft · send-draft · focus ID · detach · help")),
+        Mode::Help=>("Keyboard & commands · Esc close".into(),format!("Ctrl+Space opens the prefix layer\n n  New pane     Tab Next pane     s Cycle layout\n z  Zoom pane    w Switch pane     x Close pane\n t  Cycle theme  : Command palette d Detach\n /  Search       h History        e Draft editor\n ?  This help    Ctrl+Space again sends NUL\n\nNormal keys go to your remote program.\nRead-only viewers cannot type or resize.\n\nThemes: {}\n\nTransfers: teryon push/pull HOST SOURCE DEST\nPorts: teryon forward HOST LOCAL:REMOTE\nDisconnects never replay queued input.",BUILTINS.join(", "))),
+        Mode::History{lines,offset,query}=>(format!("Retained output · {} matches · {} · ↑↓ PgUp/PgDn · y yank · Esc",lines.len(),query),lines.iter().skip(*offset).take(usize::from(size.height.saturating_sub(8))).cloned().collect::<Vec<_>>().join("\n")),
+        Mode::Switch{query,selected}=>{
+            let ids=switch_matches(&app.panes, query);
+            let list=ids.iter().enumerate().filter_map(|(i,id)|app.panes.get(id).map(|p|format!("{} {} / {}  {}",if i==*selected{"›"}else{" "},id,p.info.title,p.info.cwd))).collect::<Vec<_>>().join("\n");
+            ("Switch pane · type to filter · ↑↓ Enter / Esc".into(),format!("❯ {query}\n\n{list}"))
+        }
+        Mode::Draft=>("Offline draft · Enter save / Esc close".into(),format!("{}\n\nSaved locally in memory. Use send-draft to review and submit.",app.draft)),
+        Mode::ConfirmDraft=>("Review draft · Enter SEND / Esc cancel".into(),format!("Destination: {} / {} / pane {}\n\n{}\n\nThis sends the draft followed by Enter to the remote shell.",app.target,app.workspace,app.focus,app.draft)),
+    };
+    let rect = Rect::new(
+        size.width / 20,
+        size.height / 6,
+        size.width.saturating_sub(size.width / 10),
+        size.height.saturating_sub(size.height / 3),
+    );
+    f.render_widget(Clear, rect);
+    f.render_widget(
+        Paragraph::new(modal.1)
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title(modal.0)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(t.accent)),
+            )
+            .style(Style::default().bg(t.panel).fg(t.foreground)),
+        rect,
+    );
+}
+
+pub fn run(
+    target: Target,
+    workspace: String,
+    readonly: bool,
+    cwd: Option<String>,
+    theme: Theme,
+    mouse: bool,
+) -> Result<()> {
+    if !valid_name(&workspace) {
+        bail!("invalid workspace name");
+    }
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        bail!("interactive terminal required; use exec/capture for scripts");
+    }
+    let mut terminal = ratatui::init();
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = execute!(
+                std::io::stdout(),
+                DisableMouseCapture,
+                DisableBracketedPaste
+            );
+            ratatui::restore();
+        }
+    }
+    let _restore = Restore;
+    execute!(std::io::stdout(), EnableBracketedPaste)?;
+    if mouse {
+        execute!(std::io::stdout(), EnableMouseCapture)?;
+    }
+    let size = terminal.size()?;
+    let initial = desired_size(
+        Rect::new(0, 0, size.width, size.height),
+        LayoutMode::Single,
+        1,
+    );
+    let (tx, rx) = mpsc::sync_channel(64);
+    let (updates_tx, updates) = mpsc::sync_channel(32);
+    let worker_target = target.clone();
+    let worker_ws = workspace.clone();
+    thread::spawn(move || {
+        worker(
+            worker_target,
+            worker_ws,
+            readonly,
+            cwd,
+            rx,
+            updates_tx,
+            initial,
+        )
+    });
+    let mut app = App {
+        target: target.host,
+        workspace,
+        readonly,
+        online: false,
+        notice: "Connecting…".into(),
+        panes: BTreeMap::new(),
+        focus: 1,
+        layout: LayoutMode::Single,
+        zoom: false,
+        latency: None,
+        theme,
+        mode: Mode::Terminal,
+        prefix: false,
+        draft: String::new(),
+        tx,
+        last_size: initial,
+        started: Instant::now(),
+    };
+    let result = (|| -> Result<()> {
+        loop {
+            while let Ok(u) = updates.try_recv() {
+                app.update(u);
+            }
+            let size = terminal.size()?;
+            let screen = Rect::new(0, 0, size.width, size.height);
+            let wanted = desired_size(
+                screen,
+                app.mode_now(),
+                app.visible(terminal_area(screen)).len(),
+            );
+            if app.online
+                && wanted != app.last_size
+                && app.tx.try_send(Command::Resize(wanted.0, wanted.1)).is_ok()
+            {
+                app.last_size = wanted;
+            }
+            terminal.draw(|f| draw(f, &app))?;
+            if !event::poll(Duration::from_millis(33))? {
+                continue;
+            }
+            match event::read()? {
+                Event::Key(k) if k.kind != KeyEventKind::Release => {
+                    if k.code == KeyCode::Esc && !matches!(app.mode, Mode::Terminal) {
+                        app.mode = Mode::Terminal;
+                        continue;
+                    }
+                    match &mut app.mode {
+                        Mode::Command(text) => match k.code {
+                            KeyCode::Enter => {
+                                let command = text.clone();
+                                app.mode = Mode::Terminal;
+                                if app.command(&command) {
+                                    break;
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                text.pop();
+                            }
+                            KeyCode::Char(c) => text.push(c),
+                            _ => {}
+                        },
+                        Mode::Draft => match k.code {
+                            KeyCode::Enter => {
+                                app.mode = Mode::Terminal;
+                                app.notice =
+                                    "Draft saved in memory; use send-draft when ready".into();
+                            }
+                            KeyCode::Backspace => {
+                                app.draft.pop();
+                            }
+                            KeyCode::Char(c) if app.draft.len() < 32768 => {
+                                app.draft.push(c);
+                            }
+                            _ => {}
+                        },
+                        Mode::ConfirmDraft => {
+                            if k.code == KeyCode::Enter {
+                                if app.online && !app.readonly {
+                                    let data = format!("{}\r", app.draft).into_bytes();
+                                    if data.len() <= MAX_INPUT
+                                        && app
+                                            .tx
+                                            .try_send(Command::Input {
+                                                pane: app.focus,
+                                                data,
+                                            })
+                                            .is_ok()
+                                    {
+                                        app.draft.clear();
+                                        app.mode = Mode::Terminal;
+                                    } else {
+                                        app.notice =
+                                            "Draft retained: input queue full or text too large"
+                                                .into();
+                                    }
+                                } else {
+                                    app.notice =
+                                        "Connect with write access before submitting".into();
+                                }
+                            }
+                        }
+                        Mode::History { lines, offset, .. } => match k.code {
+                            KeyCode::Up => *offset = offset.saturating_sub(1),
+                            KeyCode::Down => {
+                                *offset = (*offset + 1).min(lines.len().saturating_sub(1))
+                            }
+                            KeyCode::Char('y') => {
+                                let mut text = lines.join("\n");
+                                let mut end = text.len().min(MAX_INPUT);
+                                while !text.is_char_boundary(end) {
+                                    end -= 1;
+                                }
+                                text.truncate(end);
+                                print!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
+                                let _ = std::io::Write::flush(&mut std::io::stdout());
+                                app.notice = format!(
+                                    "Yanked {} line(s) via OSC 52 (terminal must allow clipboard writes)",
+                                    lines.len()
+                                );
+                                app.mode = Mode::Terminal;
+                            }
+                            KeyCode::PageUp => *offset = offset.saturating_sub(10),
+                            KeyCode::PageDown => {
+                                *offset = (*offset + 10).min(lines.len().saturating_sub(1))
+                            }
+                            _ => {}
+                        },
+                        Mode::Switch { query, selected } => {
+                            let q = query.clone();
+                            match k.code {
+                                KeyCode::Enter => {
+                                    let pick =
+                                        switch_matches(&app.panes, &q).get(*selected).copied();
+                                    if let Some(id) = pick {
+                                        app.focus = id;
+                                    }
+                                    app.mode = Mode::Terminal;
+                                }
+                                KeyCode::Up => *selected = selected.saturating_sub(1),
+                                KeyCode::Down => *selected += 1,
+                                KeyCode::Backspace => {
+                                    query.pop();
+                                    *selected = 0;
+                                }
+                                KeyCode::Char(c) if query.len() < 64 => {
+                                    query.push(c);
+                                    *selected = 0;
+                                }
+                                _ => {}
+                            }
+                            if let Mode::Switch { selected, .. } = &mut app.mode {
+                                *selected = (*selected)
+                                    .min(switch_matches(&app.panes, &q).len().saturating_sub(1));
+                            }
+                        }
+                        Mode::Help => {}
+                        Mode::Terminal => {
+                            let prefix = k.code == KeyCode::Char(' ')
+                                && k.modifiers.contains(KeyModifiers::CONTROL)
+                                || k.code == KeyCode::Null;
+                            if app.prefix {
+                                app.prefix = false;
+                                match k.code {
+                                    KeyCode::Char('d') => break,
+                                    KeyCode::Char('n') => app.send(Command::New(None)),
+                                    KeyCode::Tab => app.cycle(),
+                                    KeyCode::Char('s') => app.layout = app.layout.next(),
+                                    KeyCode::Char('z') => app.zoom = !app.zoom,
+                                    KeyCode::Char('w') => {
+                                        app.mode = Mode::Switch {
+                                            query: String::new(),
+                                            selected: 0,
+                                        }
+                                    }
+                                    KeyCode::Char('x') => {
+                                        app.command("close");
+                                    }
+                                    KeyCode::Char('t') => {
+                                        let i = BUILTINS
+                                            .iter()
+                                            .position(|n| {
+                                                Theme::load(n)
+                                                    .is_ok_and(|t| t.name == app.theme.name)
+                                            })
+                                            .unwrap_or(0);
+                                        app.theme =
+                                            Theme::load(BUILTINS[(i + 1) % BUILTINS.len()])?;
+                                    }
+                                    KeyCode::Char(':') => app.mode = Mode::Command(String::new()),
+                                    KeyCode::Char('/') => {
+                                        app.mode = Mode::Command("search ".into())
+                                    }
+                                    KeyCode::Char('h') => app.send(Command::Capture(
+                                        app.focus,
+                                        CapturePurpose::View(String::new()),
+                                    )),
+                                    KeyCode::Char('e') => app.mode = Mode::Draft,
+                                    KeyCode::Char('?') => app.mode = Mode::Help,
+                                    _ if prefix => app.input(vec![0]),
+                                    _ => {}
+                                }
+                            } else if prefix {
+                                app.prefix = true;
+                            } else {
+                                let app_cursor = app
+                                    .panes
+                                    .get(&app.focus)
+                                    .is_some_and(|p| p.parser.screen().application_cursor());
+                                if let Some(bytes) = keys::encode(k, app_cursor) {
+                                    app.input(bytes);
+                                }
+                            }
+                        }
+                    }
+                }
+                Event::Mouse(m) if matches!(app.mode, Mode::Terminal) => {
+                    let screen = Rect::new(0, 0, size.width, size.height);
+                    match m.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            let hit = app
+                                .visible(terminal_area(screen))
+                                .into_iter()
+                                .find(|(_, r)| r.contains((m.column, m.row).into()))
+                                .map(|(id, _)| id);
+                            let listed = (size.width >= 90 && m.column < 20 && m.row >= 7)
+                                .then(|| app.panes.keys().nth(usize::from(m.row - 7)).copied())
+                                .flatten();
+                            if let Some(id) = hit.or(listed) {
+                                app.focus = id;
+                            }
+                        }
+                        MouseEventKind::ScrollUp => app.send(Command::Capture(
+                            app.focus,
+                            CapturePurpose::View(String::new()),
+                        )),
+                        _ => {}
+                    }
+                }
+                Event::Paste(text) => match &mut app.mode {
+                    Mode::Terminal => {
+                        let bracketed = app
+                            .panes
+                            .get(&app.focus)
+                            .is_some_and(|p| p.parser.screen().bracketed_paste());
+                        app.input(keys::paste(&text, bracketed));
+                    }
+                    Mode::Draft => {
+                        if app.draft.len() + text.len() <= 32768 {
+                            app.draft.push_str(&text.replace(['\r', '\n'], " "));
+                        }
+                    }
+                    Mode::Command(s) if s.len() + text.len() < 8192 => {
+                        s.push_str(&text.replace(['\r', '\n'], " "));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        Ok(())
+    })();
+    let _ = app.tx.try_send(Command::Stop);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn layouts_tile_the_area_without_overlap() {
+        let area = Rect::new(2, 3, 100, 40);
+        for mode in [
+            LayoutMode::Vertical,
+            LayoutMode::Horizontal,
+            LayoutMode::Grid,
+        ] {
+            for n in 1..=MAX_VISIBLE {
+                let rects = pane_rects(area, mode, n);
+                assert_eq!(rects.len(), n);
+                let cells: u32 = rects
+                    .iter()
+                    .map(|r| u32::from(r.width) * u32::from(r.height))
+                    .sum();
+                assert_eq!(cells, 100 * 40, "{mode:?} {n}");
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(area.contains(a.as_position()));
+                    for b in &rects[i + 1..] {
+                        assert!(!a.intersects(*b), "{mode:?} {n}");
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn visible_window_keeps_focus_and_single_ignores_others() {
+        let ids = [1, 2, 3, 4, 5, 6];
+        assert_eq!(visible_ids(&ids, 6, LayoutMode::Grid), [3, 4, 5, 6]);
+        assert_eq!(visible_ids(&ids, 1, LayoutMode::Vertical), [1, 2, 3, 4]);
+        assert_eq!(visible_ids(&ids, 3, LayoutMode::Single), [3]);
+        assert_eq!(visible_ids(&[], 1, LayoutMode::Grid), [1]);
+    }
+    #[test]
+    fn pane_size_shrinks_with_more_cells() {
+        let screen = Rect::new(0, 0, 120, 40);
+        let one = desired_size(screen, LayoutMode::Single, 1);
+        let grid = desired_size(screen, LayoutMode::Grid, 4);
+        assert!(grid.0 < one.0 && grid.1 < one.1);
+    }
+    #[test]
+    fn tips_rotate_and_wrap() {
+        assert_eq!(tip(Duration::from_secs(0)), TIPS[0]);
+        assert_eq!(tip(Duration::from_secs(12)), TIPS[1]);
+        assert_eq!(tip(Duration::from_secs(12 * TIPS.len() as u64)), TIPS[0]);
+    }
+    #[test]
+    fn base64_matches_rfc4648_vectors() {
+        for (i, o) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+        ] {
+            assert_eq!(base64(i.as_bytes()), o);
+        }
+    }
+    #[test]
+    fn terminal_ui_renders_small_and_large_light_dark_disconnected_views() {
+        for theme in BUILTINS {
+            for (width, height) in [(36, 12), (120, 40)] {
+                let (tx, _rx) = mpsc::sync_channel(4);
+                let info = PaneView {
+                    id: 1,
+                    title: "Shell".into(),
+                    cwd: "/tmp".into(),
+                    pid: Some(1),
+                    rows: 24,
+                    cols: 80,
+                    revision: 1,
+                    screen: None,
+                    exited: None,
+                };
+                let mut parser = vt100::Parser::new(24, 80, 0);
+                parser.process("\x1b[32mUnicode λ界\x1b[0m".as_bytes());
+                let mut app = App {
+                    target: "mini".into(),
+                    workspace: "test".into(),
+                    readonly: false,
+                    online: false,
+                    notice: "Connection interrupted".into(),
+                    panes: BTreeMap::from([(1, Pane { info, parser })]),
+                    focus: 1,
+                    layout: LayoutMode::Grid,
+                    zoom: false,
+                    latency: Some(12),
+                    theme: Theme::load(theme).unwrap(),
+                    mode: Mode::Terminal,
+                    prefix: false,
+                    draft: String::new(),
+                    tx,
+                    last_size: (24, 80),
+                    started: Instant::now(),
+                };
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                        .unwrap();
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                app.mode = Mode::Help;
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                app.mode = Mode::Switch {
+                    query: String::new(),
+                    selected: 0,
+                };
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                app.mode = Mode::ConfirmDraft;
+                app.draft = "echo reviewed".into();
+                terminal.draw(|f| draw(f, &app)).unwrap();
+            }
+        }
+    }
+}

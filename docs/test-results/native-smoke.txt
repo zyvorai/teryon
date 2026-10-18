@@ -1,0 +1,2 @@
+PASS native window launch and framebuffer capture: obsidian
+PASS native window launch and framebuffer capture: pearl

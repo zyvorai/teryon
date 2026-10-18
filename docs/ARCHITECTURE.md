@@ -1,0 +1,58 @@
+# Architecture
+
+## Process ownership
+
+```mermaid
+flowchart TD
+    A["TUI or native desktop"] --> B["OpenSSH child process"]
+    B --> C["Remote stdio relay"]
+    C --> D["Private authenticated IPC"]
+    D --> E["Per-user session daemon"]
+    E --> F["Workspace controller lease"]
+    E --> G["PTY owners and output readers"]
+    G --> H["Shells and foreground jobs"]
+```
+
+The remote relay contains no session state. Its lifetime is tied to SSH. The daemon owns every PTY master, output reader and child wait handle; a client going away releases its controller lease but does not destroy panes.
+
+`daemon::ensure` launches a detached process with `setsid`, null stdin, and private log output. A held file lock prevents two daemons from owning the same runtime directory. The daemon does not daemonize twice and does not install a privileged service.
+
+## Local IPC
+
+Default directory: `~/.teryon/run`, mode `0700`, owned by the current effective user. The endpoint descriptor is written privately with an atomic rename. The preferred transport is a mode-0600 Unix socket. If Unix socket binding is unavailable, an ephemeral `127.0.0.1` TCP listener is used. Both paths require a fresh 128-bit random token from the private descriptor before accepting protocol traffic. The token never crosses the public network: the authenticated remote relay reads it locally.
+
+`TERYON_RUNTIME_DIR` sets an alternate private directory, useful for isolated tests. `TERYON_IPC=tcp` deliberately selects the loopback path. Do not share runtime directories across users or mount them in a public folder. TCP fallback is local authentication, not a public network service; TLS and SSH are not replaced by the bearer token.
+
+## Wire format
+
+Protocol version 1 uses bounded newline-delimited JSON. Binary terminal input and ANSI snapshots are JSON byte arrays. Frames are capped at 8 MiB; input actions are capped at 64 KiB. The receiver reads incrementally with a hard bound before deserializing. EOF mid-frame is an error.
+
+First, the local IPC client sends the endpoint token as one JSON string line. Next, the application sends `{"op":"hello","version":1}`. A version mismatch is rejected before attaching a workspace. SSH itself handles network authentication, encryption and host identity.
+
+Requests cover hello, list, attach, poll, input, resize, new pane, rename, close, capture, info, remove and shutdown. The definitions in `src/protocol.rs` are authoritative.
+
+Poll requests include previously observed pane revisions. Changed panes return a complete formatted terminal state; unchanged panes return metadata without screen bytes. This deliberately favors recovery simplicity over a sophisticated display-delta protocol. A reconnect resets the client's revision cache, so it obtains fresh full screens.
+
+This design is not optimized for 4K video-like terminal output or very high-latency links: request/response polling adds latency and full-screen snapshots use more bandwidth than mature incremental transports. It is a safe starting point for measuring and improving the transport.
+
+## Controller leases and input
+
+Each connection receives a random internal connection ID. A workspace permits one controller ID and any number of read-only attachments. All mutating pane operations verify the lease on the server. Disconnect releases only the matching ID, preventing an older connection from clearing a newer lease.
+
+Input actions use consecutive sequence numbers. Repeating an already accepted number acknowledges it without writing twice. A gap is rejected. Deduplication applies to one connection and live daemon; it is not an exactly-once execution contract across reconnects, application crashes, or arbitrary shell side effects.
+
+Acknowledgment means the input was accepted into a bounded per-pane queue. A dedicated writer thread may block on a PTY without holding the global workspace mutex. The client never automatically retries uncertain input. Client actions buffered at a connection failure are discarded throughout reconnect backoff. No zero-RTT replay of terminal commands is used.
+
+## Terminal state
+
+`portable-pty` creates real platform PTYs; `vt100` maintains bounded terminal state and scrollback. The server answers basic cursor-position, status, and device-attribute requests. Screen snapshots include cursor/application input modes. Output parsing happens even with no client attached, so a program cannot block merely because its client detached.
+
+The TUI paints terminal cells with Ratatui/Crossterm; the desktop paints them with egui/eframe and an OpenGL renderer. Network operations run on a worker thread. The desktop is native Rust; there is no webview, JavaScript backend, or remote code execution in the UI.
+
+OSC52 clipboard requests are ignored. The remote process cannot silently overwrite the local system clipboard through terminal escape sequences. Local Copy buttons perform explicit copies instead.
+
+## State durability
+
+PTYs, controller leases, deduplication counters, terminal screens and retained output live in daemon memory. A saved layout stores titles and the directories used when panes were created. It does not serialize process memory, shell variables, arbitrary open files or the current directory after a shell `cd`.
+
+Restoring a layout creates new shells and never replays captured commands. Layout restoration is not transactional: an invalid later directory or a resource limit can leave a partially created new workspace, which the user can inspect and remove.

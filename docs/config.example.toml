@@ -1,0 +1,32 @@
+theme = "mac27-dark"
+# Show the TERYON banner when connecting (also: --no-splash, TERYON_NO_SPLASH=1).
+splash = true
+# Click to focus panes, wheel opens history. Replaces terminal text selection (hold Shift/Option to select).
+mouse = false
+
+[hosts.mini]
+destination = "susant@mini.local"
+# remote_bin = "/Users/susant/.local/bin/teryon"
+
+# Keep keys, jump hosts, ports and identities in ~/.ssh/config.
+# TERYON honors OpenSSH; it does not copy private keys.
+
+# Native desktop app (`teryon desktop`). Every option is optional; the file is reloaded while the
+# app runs, and `teryon config --check` validates it.
+# [desktop]
+# font_family = "JetBrains Mono"   # family/file name in the font folders, or an absolute path
+# font_size = 13.0
+# line_height = 1.45
+# padding = 8.0
+# cursor_style = "block"           # block | bar | underline
+# cursor_blink = false
+# window_opacity = 1.0             # below 1.0 needs a restart to take effect
+# unfocused_opacity = 0.82         # brightness of unfocused panes
+# copy_on_select = false
+# scrollback_lines = 10000
+# pane_titles = "auto"             # auto | always | never
+# confirm_quit = false
+#
+# [desktop.keys]                   # action = "chord"; "none" unbinds
+# palette = "cmd+p"
+# new_pane_below = "cmd+shift+e"
