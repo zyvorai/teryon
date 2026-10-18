@@ -176,7 +176,7 @@ impl Target {
     fn rsync_command(&self) -> Command {
         // --protect-args prevents the remote shell from interpreting filenames.
         // --partial-dir preserves interrupted transfers without in-place corruption.
-        let mut cmd = Command::new("rsync");
+        let mut cmd = Command::new(rsync_binary());
         let mut ssh="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3".to_string();
         if let Some(path) = std::env::var_os("TERYON_SSH_CONFIG") {
             ssh.push_str(" -F ");
@@ -185,6 +185,9 @@ impl Target {
         cmd.args([
             "-a",
             "--protect-args",
+            // Non-interactive SSH sessions often lack Homebrew on PATH, and macOS's own rsync
+            // (openrsync) cannot do --protect-args, so ask for a real rsync on the far side too.
+            "--rsync-path=PATH=/opt/homebrew/bin:/usr/local/bin:$PATH rsync",
             "--partial-dir=.teryon-partial",
             "--progress",
             "-e",
@@ -263,6 +266,28 @@ impl Target {
         Ok(())
     }
 }
+/// The rsync to run: the first one on PATH or in a Homebrew prefix that is not macOS's openrsync
+/// (which lacks `--protect-args`). GUI apps start without Homebrew on PATH, hence the fixed list.
+fn rsync_binary() -> &'static str {
+    static CHOICE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CHOICE.get_or_init(|| {
+        let usable = |bin: &str| {
+            Command::new(bin)
+                .arg("--version")
+                .stdin(Stdio::null())
+                .output()
+                .is_ok_and(|o| {
+                    o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("openrsync")
+                })
+        };
+        ["rsync", "/opt/homebrew/bin/rsync", "/usr/local/bin/rsync"]
+            .into_iter()
+            .find(|bin| usable(bin))
+            .unwrap_or("rsync")
+            .to_string()
+    })
+}
+
 pub struct Rpc {
     pub instance: String,
     reader: BufReader<Box<dyn Read + Send>>,

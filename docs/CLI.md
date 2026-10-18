@@ -13,7 +13,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `exec … --wait --timeout SECONDS` | Wait for exit and return its status; timeout leaves job running |
 | `exec … --wait --notify` | Also ring the bell, send OSC 9 and (macOS) a desktop notification on exit |
 | `send HOST -w NAME --pane ID --enter TEXT` | Explicit input, requiring exclusive controller access |
-| `push HOST SOURCE DESTINATION` | Upload via rsync 3+ |
+| `push HOST SOURCE DESTINATION` | Upload via rsync 3+ (on macOS: `brew install rsync` on both machines; TERYON finds the Homebrew one itself, since macOS's built-in rsync is too old) |
 | `pull HOST SOURCE DESTINATION` | Download via rsync 3+ |
 | `forward HOST LOCAL:REMOTE --reconnect` | Foreground loopback tunnel with optional restart |
 | `deploy HOST --binary PATH` | Verify and install an explicitly supplied target binary |
