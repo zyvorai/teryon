@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fixed the Linux build: an import used only by the macOS Keychain code failed `clippy -D warnings` on Linux.
+- Release workflow now publishes a GitHub Release with the archives and these notes (`macos-arm64` and `linux-x86_64`).
+- Website: absolute Open Graph and Twitter card tags with a 1200x630 social image, canonical URL, sitemap, robots.txt, 404 page, new sections for agents, AI and the file browser. Social card and launch copy in `docs/social/` (`build-social-card.sh` renders it with headless Chrome).
+
 ## 0.15.0 — a calmer display and a file browser
 
 - **File browser** (⌘B, also in the ▾ menu → View and the palette): a Finder-like sidebar for the focused pane's directory, following `cd`, on this machine or over SSH. Breadcrumb, filter, dotfile toggle, icons by file type. Click selects, double-click opens a folder or types a quoted path at the prompt, **Space opens Quick Look** (first 64 KB of a text file, binary files are reported as such), ↑/↓/Enter/Backspace/Esc work from the keyboard. The context menu has Quick Look, Insert path, Copy path, cd here (types it, never presses Enter) and Reveal in Finder (local, macOS). Quick Look also shows PNG and JPEG images (up to 8 MB, shrunk to fit). **Download** (remote hosts) copies a file or folder to `~/Downloads` by streaming `tar` over SSH, so neither machine needs rsync, and never replaces an existing item. **Rename…** and **Move to Trash…** ask first, never replace an existing name, and delete nothing: items go to the Trash (local) or `~/.teryon-trash` (SSH host). `[desktop] file_browser = true` opens it at start. Remote access uses plain `ls` and `head` over the existing SSH transport, so no new daemon request and no protocol change.

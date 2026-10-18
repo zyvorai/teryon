@@ -1,6 +1,8 @@
 //! Where the API key comes from: `ANTHROPIC_API_KEY`, then the macOS Keychain. Never config files or logs.
 use anyhow::{bail, Result};
-use std::process::{Command, Stdio};
+use std::process::Command;
+#[cfg(target_os = "macos")]
+use std::process::Stdio;
 
 pub const KEYCHAIN_SERVICE: &str = "teryon-anthropic";
 

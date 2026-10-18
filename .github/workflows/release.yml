@@ -13,7 +13,7 @@ jobs:
           - os: ubuntu-latest
             artifact: linux-x86_64
           - os: macos-latest
-            artifact: macos-native-runner
+            artifact: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -36,3 +36,30 @@ jobs:
         with:
           name: teryon-${{ matrix.artifact }}
           path: dist/*.tar.gz
+  publish:
+    # Only for a pushed tag: attach the archives and the changelog section to a GitHub Release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) found = 1 }
+            found { print }
+          ' CHANGELOG.md | sed '1d' > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+            --title "TERYON ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag
