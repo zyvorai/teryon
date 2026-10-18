@@ -44,6 +44,30 @@ pub(super) struct MenuState {
     pub full: bool,
 }
 
+/// A Font Awesome glyph (from the bundled Nerd Font) for a menu label, when it has one.
+fn glyph(label: &str) -> Option<char> {
+    Some(match label {
+        "New Tab" | "New Pane" => '\u{f067}',
+        "Open Workspace…" => '\u{f07c}',
+        "Copy" | "Copy Special" => '\u{f0c5}',
+        "Paste" => '\u{f0ea}',
+        "Select All" => '\u{f245}',
+        "Find…" => '\u{f002}',
+        "Split Right" | "Split Below" | "Pane" => '\u{f0db}',
+        "Layout" => '\u{f009}',
+        "Snippets" => '\u{f121}',
+        "View" => '\u{f06e}',
+        "Command Palette" => '\u{f120}',
+        "Keyboard Shortcuts" => '\u{f11c}',
+        "Reload Config" => '\u{f021}',
+        "Close Pane" => '\u{f00d}',
+        _ => return None,
+    })
+}
+
+/// Width reserved in front of every label, so rows with and without an icon line up.
+const ICON_COLUMN: f32 = 24.;
+
 /// One menu row, macOS style: roomy, rounded accent highlight on hover, shortcut dimmed on the right.
 fn entry(
     ui: &mut egui::Ui,
@@ -71,13 +95,17 @@ fn entry(
         },
     );
     let hot = enabled && resp.hovered();
-    if hot {
-        ui.painter().rect_filled(rect, 6., color(cx.theme.primary));
+    // The highlight eases in and out instead of snapping.
+    let k = ui.ctx().animate_bool_with_time(resp.id, hot, 0.12);
+    if k > 0. {
+        ui.painter()
+            .rect_filled(rect, 6., color(cx.theme.primary).gamma_multiply(k));
     }
-    let (text, dim) = if hot {
-        (Color32::WHITE, Color32::from_white_alpha(190))
-    } else if enabled {
-        (color(cx.theme.foreground), color(cx.theme.muted))
+    let (text, dim) = if enabled {
+        (
+            color(cx.theme.foreground).lerp_to_gamma(Color32::WHITE, k),
+            color(cx.theme.muted).lerp_to_gamma(Color32::from_white_alpha(190), k),
+        )
     } else {
         (
             color(cx.theme.muted),
@@ -85,8 +113,17 @@ fn entry(
         )
     };
     let p = ui.painter();
+    if let Some(g) = glyph(label) {
+        p.text(
+            rect.left_center() + Vec2::new(10., 0.),
+            egui::Align2::LEFT_CENTER,
+            g,
+            FontId::proportional(12.),
+            dim,
+        );
+    }
     p.text(
-        rect.left_center() + Vec2::new(10., 0.),
+        rect.left_center() + Vec2::new(10. + ICON_COLUMN, 0.),
         egui::Align2::LEFT_CENTER,
         label,
         FontId::proportional(13.),
@@ -119,12 +156,25 @@ fn submenu(ui: &mut egui::Ui, cx: &Cx, label: &str, add: impl FnOnce(&mut egui::
         ui.set_min_width(220.);
         // Justified, so the row spans the menu and the submenu opens beside it instead of on top of it.
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-            ui.menu_button(format!("{label}   ›"), |ui| {
+            let icon = glyph(label).map_or_else(|| "   ".to_string(), |g| format!("{g}   "));
+            ui.menu_button(format!("{icon}{label}   ›"), |ui| {
                 ui.set_min_width(220.);
                 add(ui);
             });
         });
     });
+}
+
+/// A small caps group label above a run of rows.
+fn header(ui: &mut egui::Ui, cx: &Cx, text: &str) {
+    ui.add_space(4.);
+    ui.label(
+        RichText::new(text.to_uppercase())
+            .size(10.)
+            .strong()
+            .color(color(cx.theme.muted)),
+    );
+    ui.add_space(1.);
 }
 
 fn rule(ui: &mut egui::Ui, cx: &Cx) {
@@ -151,6 +201,7 @@ pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<Me
     let mut out = None;
     ui.spacing_mut().item_spacing.y = 1.;
     if st.full {
+        header(ui, cx, "Workspace");
         entry(ui, cx, "New Tab", MenuPick::Act(A::NewTab), true, &mut out);
         entry(
             ui,
@@ -169,6 +220,7 @@ pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<Me
             &mut out,
         );
         rule(ui, cx);
+        header(ui, cx, "Edit");
     }
     entry(ui, cx, "Copy", MenuPick::Copy, st.selection, &mut out);
     entry(ui, cx, "Paste", MenuPick::Paste, true, &mut out);
@@ -335,6 +387,7 @@ pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<Me
             );
         });
         rule(ui, cx);
+        header(ui, cx, "Help");
         entry(
             ui,
             cx,

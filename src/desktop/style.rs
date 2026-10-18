@@ -126,6 +126,12 @@ pub(super) fn font_definitions(
         .entry(egui::FontFamily::Monospace)
         .or_default()
         .push("nerd-symbols".into());
+    // Menus put a small icon in front of each label.
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .push("nerd-symbols".into());
     fonts
 }
 
@@ -387,6 +393,8 @@ mod tests {
         let fonts = font_definitions(|_| None, None);
         let list = &fonts.families[&egui::FontFamily::Monospace];
         assert_eq!(list.last().map(String::as_str), Some("nerd-symbols"));
+        let ui_list = &fonts.families[&egui::FontFamily::Proportional];
+        assert_eq!(ui_list.last().map(String::as_str), Some("nerd-symbols"));
         let ctx = egui::Context::default();
         ctx.set_fonts(font_definitions(|_| None, None));
         let font = FontId::monospace(14.);
