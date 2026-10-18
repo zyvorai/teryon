@@ -67,6 +67,7 @@ pub const ACTION_NAMES: &[&str] = &[
     "copy_screen",
     "draft",
     "ai",
+    "files",
     "agents",
     "ai_command",
 ];
@@ -91,6 +92,7 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("cmd+ctrl+down", "resize_down"),
     ("cmd+ctrl+=", "equalize"),
     ("cmd+j", "ai"),
+    ("cmd+b", "files"),
     ("cmd+shift+a", "agents"),
     ("cmd+shift+k", "ai_command"),
     ("cmd+f", "find"),

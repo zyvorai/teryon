@@ -2,6 +2,7 @@
 
 ## Unreleased — a calmer display
 
+- **File browser** (⌘B, also in the ▾ menu → View and the palette): a Finder-like sidebar for the focused pane's directory, following `cd`, on this machine or over SSH. Breadcrumb, filter, dotfile toggle, icons by file type. Click selects, double-click opens a folder or types a quoted path at the prompt, **Space opens Quick Look** (first 64 KB of a text file, binary files are reported as such), ↑/↓/Enter/Backspace/Esc work from the keyboard. The context menu has Quick Look, Insert path, Copy path, cd here (types it, never presses Enter) and Reveal in Finder (local, macOS). Read-only: it never changes files. Remote access uses plain `ls` and `head` over the existing SSH transport, so no new daemon request and no protocol change.
 - Panes are now rounded cards inset from the window edge (`[desktop] pane_inset`, default 10, 0 restores edge to edge) with a hairline border and a soft accent ring on the focused pane; dividers show only while hovered or dragged.
 - Palette shortcuts are drawn as keycaps at the row's right edge, and menu and palette rows span the full width, so hints and submenus no longer overlap their labels.
 - A lone, nearly empty pane shows a faint mark with the shortcuts for the palette, Ask AI and the command bar; it disappears once there is output.

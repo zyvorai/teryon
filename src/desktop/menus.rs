@@ -61,6 +61,7 @@ pub(super) fn glyph(label: &str) -> Option<char> {
         "keyboard shortcuts" => '\u{f11c}',
         "reload config" => '\u{f021}',
         "close pane" => '\u{f00d}',
+        "file browser" => '\u{f07b}',
         "ask ai" => '\u{f005}',
         "agents overview" => '\u{f0c0}',
         "next theme" => '\u{f1fc}',
@@ -364,6 +365,14 @@ pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<Me
                 cx,
                 "Actual Size",
                 MenuPick::Act(A::FontReset),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
+                "File Browser",
+                MenuPick::Act(A::Files),
                 true,
                 &mut out,
             );

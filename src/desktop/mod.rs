@@ -26,6 +26,7 @@ mod aicmd;
 mod away;
 mod bar;
 mod dropzone;
+mod files;
 mod find;
 mod floating;
 mod hints;
@@ -184,6 +185,7 @@ pub struct Desktop {
     /// Text queued for the clipboard; flushed with the egui context each frame.
     copy_text: Option<String>,
     ai: ai::Panel,
+    files: files::Browser,
     agents_open: bool,
     aicmd: aicmd::Bar,
     /// A failed-command chip was clicked: explain this pane's failure with the assistant.
@@ -331,6 +333,7 @@ impl Desktop {
             latency: None,
             copy_text: None,
             ai: ai::Panel::new(),
+            files: files::Browser::new(),
             agents_open: false,
             aicmd: aicmd::Bar::default(),
             explain_req: None,
@@ -645,6 +648,7 @@ impl Desktop {
             || self.draft_open
             || self.history.is_some()
             || self.confirm_close
+            || self.files.has_focus
         {
             return;
         }
@@ -814,6 +818,7 @@ impl Desktop {
             self.window_title = title;
         }
         self.top_bar(ctx);
+        self.files_ui(ctx);
         self.ai_panel(ctx);
         self.agents_overview(ctx);
         self.away_ui(ctx);
@@ -1269,6 +1274,7 @@ impl Desktop {
             }
             ActionKind::Draft => self.draft_open = true,
             ActionKind::Ai => self.ai_toggle(),
+            ActionKind::Files => self.files_toggle(),
             ActionKind::Agents => self.agents_open = !self.agents_open,
             ActionKind::AiCommand => self.aicmd_toggle(),
         }

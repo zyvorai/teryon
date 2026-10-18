@@ -63,6 +63,7 @@ pub(super) enum ActionKind {
     CopyScreen,
     Draft,
     Ai,
+    Files,
     Agents,
     AiCommand,
 }
@@ -128,6 +129,7 @@ impl ActionKind {
                 Self::CopyScreen => "copy_screen",
                 Self::Draft => "draft",
                 Self::Ai => "ai",
+                Self::Files => "files",
                 Self::Agents => "agents",
                 Self::AiCommand => "ai_command",
                 Self::Layout(_)
@@ -202,6 +204,7 @@ impl ActionKind {
             "copy_screen" => Self::CopyScreen,
             "draft" => Self::Draft,
             "ai" => Self::Ai,
+            "files" => Self::Files,
             "agents" => Self::Agents,
             "ai_command" => Self::AiCommand,
             _ => return None,
@@ -224,6 +227,7 @@ pub(super) fn actions(
     let plain = [
         ("Command palette", ActionKind::Palette),
         ("Ask AI…", ActionKind::Ai),
+        ("File browser", ActionKind::Files),
         ("Agents overview", ActionKind::Agents),
         ("AI command bar: describe a command…", ActionKind::AiCommand),
         ("Open workspace…", ActionKind::OpenWorkspace),

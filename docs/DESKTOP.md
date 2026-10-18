@@ -29,6 +29,10 @@ in the background you get a notification when one needs you or finishes (`[deskt
 it off). Because the daemon keeps the agent running, you can close the app, reconnect later and see "While you were
 away" with what finished or failed; ✦ Summarize asks the assistant for a short recap.
 
+## File browser
+
+**⌘B** opens a sidebar listing the focused pane's directory; it follows `cd`, and works the same on a remote host (it runs `ls` and `head` over your SSH connection, nothing extra on the host). Click a row to select it, double-click to open a folder or type a quoted path at the prompt, **Space** for Quick Look (the first 64 KB of a text file), ↑/↓ to move, Enter to open, Backspace to go up, Esc to return to the pane. Right-click offers Quick Look, Insert path, Copy path, cd here and Reveal in Finder (local only). Nothing is run for you: paths and `cd` lines are typed without Enter. It is read-only and does not change files.
+
 ## Describe a command
 
 ⌘⇧K opens a bar at the top: say what you want, review the command and its risk, press Enter to insert it at the
