@@ -41,6 +41,20 @@ use term::Scrollback;
 struct Pane {
     info: PaneView,
     parser: vt100::Parser,
+    /// Shell-integration marks (kept between polls; the daemon sends them only when the screen changes).
+    marks: Vec<Mark>,
+    /// Exit-status notification bookkeeping: unix time of the last `D` mark already announced.
+    announced: u64,
+}
+impl Pane {
+    fn new(info: PaneView, parser: vt100::Parser) -> Self {
+        Self {
+            info,
+            parser,
+            marks: Vec::new(),
+            announced: 0,
+        }
+    }
 }
 /// Everything that belongs to one attached workspace; parked tabs keep theirs here.
 struct Session {
@@ -462,12 +476,12 @@ impl Desktop {
                 Update::Message(s) => self.notice = s,
                 Update::Latency(ms) => self.latency = Some(ms),
                 Update::Created(id) => self.focus = id,
-                Update::Captured(text, purpose) => match purpose {
+                Update::Captured(text, first_line, purpose) => match purpose {
                     CapturePurpose::View(query) => {
                         self.history = Some(text);
                         self.query = query;
                     }
-                    CapturePurpose::Scrollback(id) => self.finish_scrollback(id, &text),
+                    CapturePurpose::Scrollback(id) => self.finish_scrollback(id, &text, first_line),
                     CapturePurpose::Export(path) => {
                         self.notice = match crate::util::private_write(
                             std::path::Path::new(&path),
@@ -481,13 +495,31 @@ impl Desktop {
                 Update::State(views) => {
                     self.panes.retain(|id, _| views.iter().any(|p| p.id == *id));
                     for view in views {
-                        let pane = self.panes.entry(view.id).or_insert_with(|| Pane {
-                            info: view.clone(),
-                            parser: vt100::Parser::new(view.rows, view.cols, 0),
+                        let pane = self.panes.entry(view.id).or_insert_with(|| {
+                            Pane::new(view.clone(), vt100::Parser::new(view.rows, view.cols, 0))
                         });
                         if let Some(bytes) = &view.screen {
                             pane.parser = vt100::Parser::new(view.rows, view.cols, 0);
                             pane.parser.process(bytes);
+                        }
+                        if let Some(m) = &view.marks {
+                            // A long command finished while the window is in the background.
+                            if let Some(d) = m.iter().rev().find(|mk| mk.kind == 'D') {
+                                if d.at > pane.announced {
+                                    let limit = u64::from(self.cfg.notify_after_seconds) * 1000;
+                                    let long = d.ms.is_some_and(|ms| limit > 0 && ms >= limit);
+                                    if pane.announced != 0 && long && !self.window_focused {
+                                        crate::util::notify(&format!(
+                                            "Pane {} finished a command in {} s (exit {})",
+                                            view.id,
+                                            d.ms.unwrap_or(0) / 1000,
+                                            d.exit.map_or("?".to_string(), |c| c.to_string())
+                                        ));
+                                    }
+                                    pane.announced = d.at;
+                                }
+                            }
+                            pane.marks = m.clone();
                         }
                         if let (None, Some(code)) = (pane.info.exited, view.exited) {
                             self.notice = format!("Pane {} finished with exit {}", view.id, code);
@@ -1017,18 +1049,23 @@ impl Desktop {
         self.palette = false;
         match kind {
             ActionKind::Palette => self.palette = true,
-            ActionKind::NewPane => self.send(Command::New(None)),
+            ActionKind::NewPane => {
+                let cwd = self.focus_cwd();
+                self.send(Command::New(cwd));
+            }
             ActionKind::NewPaneRight => {
                 if matches!(self.layout, LayoutMode::Single | LayoutMode::Vertical) {
                     self.layout = LayoutMode::Horizontal;
                 }
-                self.send(Command::New(None));
+                let cwd = self.focus_cwd();
+                self.send(Command::New(cwd));
             }
             ActionKind::NewPaneBelow => {
                 if matches!(self.layout, LayoutMode::Single | LayoutMode::Horizontal) {
                     self.layout = LayoutMode::Vertical;
                 }
-                self.send(Command::New(None));
+                let cwd = self.focus_cwd();
+                self.send(Command::New(cwd));
             }
             ActionKind::Focus(dir) => self.focus_dir(dir),
             ActionKind::Resize(dir) => self.resize_focused(dir, 0.02),
@@ -1143,6 +1180,9 @@ impl Desktop {
                 });
             }
             ActionKind::Scroll(s) => self.scroll_action(s),
+            ActionKind::PromptPrev => self.jump_prompt(true),
+            ActionKind::PromptNext => self.jump_prompt(false),
+            ActionKind::CopyLastOutput => self.copy_last_output(),
             ActionKind::History => self.send(Command::Capture(
                 self.focus,
                 CapturePurpose::View(String::new()),
@@ -1290,6 +1330,13 @@ impl Desktop {
         if let Some(name) = if is_dark { dark } else { light } {
             self.run_action(ActionKind::Theme(name));
         }
+    }
+    /// The focused pane's working directory (live when shell integration reports it), for new panes.
+    fn focus_cwd(&self) -> Option<String> {
+        self.panes
+            .get(&self.focus)
+            .map(|p| p.info.cwd.clone())
+            .filter(|c| !c.is_empty())
     }
     fn toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), Instant::now()));
@@ -1556,8 +1603,9 @@ mod tests {
                     revision: 1,
                     screen: None,
                     exited: None,
+                    ..Default::default()
                 };
-                app.panes.insert(1, Pane { info: view, parser });
+                app.panes.insert(1, Pane::new(view, parser));
                 let ctx = egui::Context::default();
                 let output = ctx.run(
                     egui::RawInput {
@@ -1601,9 +1649,10 @@ mod tests {
                         revision: 1,
                         screen: None,
                         exited: None,
+                        ..Default::default()
                     };
                     let parser = vt100::Parser::new(24, 80, 0);
-                    app.panes.insert(id, Pane { info: view, parser });
+                    app.panes.insert(id, Pane::new(view, parser));
                 }
                 let ctx = egui::Context::default();
                 let output = ctx.run(
@@ -1822,7 +1871,7 @@ mod tests {
         app.scroll_by(1, 3);
         assert!(rx.try_recv().is_err(), "second scroll must not refetch");
         let text: String = (0..100).map(|i| format!("line {i}\n")).collect();
-        app.finish_scrollback(1, &text);
+        app.finish_scrollback(1, &text, 0);
         assert_eq!(app.scrollback[&1].offset, 8);
         app.scroll_by(1, 1000);
         assert_eq!(app.scrollback[&1].offset, 90);
@@ -1830,7 +1879,11 @@ mod tests {
         assert!(!app.scrollback.contains_key(&1));
         app.cfg.scrollback_lines = 100;
         app.scroll_by(1, 5);
-        app.finish_scrollback(1, &(0..500).map(|i| format!("{i}\n")).collect::<String>());
+        app.finish_scrollback(
+            1,
+            &(0..500).map(|i| format!("{i}\n")).collect::<String>(),
+            0,
+        );
         assert_eq!(app.scrollback[&1].lines.len(), 110);
     }
     #[test]
@@ -1977,8 +2030,8 @@ mod tests {
         parser.process(text.as_bytes());
         app.panes.insert(
             1,
-            Pane {
-                info: PaneView {
+            Pane::new(
+                PaneView {
                     id: 1,
                     title: "sh".into(),
                     cwd: "/tmp".into(),
@@ -1986,11 +2039,10 @@ mod tests {
                     rows: 10,
                     cols: 60,
                     revision: 1,
-                    screen: None,
-                    exited: None,
+                    ..Default::default()
                 },
                 parser,
-            },
+            ),
         );
         (app, rx)
     }
@@ -2012,24 +2064,24 @@ mod tests {
         let info = app.panes[&1].info.clone();
         app.panes.insert(
             2,
-            Pane {
-                info: PaneView {
+            Pane::new(
+                PaneView {
                     id: 2,
                     ..info.clone()
                 },
-                parser: vt100::Parser::new(10, 60, 0),
-            },
+                vt100::Parser::new(10, 60, 0),
+            ),
         );
         app.panes.insert(
             3,
-            Pane {
-                info: PaneView {
+            Pane::new(
+                PaneView {
                     id: 3,
                     exited: Some(0),
                     ..info
                 },
-                parser: vt100::Parser::new(10, 60, 0),
-            },
+                vt100::Parser::new(10, 60, 0),
+            ),
         );
         for id in [1, 2, 3] {
             app.pane_rects
@@ -2126,7 +2178,7 @@ mod tests {
             rx.try_recv(),
             Ok(Command::Capture(1, CapturePurpose::Scrollback(1)))
         ));
-        app.finish_scrollback(1, "old line\none\ntwo\nthree");
+        app.finish_scrollback(1, "old line\none\ntwo\nthree", 0);
         assert!(app.copy_active());
         let ctx = egui::Context::default();
         let typed = |app: &mut Desktop, s: &str| {
@@ -2213,7 +2265,7 @@ mod tests {
         app.hints = None;
         app.view_rows.insert(1, 10);
         app.start_copy_mode();
-        app.finish_scrollback(1, "alpha\nbeta\ngamma");
+        app.finish_scrollback(1, "alpha\nbeta\ngamma", 0);
         let typed = egui::RawInput {
             events: vec![egui::Event::Text("vj".into())],
             ..Default::default()
@@ -2230,5 +2282,118 @@ mod tests {
         render(&mut app, &ctx, 420.);
         render(&mut app, &ctx, 1180.);
         assert!(app.find_count >= 1);
+    }
+    fn mark(kind: char, line: u64, exit: Option<i32>, ms: Option<u64>) -> Mark {
+        Mark {
+            kind,
+            line,
+            exit,
+            ms,
+            at: 100 + line,
+        }
+    }
+    #[test]
+    fn durations_and_chips_read_naturally() {
+        use term::{command_chip, format_duration};
+        assert_eq!(format_duration(340), "340 ms");
+        assert_eq!(format_duration(1200), "1.2 s");
+        assert_eq!(format_duration(125_000), "2m 05s");
+        assert_eq!(command_chip(&[]), None);
+        assert_eq!(
+            command_chip(&[mark('A', 0, None, None), mark('C', 1, None, None)]),
+            Some(("running…".into(), false))
+        );
+        assert_eq!(
+            command_chip(&[mark('C', 1, None, None), mark('D', 3, Some(0), Some(400))]),
+            Some(("✓ 400 ms".into(), false))
+        );
+        assert_eq!(
+            command_chip(&[mark('D', 3, Some(2), Some(61_000))]),
+            Some(("✗ 2 · 1m 01s".into(), true))
+        );
+        assert_eq!(
+            command_chip(&[mark('D', 3, None, None)]),
+            Some(("done".into(), false))
+        );
+    }
+    #[test]
+    fn prompts_can_be_jumped_to_and_the_last_output_copied() {
+        let (mut app, rx) = app_with_screen("");
+        app.view_rows.insert(1, 5);
+        app.panes.get_mut(&1).unwrap().info.top_line = 40;
+        app.panes.get_mut(&1).unwrap().marks = vec![
+            mark('A', 10, None, None),
+            mark('C', 11, None, None),
+            mark('D', 14, Some(0), Some(50)),
+            mark('A', 14, None, None),
+            mark('C', 15, None, None),
+            mark('D', 18, Some(1), Some(900)),
+            mark('A', 18, None, None),
+        ];
+        // History: 50 lines with absolute numbers 0..50, so line i reads "line i".
+        let text: String = (0..50).map(|i| format!("line {i}\n")).collect();
+        app.jump_prompt(true);
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::Capture(1, CapturePurpose::Scrollback(1)))
+        ));
+        app.finish_scrollback(1, &text, 0);
+        // The newest prompt above the live screen (top line 40) is 18: it is placed at the view's top.
+        assert_eq!(app.view_top_line(1), 18);
+        app.jump_prompt(true);
+        assert_eq!(app.view_top_line(1), 14);
+        app.jump_prompt(true);
+        assert_eq!(app.view_top_line(1), 10);
+        app.jump_prompt(true);
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("No earlier prompt")));
+        app.jump_prompt(false);
+        assert_eq!(app.view_top_line(1), 14);
+        // Last output = lines from the C mark up to the D mark of the last command.
+        app.copy_last_output();
+        assert_eq!(app.copy_text.as_deref(), Some("line 15\nline 16\nline 17"));
+    }
+    #[test]
+    fn copying_last_output_fetches_history_when_needed_and_explains_missing_integration() {
+        let (mut app, rx) = app_with_screen("");
+        app.copy_last_output();
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("shell integration")));
+        app.panes.get_mut(&1).unwrap().marks =
+            vec![mark('C', 2, None, None), mark('D', 4, Some(0), Some(5))];
+        app.copy_last_output();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::Capture(1, CapturePurpose::Scrollback(1)))
+        ));
+        app.finish_scrollback(1, "a\nb\nc\nd\ne", 0);
+        assert_eq!(app.copy_text.as_deref(), Some("c\nd"));
+        assert!(
+            app.scrollback.is_empty(),
+            "the view opened only for this is closed again"
+        );
+        // Output that has scrolled out of the retained history is reported, not guessed.
+        app.panes.get_mut(&1).unwrap().marks =
+            vec![mark('C', 2, None, None), mark('D', 4, Some(0), None)];
+        app.copy_last_output();
+        let _ = rx.try_recv();
+        app.finish_scrollback(1, "x\ny", 100);
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("no longer retained")));
+    }
+    #[test]
+    fn new_panes_start_in_the_focused_panes_working_directory() {
+        let (mut app, rx) = app_with_screen("");
+        app.panes.get_mut(&1).unwrap().info.cwd = "/srv/app".into();
+        app.run_action(ActionKind::NewPane);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(Some(c))) if c == "/srv/app"));
+        app.run_action(ActionKind::NewPaneBelow);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(Some(_)))));
     }
 }

@@ -63,7 +63,7 @@ pub(crate) enum Update {
     State(Vec<PaneView>),
     Message(String),
     Created(u64),
-    Captured(String, CapturePurpose),
+    Captured(String, u64, CapturePurpose),
     Latency(u64),
 }
 
@@ -134,10 +134,11 @@ pub(crate) fn worker(
                                     Command::Close(pane) => Request::Close { pane },
                                     Command::Rename(pane, title) => Request::Rename { pane, title },
                                     Command::Capture(pane, purpose) => {
-                                        if let Response::Captured { text } =
+                                        if let Response::Captured { text, first_line } =
                                             rpc.call(Request::Capture { pane })?
                                         {
-                                            let _ = tx.send(Update::Captured(text, purpose));
+                                            let _ = tx
+                                                .send(Update::Captured(text, first_line, purpose));
                                         }
                                         continue;
                                     }
@@ -396,7 +397,7 @@ impl App {
             Update::Message(s) => self.notice = s,
             Update::Latency(ms) => self.latency = Some(ms),
             Update::Created(id) => self.focus = id,
-            Update::Captured(text, purpose) => match purpose {
+            Update::Captured(text, _, purpose) => match purpose {
                 CapturePurpose::View(query) => {
                     let lines: Vec<_> = text
                         .lines()
@@ -1178,6 +1179,7 @@ mod tests {
                     revision: 1,
                     screen: None,
                     exited: None,
+                    ..Default::default()
                 };
                 let mut parser = vt100::Parser::new(24, 80, 0);
                 parser.process("\x1b[32mUnicode λ界\x1b[0m".as_bytes());

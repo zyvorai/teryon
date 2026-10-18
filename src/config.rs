@@ -79,6 +79,9 @@ pub struct DesktopConfig {
     /// Brightness of unfocused panes, 0.2 (dim) to 1.0 (no dimming).
     pub unfocused_opacity: f32,
     pub copy_on_select: bool,
+    /// Notify when a command that took at least this many seconds finishes while the window is in
+    /// the background (needs shell integration; 0 turns it off).
+    pub notify_after_seconds: u32,
     /// Themes to switch to when macOS goes light or dark (either may be left out).
     pub theme_light: Option<String>,
     pub theme_dark: Option<String>,
@@ -104,6 +107,7 @@ impl Default for DesktopConfig {
             window_opacity: 1.,
             unfocused_opacity: 0.82,
             copy_on_select: false,
+            notify_after_seconds: 10,
             theme_light: None,
             theme_dark: None,
             scrollback_lines: 10_000,
@@ -128,6 +132,9 @@ impl DesktopConfig {
         check("padding", self.padding, 0., 48.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
+        if self.notify_after_seconds > 86_400 {
+            bail!("desktop.notify_after_seconds must be at most 86400");
+        }
         if !(100..=1_000_000).contains(&self.scrollback_lines) {
             bail!("desktop.scrollback_lines must be between 100 and 1000000");
         }

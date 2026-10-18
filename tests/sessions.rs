@@ -105,7 +105,7 @@ impl Client {
         panes
     }
     fn capture(&mut self, pane: u64) -> String {
-        let Response::Captured { text } = self.call(Request::Capture { pane }) else {
+        let Response::Captured { text, .. } = self.call(Request::Capture { pane }) else {
             panic!("no capture")
         };
         text
@@ -116,7 +116,11 @@ impl Client {
             if self.capture(pane).contains(needle) {
                 break;
             }
-            assert!(Instant::now() < deadline, "missing output: {needle}");
+            assert!(
+                Instant::now() < deadline,
+                "missing output: {needle}; the pane shows: {:?}",
+                self.capture(pane)
+            );
             thread::sleep(Duration::from_millis(30));
         }
     }
@@ -215,7 +219,8 @@ fn input_sequence_deduplicates_and_rejects_gaps() {
     let mut c = d.client();
     c.attach("input", false);
     let file = d.dir.path().join("counter");
-    let command = format!("printf x >> {}; printf 'ACCEPTED\\n'\r", file.display());
+    // The output marker is split in the typed text so the shell's echo of the command cannot match it.
+    let command = format!("printf x >> {}; printf 'ACC%sED\\n' EPT\r", file.display());
     for _ in 0..2 {
         assert!(matches!(
             c.call(Request::Input {
@@ -227,7 +232,6 @@ fn input_sequence_deduplicates_and_rejects_gaps() {
         ));
     }
     c.until(1, "ACCEPTED");
-    thread::sleep(Duration::from_millis(100));
     assert_eq!(std::fs::read(&file).unwrap(), b"x");
     assert!(matches!(
         c.call(Request::Input {
@@ -349,9 +353,15 @@ fn terminal_cursor_queries_are_answered_without_a_client_terminal() {
     let d = Daemon::start();
     let mut c = d.client();
     c.attach("queries", false);
-    let Response::Created{pane}=c.call(Request::NewPane{cwd:None,command:vec!["/bin/sh".into(),"-c".into(),r"stty raw -echo; printf '\033[6n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; printf '\nQUERY_DONE\n'".into()],rows:24,cols:80})else{panic!()};
+    let Response::Created{pane}=c.call(Request::NewPane{cwd:None,command:vec!["/bin/sh".into(),"-c".into(),r"stty raw -echo; printf '\033[6n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane; printf '\nQUERY_DONE\n'".into()],rows:24,cols:80})else{panic!()};
     c.until(pane, "QUERY_DONE");
-    assert!(c.capture(pane).contains("1b 5b 31 3b 31 52"));
+    // `od` pads with different spacing on macOS and Linux.
+    let shown = c
+        .capture(pane)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(shown.contains("1b 5b 31 3b 31 52"), "{shown}");
 }
 #[test]
 fn ipc_rejects_a_wrong_local_token() {
@@ -452,5 +462,156 @@ fn explicit_pane_close_terminates_a_job_that_ignores_hangup() {
         }
         assert!(Instant::now() < deadline, "terminated process still alive");
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Shell integration through a real PTY: OSC 7 sets the live cwd, OSC 133 records prompt/command/done
+/// marks with exit status and duration, all at absolute line numbers.
+#[test]
+fn shell_integration_marks_cwd_and_exact_line_numbers_reach_clients() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("marks", false);
+    let script = "printf '\\033]7;file://h/tmp/x%%20y\\007\\033]133;A\\007'; echo prompt; printf '\\033]133;C\\007'; sleep 0.3; echo out; printf '\\033]133;D;3\\007'; sleep 6";
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec!["/bin/sh".into(), "-c".into(), script.into()],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    let deadline = Instant::now() + Duration::from_secs(6);
+    let view = loop {
+        let v = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+        if v.marks
+            .as_ref()
+            .is_some_and(|m| m.iter().any(|m| m.kind == 'D'))
+        {
+            break v;
+        }
+        assert!(Instant::now() < deadline, "marks never arrived");
+        thread::sleep(Duration::from_millis(30));
+    };
+    assert_eq!(view.cwd, "/tmp/x y");
+    let marks = view.marks.unwrap();
+    let kinds: String = marks.iter().map(|m| m.kind).collect();
+    assert_eq!(kinds, "ACD");
+    let done = marks.last().unwrap();
+    assert_eq!(done.exit, Some(3));
+    assert!(
+        done.ms.is_some_and(|ms| (250..5000).contains(&ms)),
+        "duration {:?}",
+        done.ms
+    );
+    // `prompt` is printed on the line after the A mark; output starts at C.
+    assert_eq!(marks[0].line, 0);
+    assert_eq!(marks[1].line, 1);
+    assert_eq!(done.line, 2);
+}
+#[test]
+fn captured_text_has_one_line_per_row_with_exact_absolute_numbers() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("lines", false);
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "i=1; while [ $i -le 2600 ]; do echo l$i; i=$((i+1)); done; sleep 6".into(),
+        ],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    c.until(pane, "l2600");
+    let Response::Captured { text, first_line } = c.call(Request::Capture { pane }) else {
+        panic!("no capture")
+    };
+    assert!(
+        first_line > 0,
+        "2600 lines exceed the 2000-line history, so the oldest were dropped"
+    );
+    for (i, line) in text.lines().enumerate() {
+        assert_eq!(line, format!("l{}", first_line + i as u64 + 1), "line {i}");
+    }
+    let view = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+    assert!(view.top_line >= first_line && view.first_line == first_line);
+}
+
+/// The generated integration script, loaded by real interactive shells, produces marks and the cwd.
+#[test]
+fn generated_shell_integration_works_in_real_interactive_shells() {
+    let bin = env!("CARGO_BIN_EXE_teryon");
+    for (shell, args) in [
+        ("bash", &["--noprofile", "--norc", "-i"][..]),
+        ("zsh", &["-f", "-i"][..]),
+        ("fish", &["--no-config", "-i"][..]),
+    ] {
+        let Ok(path) = Command::new("which").arg(shell).output() else {
+            continue;
+        };
+        let path = String::from_utf8_lossy(&path.stdout).trim().to_string();
+        if path.is_empty() {
+            continue;
+        }
+        let d = Daemon::start();
+        let mut c = d.client();
+        c.attach("shell", false);
+        let mut command = vec![path];
+        command.extend(args.iter().map(|s| s.to_string()));
+        let Response::Created { pane } = c.call(Request::NewPane {
+            cwd: Some("/tmp".into()),
+            command,
+            rows: 24,
+            cols: 100,
+        }) else {
+            panic!("{shell}: no pane")
+        };
+        let mut seq = 0;
+        let mut send = |c: &mut Client, text: String| {
+            seq += 1;
+            c.call(Request::Input {
+                pane,
+                seq,
+                data: text.into_bytes(),
+            });
+        };
+        thread::sleep(Duration::from_millis(600));
+        let load = if shell == "fish" {
+            format!("{bin} shell-init fish | source\r")
+        } else {
+            format!("eval \"$({bin} shell-init {shell})\"\r")
+        };
+        send(&mut c, load);
+        thread::sleep(Duration::from_millis(500));
+        send(&mut c, "false\r".into());
+        thread::sleep(Duration::from_millis(400));
+        send(&mut c, "cd /usr && true\r".into());
+        let deadline = Instant::now() + Duration::from_secs(6);
+        let view = loop {
+            let v = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+            let done: Vec<Option<i32>> = v
+                .marks
+                .iter()
+                .flatten()
+                .filter(|m| m.kind == 'D')
+                .map(|m| m.exit)
+                .collect();
+            if done.contains(&Some(1)) && done.contains(&Some(0)) && v.cwd == "/usr" {
+                break v;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{shell}: marks/cwd missing; saw {done:?} cwd {} screen {}",
+                v.cwd,
+                c.capture(pane)
+            );
+            thread::sleep(Duration::from_millis(50));
+        };
+        let kinds: String = view.marks.unwrap().iter().map(|m| m.kind).collect();
+        assert!(kinds.contains("ACD"), "{shell}: {kinds}");
     }
 }

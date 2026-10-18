@@ -82,6 +82,7 @@ Pane directories represent the directory used at creation. `cd` in the shell doe
   `~/.ssh/config` and `local`. Type to filter, Enter to connect, Tab to list a host's workspaces, or type
   `user@host` to connect to something new. Add `--desktop` (or `start = "desktop"` in `config.toml`) to open the
   desktop app instead.
+* `teryon shell-init zsh|bash|fish` prints the shell integration script (see [SHELL-INTEGRATION.md](SHELL-INTEGRATION.md)).
 * `teryon setup [-y]` is a short guided check: tools, importing SSH hosts, reachability (with the exact
   `doctor --fix` command when a host fails) and theme. Every step asks first and it is safe to re-run.
 

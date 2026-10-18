@@ -5,6 +5,15 @@ use crate::copymode::{CopyMode, Key as CmKey, Outcome};
 use crate::keys::{mouse_report, MouseKind};
 use vt100::MouseProtocolMode as MouseMode;
 
+/// What to do as soon as a pane's history text arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Then {
+    CopyMode,
+    /// Scroll so this absolute line is at the top.
+    Jump(u64),
+    LastOutput,
+}
+
 /// Retained history of one pane, shown instead of the live screen while scrolled back.
 pub(super) struct Scrollback {
     pub lines: Vec<String>,
@@ -15,9 +24,47 @@ pub(super) struct Scrollback {
     pub queued: usize,
     /// Keyboard selection over `buf` (the same text as `lines`, one `char` per cell).
     pub copy: Option<CopyMode>,
-    /// Start copy mode as soon as the text arrives.
-    pub copy_pending: bool,
+    /// Follow-up for a view that was only opened to get at the text.
+    pub then: Option<Then>,
     pub buf: Vec<Vec<char>>,
+    /// Absolute number of `lines[0]` (from the daemon), to match shell-integration marks to text.
+    pub first_line: u64,
+}
+
+/// "1.2 s", "340 ms", "2m 05s".
+pub(super) fn format_duration(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else if ms < 60_000 {
+        format!("{:.1} s", ms as f64 / 1000.)
+    } else {
+        format!("{}m {:02}s", ms / 60_000, (ms / 1000) % 60)
+    }
+}
+/// The status chip for a pane's latest command: running, or finished with its status and time.
+pub(super) fn command_chip(marks: &[Mark]) -> Option<(String, bool)> {
+    let last = marks
+        .iter()
+        .rev()
+        .find(|m| m.kind == 'C' || m.kind == 'D')?;
+    if last.kind == 'C' {
+        return Some(("running…".to_string(), false));
+    }
+    let took = last.ms.map(format_duration);
+    Some(match last.exit {
+        Some(0) => (
+            format!("✓ {}", took.unwrap_or_default()).trim().to_string(),
+            false,
+        ),
+        Some(code) => (
+            match took {
+                Some(t) => format!("✗ {code} · {t}"),
+                None => format!("✗ {code}"),
+            },
+            true,
+        ),
+        None => (took.map_or("done".into(), |t| format!("done · {t}")), false),
+    })
 }
 
 /// Scroll the view so the copy-mode cursor stays on screen.
@@ -81,8 +128,9 @@ impl Desktop {
                             loading: true,
                             queued: step,
                             copy: None,
-                            copy_pending: false,
+                            then: None,
                             buf: Vec::new(),
+                            first_line: 0,
                         },
                     );
                     self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
@@ -113,7 +161,7 @@ impl Desktop {
         }
     }
     /// The daemon's text arrived: fill in the view the user already started scrolling.
-    pub(super) fn finish_scrollback(&mut self, id: u64, text: &str) {
+    pub(super) fn finish_scrollback(&mut self, id: u64, text: &str, first_line: u64) {
         let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
         let Some(sb) = self.scrollback.get_mut(&id) else {
             return;
@@ -126,15 +174,190 @@ impl Desktop {
         let max = lines.len().saturating_sub(rows);
         sb.offset = sb.queued.min(max);
         sb.lines = lines;
+        sb.first_line = first_line;
         sb.loading = false;
-        if sb.copy_pending {
-            sb.copy_pending = false;
-            sb.buf = sb.lines.iter().map(|l| l.chars().collect()).collect();
-            let last = sb.buf.len().saturating_sub(1);
-            sb.copy = Some(CopyMode::new(last, 0, rows));
-            sb.offset = 0;
-        } else if sb.offset == 0 {
-            self.scrollback.remove(&id);
+        let then = sb.then.take();
+        match then {
+            Some(Then::CopyMode) => {
+                sb.buf = sb.lines.iter().map(|l| l.chars().collect()).collect();
+                let last = sb.buf.len().saturating_sub(1);
+                sb.copy = Some(CopyMode::new(last, 0, rows));
+                sb.offset = 0;
+            }
+            Some(Then::Jump(line)) => {
+                Self::place_line(sb, line, rows);
+                if sb.offset == 0 && sb.copy.is_none() {
+                    self.scrollback.remove(&id);
+                }
+            }
+            Some(Then::LastOutput) => {
+                let text = self.last_output_from(id);
+                self.scrollback.remove(&id);
+                self.deliver_output(text);
+            }
+            None if sb.offset == 0 => {
+                self.scrollback.remove(&id);
+            }
+            None => {}
+        }
+    }
+    /// Scroll `sb` so absolute `line` is the top row of the view.
+    fn place_line(sb: &mut Scrollback, line: u64, rows: usize) {
+        let idx = usize::try_from(line.saturating_sub(sb.first_line)).unwrap_or(0);
+        let total = sb.lines.len();
+        let end = (idx + rows).min(total);
+        sb.offset = total.saturating_sub(end);
+    }
+    /// Lines (absolute numbers) of the prompts the shell reported for `id`.
+    fn prompt_lines(&self, id: u64) -> Vec<u64> {
+        let mut v: Vec<u64> = self
+            .panes
+            .get(&id)
+            .map(|p| {
+                p.marks
+                    .iter()
+                    .filter(|m| m.kind == 'A')
+                    .map(|m| m.line)
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+    /// Absolute number of the line at the top of what is on screen for `id`.
+    pub(super) fn view_top_line(&self, id: u64) -> u64 {
+        let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
+        match self.scrollback.get(&id).filter(|s| !s.loading) {
+            Some(sb) => {
+                let end = sb.lines.len().saturating_sub(sb.offset);
+                sb.first_line + end.saturating_sub(rows) as u64
+            }
+            None => self.panes.get(&id).map_or(0, |p| p.info.top_line),
+        }
+    }
+    /// Jump to the previous or next shell prompt (a page scroll when the shell reports none).
+    pub(super) fn jump_prompt(&mut self, back: bool) {
+        let id = self.focus;
+        let lines = self.prompt_lines(id);
+        if lines.is_empty() {
+            self.scroll_action(if back {
+                Scroll::PageUp
+            } else {
+                Scroll::PageDown
+            });
+            return;
+        }
+        let top = self.view_top_line(id);
+        let target = if back {
+            lines.iter().rev().find(|l| **l < top).copied()
+        } else {
+            lines.iter().find(|l| **l > top).copied()
+        };
+        match target {
+            None if back => self.toast("No earlier prompt in the retained history"),
+            None => {
+                self.scrollback.remove(&id);
+            }
+            Some(line) => self.goto_line(id, line),
+        }
+    }
+    fn goto_line(&mut self, id: u64, line: u64) {
+        let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
+        match self.scrollback.get_mut(&id) {
+            Some(sb) if !sb.loading => {
+                Self::place_line(sb, line, rows);
+                if sb.offset == 0 && sb.copy.is_none() {
+                    self.scrollback.remove(&id);
+                }
+            }
+            Some(sb) => sb.then = Some(Then::Jump(line)),
+            None if !self.online => self.toast("Offline: no history to jump in"),
+            None => {
+                self.scrollback
+                    .insert(id, Self::loading_view(Some(Then::Jump(line))));
+                self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
+            }
+        }
+    }
+    fn loading_view(then: Option<Then>) -> Scrollback {
+        Scrollback {
+            lines: Vec::new(),
+            offset: 0,
+            loading: true,
+            queued: 0,
+            copy: None,
+            then,
+            buf: Vec::new(),
+            first_line: 0,
+        }
+    }
+    /// The output lines of the last finished command, from `id`'s marks and loaded history.
+    fn last_output_from(&self, id: u64) -> Result<String, &'static str> {
+        let pane = self.panes.get(&id).ok_or("no pane")?;
+        let d = pane.marks.iter().rev().find(|m| m.kind == 'D').ok_or(
+            "Needs shell integration: add `eval \"$(teryon shell-init zsh)\"` to your shell rc",
+        )?;
+        let c = pane
+            .marks
+            .iter()
+            .rev()
+            .find(|m| m.kind == 'C' && m.line <= d.line)
+            .ok_or("The last command's start is no longer retained")?;
+        let sb = self
+            .scrollback
+            .get(&id)
+            .filter(|s| !s.loading)
+            .ok_or("history not loaded")?;
+        if c.line < sb.first_line {
+            return Err("The last command's output is no longer retained");
+        }
+        let start = usize::try_from(c.line - sb.first_line).unwrap_or(0);
+        let end = usize::try_from(d.line.saturating_sub(sb.first_line))
+            .unwrap_or(0)
+            .min(sb.lines.len());
+        if start >= end {
+            return Err("The last command printed nothing");
+        }
+        let mut lines: Vec<&str> = sb.lines[start..end].iter().map(String::as_str).collect();
+        while lines.last().is_some_and(|l| l.trim().is_empty()) {
+            lines.pop();
+        }
+        Ok(lines.join("\n"))
+    }
+    fn deliver_output(&mut self, text: Result<String, &'static str>) {
+        match text {
+            Ok(t) if !t.is_empty() => {
+                let n = t.lines().count();
+                self.copy_text = Some(t);
+                self.toast(format!("Copied last command output ({n} line(s))"));
+            }
+            Ok(_) => self.toast("The last command printed nothing"),
+            Err(e) => self.toast(e),
+        }
+    }
+    /// Copy the output of the last finished command (needs shell integration).
+    pub(super) fn copy_last_output(&mut self) {
+        let id = self.focus;
+        if self
+            .panes
+            .get(&id)
+            .is_some_and(|p| !p.marks.iter().any(|m| m.kind == 'D'))
+        {
+            self.toast("Needs shell integration: run `teryon shell-init zsh` (see docs/SHELL-INTEGRATION.md)");
+            return;
+        }
+        if self.scrollback.get(&id).is_some_and(|s| !s.loading) {
+            let text = self.last_output_from(id);
+            self.deliver_output(text);
+        } else if self.online {
+            self.scrollback
+                .entry(id)
+                .or_insert_with(|| Self::loading_view(Some(Then::LastOutput)))
+                .then = Some(Then::LastOutput);
+            self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
+        } else {
+            self.toast("Offline: no history to copy from");
         }
     }
     /// Enter vi-style copy mode over the focused pane's history and screen.
@@ -154,7 +377,7 @@ impl Desktop {
                 let end = sb.lines.len().saturating_sub(sb.offset);
                 sb.copy = Some(CopyMode::new(end.saturating_sub(1), 0, rows));
             }
-            Some(sb) => sb.copy_pending = true,
+            Some(sb) => sb.then = Some(Then::CopyMode),
             None if !self.online => self.toast("Offline: no history to copy from"),
             None => {
                 self.scrollback.insert(
@@ -165,8 +388,9 @@ impl Desktop {
                         loading: true,
                         queued: 0,
                         copy: None,
-                        copy_pending: true,
+                        then: Some(Then::CopyMode),
                         buf: Vec::new(),
+                        first_line: 0,
                     },
                 );
                 self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
@@ -331,6 +555,12 @@ impl Desktop {
                     .size(11.)
                     .color(color(t.warning)),
             );
+        } else if let Some((text, bad)) = self.panes.get(&id).and_then(|p| command_chip(&p.marks)) {
+            left.label(RichText::new(text).size(11.).color(color(if bad {
+                t.warning
+            } else {
+                t.muted
+            })));
         }
         out
     }

@@ -67,7 +67,22 @@ pub struct WorkspaceInfo {
     pub controlled: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// A shell-integration event (OSC 133) at an absolute line: `A` prompt start, `C` command output
+/// start, `D` command finished (with exit status and duration when known).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Mark {
+    pub kind: char,
+    pub line: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+    /// Unix time in seconds.
+    #[serde(default)]
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PaneView {
     pub id: u64,
     pub title: String,
@@ -79,6 +94,14 @@ pub struct PaneView {
     /// Complete ANSI terminal state when changed. None means retain the old state.
     pub screen: Option<Vec<u8>>,
     pub exited: Option<u32>,
+    /// Shell-integration marks, sent together with `screen`; old daemons never send them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marks: Option<Vec<Mark>>,
+    /// Absolute number of the first retained history line, and of the top visible row.
+    #[serde(default)]
+    pub first_line: u64,
+    #[serde(default)]
+    pub top_line: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,6 +127,9 @@ pub enum Response {
     },
     Captured {
         text: String,
+        /// Absolute number of the first line of `text` (0 from daemons that do not know).
+        #[serde(default)]
+        first_line: u64,
     },
     Info {
         os: String,
@@ -207,5 +233,47 @@ mod tests {
         assert!(!valid_size(0, 80));
         assert!(!valid_size(500, 800));
         assert!(valid_size(24, 80));
+    }
+    #[test]
+    fn pane_views_and_captures_stay_compatible_with_older_peers() {
+        // A daemon from before shell integration: the new client sees empty extras.
+        let old = r#"{"id":1,"title":"t","cwd":"/","pid":null,"rows":24,"cols":80,"revision":3,"screen":null,"exited":null}"#;
+        let v: PaneView = serde_json::from_str(old).unwrap();
+        assert!(v.marks.is_none() && v.first_line == 0 && v.top_line == 0);
+        // A new daemon talking to an older client, whose struct knows none of the new fields.
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct OldPaneView {
+            id: u64,
+            title: String,
+            cwd: String,
+            pid: Option<u32>,
+            rows: u16,
+            cols: u16,
+            revision: u64,
+            screen: Option<Vec<u8>>,
+            exited: Option<u32>,
+        }
+        let new = serde_json::to_string(&PaneView {
+            marks: Some(vec![Mark {
+                kind: 'D',
+                line: 3,
+                exit: Some(1),
+                ms: Some(5),
+                at: 9,
+            }]),
+            first_line: 2,
+            top_line: 5,
+            ..Default::default()
+        })
+        .unwrap();
+        serde_json::from_str::<OldPaneView>(&new).unwrap();
+        let back: PaneView = serde_json::from_str(&new).unwrap();
+        assert_eq!(back.marks.unwrap()[0].exit, Some(1));
+        let captured: Response = serde_json::from_str(r#"{"type":"captured","text":"x"}"#).unwrap();
+        assert!(matches!(captured, Response::Captured { first_line: 0, .. }));
+        // Unchanged polls carry no marks at all.
+        let quiet = serde_json::to_string(&PaneView::default()).unwrap();
+        assert!(!quiet.contains("marks"));
     }
 }

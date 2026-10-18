@@ -36,7 +36,7 @@ double-click it to maximize.
 * **Selection**: drag; double-click selects a word, triple-click a line, ⌥-drag a rectangle,
   Shift-click extends. ⌘C copies; `copy_on_select = true` copies as soon as you finish selecting.
 * **Links**: ⌘-click opens plain-text `http(s)://` URLs.
-* **Scrollback**: scroll the wheel or trackpad (or ⌘↑ / ⌘↓, ⌘Home / ⌘End) in a normal-screen pane. The history
+* **Scrollback**: scroll the wheel or trackpad (or ⇧⌘↑ / ⇧⌘↓, ⌘Home / ⌘End) in a normal-screen pane. The history
   comes from the daemon's retained text, so it is plain text without colors; typing returns to the live screen.
   Full-screen programs (vim, less) get the wheel as arrow keys.
 * **Mouse reporting**: programs that ask for the mouse (vim, htop, tmux, ...) receive clicks, drags and the
@@ -59,6 +59,14 @@ double-click it to maximize.
 * **Find**: ⌥⌘R toggles regular expressions and ⌥⌘C match case (also the `.*` and `Aa` buttons); a bad pattern is
   shown next to the field.
 
+## Shell-aware features
+
+With the one-line shell integration ([SHELL-INTEGRATION.md](SHELL-INTEGRATION.md)) the app knows where
+prompts, commands and the working directory are: ⌘↑/⌘↓ jump between prompts, ⇧⌘O copies the last command's
+output, pane title bars show `✓ 0.4 s` / `✗ 1 · 12 s` / `running…`, long commands that finish while the window
+is in the background raise a notification (`notify_after_seconds`), and new panes start in the focused
+pane's directory. Without the integration everything else keeps working and ⌘↑/⌘↓ just scroll a page.
+
 ## Configuration
 
 Options live in the `[desktop]` table of `~/.config/teryon/config.toml` (see `docs/config.example.toml`).
@@ -77,6 +85,7 @@ binding using `teryon config --keys`.
 | `copy_on_select` | false | Copy a selection when it is finished |
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
+| `notify_after_seconds` | 10 | Notify when a command this long finishes in the background (shell integration; 0 = off) |
 | `confirm_quit` | false | Ask before the window closes (shells keep running either way) |
 | `snippets` | none | `[[desktop.snippets]]` with `name`, `command`, optional `description` and `run` |
 
@@ -107,7 +116,9 @@ role of ⌘ (so ⇧ variants are not available there).
 | ⌘T, ⌘W | New tab, close tab |
 | ⌘1 to ⌘9, ⇧⌘← / ⇧⌘→ | Jump to a tab, reorder tabs |
 | ⌘+ / ⌘- / ⌘0 | Font size larger, smaller, reset |
-| ⌘↑ / ⌘↓, ⌘Home / ⌘End | Scroll history by a page, to the top, to the bottom |
+| ⌘↑ / ⌘↓ | Previous / next prompt (a page scroll without shell integration) |
+| ⇧⌘↑ / ⇧⌘↓, ⌘Home / ⌘End | Scroll history by a page, to the top, to the bottom |
+| ⇧⌘O | Copy the last command's output |
 | ⇧⌘, | Reload the config file |
 | ⌃⌘F | Fullscreen |
 | ⌘C | Copy the selection |

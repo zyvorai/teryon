@@ -182,6 +182,11 @@ enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+    /// Print the shell integration script (OSC 133 prompt marks + OSC 7 cwd) for zsh, bash or fish.
+    ShellInit {
+        #[arg(value_parser = ["zsh", "bash", "fish"])]
+        shell: String,
+    },
     /// Guided first-run setup: tools, SSH hosts, reachability, theme.
     Setup {
         /// Accept every default without asking.
@@ -438,7 +443,7 @@ fn panes(rpc: &mut Rpc) -> Result<Vec<PaneView>> {
     }
 }
 fn capture(rpc: &mut Rpc, pane: u64) -> Result<String> {
-    if let Response::Captured { text } = rpc.call(Request::Capture { pane })? {
+    if let Response::Captured { text, .. } = rpc.call(Request::Capture { pane })? {
         Ok(text)
     } else {
         bail!("unexpected capture response")
@@ -801,6 +806,12 @@ fn run() -> Result<i32> {
                 .connect()?
                 .call(Request::Shutdown { force })?;
             println!("Daemon stopped");
+        }
+        Commands::ShellInit { shell } => {
+            print!(
+                "{}",
+                teryon::shellinit::script(&shell).context("unsupported shell")?
+            )
         }
         Commands::Setup { yes } => {
             let mut io = teryon::setup::Console { assume_yes: yes };

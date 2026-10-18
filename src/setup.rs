@@ -22,6 +22,10 @@ pub trait Deps {
     fn check_host(&mut self, host: &str) -> Result<String>;
     fn current_theme(&self) -> String;
     fn set_theme(&mut self, name: &str) -> Result<()>;
+    /// The user's login shell if shell integration supports it.
+    fn shell(&self) -> Option<String>;
+    /// Add the integration block to the shell's rc file; returns the file and whether it changed.
+    fn install_shell_integration(&mut self, shell: &str) -> Result<(std::path::PathBuf, bool)>;
 }
 
 pub struct Console {
@@ -109,6 +113,29 @@ impl Deps for Real {
     fn set_theme(&mut self, name: &str) -> Result<()> {
         config::set_theme(name)
     }
+    fn shell(&self) -> Option<String> {
+        std::env::var("SHELL")
+            .ok()
+            .and_then(|s| crate::shellinit::detect(&s))
+            .map(str::to_string)
+    }
+    fn install_shell_integration(&mut self, shell: &str) -> Result<(std::path::PathBuf, bool)> {
+        let path = crate::shellinit::rc_file(shell, &crate::util::home()?);
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let (updated, changed) =
+            crate::shellinit::ensure_block(&existing, &crate::shellinit::block(shell));
+        if changed {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let backup = path.with_extension("teryon-bak");
+            if !existing.is_empty() && !backup.exists() {
+                std::fs::write(&backup, &existing)?;
+            }
+            std::fs::write(&path, updated)?;
+        }
+        Ok((path, changed))
+    }
 }
 
 /// Run every step in order. Returns the host that was checked, if any.
@@ -181,7 +208,35 @@ pub fn run(io: &mut dyn Io, deps: &mut dyn Deps) -> Result<Option<String>> {
             io.say(&format!("✗ unknown theme \"{name}\"; keeping {current}"));
         }
     }
-    // 5. Next
+    // 5. Shell integration (this machine's shell; remote hosts get the same line in their own rc)
+    match deps.shell() {
+        Some(shell) => {
+            io.say("\nShell integration (optional) tells TERYON where prompts and commands are, which enables");
+            io.say("jumping between prompts, copying a command's output, exit-status chips and \"command finished\"");
+            io.say("notifications. It only affects the machine where the shell runs: for a remote host, add the");
+            io.say(&format!(
+                "same line to that host's shell rc:\n\n{}",
+                crate::shellinit::block(&shell)
+            ));
+            if io.confirm(
+                &format!("Add it to your {shell} startup file on THIS machine?"),
+                false,
+            ) {
+                match deps.install_shell_integration(&shell) {
+                    Ok((path, true)) => io.say(&format!(
+                        "✓ updated {} (a backup is next to it)",
+                        path.display()
+                    )),
+                    Ok((path, false)) => io.say(&format!("✓ {} already has it", path.display())),
+                    Err(e) => io.say(&format!("✗ could not update the startup file: {e:#}")),
+                }
+            }
+        }
+        None => io.say(
+            "\nShell integration supports zsh, bash and fish; your login shell is not one of them.",
+        ),
+    }
+    // 6. Next
     io.say("\nAll set. Start with:");
     io.say("  teryon                      pick a host and workspace");
     io.say(&format!(
@@ -197,6 +252,7 @@ mod tests {
     struct Script {
         answers: Vec<String>,
         said: Vec<String>,
+        allow_rc: bool,
     }
     impl Io for Script {
         fn say(&mut self, text: &str) {
@@ -209,7 +265,10 @@ mod tests {
                 self.answers.remove(0)
             }
         }
-        fn confirm(&mut self, _q: &str, default: bool) -> bool {
+        fn confirm(&mut self, q: &str, default: bool) -> bool {
+            if q.contains("startup file") {
+                return self.allow_rc;
+            }
             default
         }
     }
@@ -221,6 +280,8 @@ mod tests {
         reachable: bool,
         added: Vec<String>,
         theme: Option<String>,
+        shell: Option<String>,
+        installed: Vec<String>,
     }
     impl Deps for Fake {
         fn tool_exists(&self, name: &str) -> bool {
@@ -252,11 +313,19 @@ mod tests {
             self.theme = Some(name.into());
             Ok(())
         }
+        fn shell(&self) -> Option<String> {
+            self.shell.clone()
+        }
+        fn install_shell_integration(&mut self, shell: &str) -> Result<(std::path::PathBuf, bool)> {
+            self.installed.push(shell.to_string());
+            Ok((std::path::PathBuf::from("/h/.zshrc"), true))
+        }
     }
     fn go(deps: &mut Fake, answers: &[&str]) -> (Option<String>, String) {
         let mut io = Script {
             answers: answers.iter().map(|s| s.to_string()).collect(),
             said: Vec::new(),
+            allow_rc: deps.shell.as_deref() == Some("zsh-yes"),
         };
         let r = run(&mut io, deps).unwrap();
         (r, io.said.join("\n"))
@@ -283,6 +352,31 @@ mod tests {
         assert!(said.contains("teryon doctor mini --fix --binary"));
         assert!(said.contains("unknown theme"));
         assert_eq!(d.theme, None);
+    }
+    #[test]
+    fn shell_integration_is_offered_but_only_installed_after_a_yes() {
+        let mut d = Fake {
+            shell: Some("zsh".into()),
+            reachable: true,
+            ..Default::default()
+        };
+        let (_, said) = go(&mut d, &[]);
+        assert!(
+            said.contains("Shell integration (optional)")
+                && said.contains("# >>> teryon shell integration")
+        );
+        assert!(d.installed.is_empty(), "default is no");
+        let mut d = Fake {
+            shell: Some("zsh-yes".into()),
+            reachable: true,
+            ..Default::default()
+        };
+        let (_, said) = go(&mut d, &[]);
+        assert_eq!(d.installed, ["zsh-yes"]);
+        assert!(said.contains("updated /h/.zshrc"));
+        let mut d = Fake::default();
+        let (_, said) = go(&mut d, &[]);
+        assert!(said.contains("supports zsh, bash and fish"));
     }
     #[test]
     fn rerunning_with_everything_configured_changes_nothing() {

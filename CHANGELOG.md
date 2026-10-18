@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 — Shell-aware features
+
+- `teryon shell-init zsh|bash|fish`: optional OSC 133/7 integration (also offered by `teryon setup`, guarded and with a backup). Verified against real zsh, bash and fish sessions.
+- The daemon records prompt/command/finished marks with exit status and duration at absolute line numbers, and the shell's live working directory. Additive protocol fields only: old clients and daemons keep working, no version bump.
+- `vt100` is vendored with a small line-counter patch (`vendor/vt100/PATCH.md`); `Capture` now returns exactly one line per row plus the first line's number. `TERYON_SCROLLBACK` sets the daemon's history length.
+- Desktop: ⌘↑/⌘↓ jump between prompts, ⇧⌘O copies the last command's output, exit-status/duration chips in pane title bars, notifications for long commands that finish while the window is in the background, new panes start in the focused pane's directory. Page scrolling moves to ⇧⌘↑/⇧⌘↓.
+- The terminal UI does not show these yet.
+- Tests: the two flaky `tests/sessions.rs` cases are fixed (an echoed command matched its own output marker; macOS `od` spacing and raw-mode line endings), and new real-PTY tests cover marks, exact line numbers and zsh/bash/fish integration.
+
 ## 0.8.0 — Keyboard power tools
 
 - Quick select (⇧⌘E): labelled URLs, paths, SHAs, IPs, UUIDs and emails on screen; copy, paste or open with a keystroke.

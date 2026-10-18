@@ -14,11 +14,44 @@ use std::time::{Duration, Instant};
 
 const MAX_WORKSPACES: usize = 16;
 const MAX_PANES: usize = 16;
-const SCROLLBACK: usize = 2000;
+/// Lines of history each pane keeps; `TERYON_SCROLLBACK` (100 to 50000) overrides the default.
+/// Memory grows with lines x columns x panes, so raise it with care.
+fn scrollback_lines() -> usize {
+    static LINES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *LINES.get_or_init(|| {
+        std::env::var("TERYON_SCROLLBACK")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| (100..=50_000).contains(n))
+            .unwrap_or(2000)
+    })
+}
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
 struct TerminalCallbacks {
     input: std::sync::mpsc::SyncSender<Vec<u8>>,
+    /// Shell-integration marks and the shell's live working directory (OSC 133 / OSC 7).
+    log: crate::marks::MarkLog,
 }
 impl vt100::Callbacks for TerminalCallbacks {
+    fn unhandled_osc(&mut self, screen: &mut vt100::Screen, params: &[&[u8]]) {
+        use crate::marks::OscEvent;
+        let Some(event) = crate::marks::parse_osc(params) else {
+            return;
+        };
+        // Full-screen programs share the cursor row but not the history; only track the shell.
+        if screen.alternate_screen() && !matches!(event, OscEvent::Cwd(_)) {
+            return;
+        }
+        let top = screen.scrolled_total();
+        let line = top + u64::from(screen.cursor_position().0);
+        let floor = top.saturating_sub(scrollback_lines() as u64);
+        self.log
+            .apply(event, line, floor, Instant::now(), unix_now());
+    }
     fn unhandled_csi(
         &mut self,
         screen: &mut vt100::Screen,
@@ -136,9 +169,10 @@ impl Pane {
             parser: vt100::Parser::new_with_callbacks(
                 rows,
                 cols,
-                SCROLLBACK,
+                scrollback_lines(),
                 TerminalCallbacks {
                     input: input.clone(),
+                    log: crate::marks::MarkLog::default(),
                 },
             ),
             revision: 1,
@@ -185,16 +219,22 @@ impl Pane {
     fn view(&self, known: Option<u64>) -> PaneView {
         let st = self.state.lock().unwrap();
         let (rows, cols) = st.parser.screen().size();
+        let changed = known != Some(st.revision);
+        let top = st.parser.screen().scrolled_total();
+        let log = &st.parser.callbacks().log;
         PaneView {
             id: self.id,
             title: self.title.lock().unwrap().clone(),
-            cwd: self.cwd.clone(),
+            cwd: log.cwd.clone().unwrap_or_else(|| self.cwd.clone()),
             pid: self.pid,
             rows,
             cols,
             revision: st.revision,
-            screen: (known != Some(st.revision)).then(|| st.parser.screen().state_formatted()),
+            screen: changed.then(|| st.parser.screen().state_formatted()),
             exited: st.exited,
+            marks: changed.then(|| log.marks.clone()),
+            first_line: top.saturating_sub(scrollback_lines() as u64),
+            top_line: top,
         }
     }
     fn resize(&self, rows: u16, cols: u16) -> Result<()> {
@@ -212,24 +252,45 @@ impl Pane {
         st.revision += 1;
         Ok(())
     }
-    fn capture(&self) -> String {
+    /// Retained text, one line per terminal row (so line numbers are exact), and the absolute
+    /// number of its first line.
+    fn capture(&self) -> (String, u64) {
         let mut st = self.state.lock().unwrap();
-        let rows = st.parser.screen().size().0 as usize;
+        let (rows, cols) = st.parser.screen().size();
+        let rows = usize::from(rows);
         // Query the actual bounded scrollback length, then walk oldest to newest.
         st.parser.screen_mut().set_scrollback(usize::MAX);
         let max = st.parser.screen().scrollback();
-        let mut lines = Vec::new();
+        let first = st
+            .parser
+            .screen()
+            .scrolled_total()
+            .saturating_sub(max as u64);
+        let mut lines: Vec<String> = Vec::new();
         let mut offset = max;
         while offset > 0 {
             st.parser.screen_mut().set_scrollback(offset);
-            let text = st.parser.screen().contents();
             let take = offset.min(rows);
-            lines.extend(text.split('\n').take(take).map(str::to_owned));
+            lines.extend(
+                st.parser
+                    .screen()
+                    .rows(0, cols)
+                    .take(take)
+                    .map(|l| l.trim_end().to_string()),
+            );
             offset = offset.saturating_sub(rows);
         }
         st.parser.screen_mut().set_scrollback(0);
-        lines.extend(st.parser.screen().contents().split('\n').map(str::to_owned));
-        lines.join("\n")
+        lines.extend(
+            st.parser
+                .screen()
+                .rows(0, cols)
+                .map(|l| l.trim_end().to_string()),
+        );
+        while lines.last().is_some_and(String::is_empty) {
+            lines.pop();
+        }
+        (lines.join("\n"), first)
     }
     fn kill(&self) -> Result<()> {
         if self.state.lock().unwrap().exited.is_some() {
@@ -495,9 +556,11 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                     ws.panes.remove(&pane);
                     Ok(Response::Ack { seq: None })
                 }
-                Request::Capture { pane } => Ok(Response::Captured {
-                    text: ws.panes.get(&pane).context("pane not found")?.capture(),
-                }),
+                Request::Capture { pane } => {
+                    let (text, first_line) =
+                        ws.panes.get(&pane).context("pane not found")?.capture();
+                    Ok(Response::Captured { text, first_line })
+                }
                 _ => bail!("unsupported request"),
             }
         }
