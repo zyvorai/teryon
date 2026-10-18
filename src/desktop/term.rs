@@ -89,7 +89,9 @@ impl Desktop {
         match self.cfg.pane_titles {
             PaneTitles::Always => true,
             PaneTitles::Never => false,
-            PaneTitles::Auto => self.panes.len() > 1,
+            PaneTitles::Auto => {
+                self.panes.len() > 1 || self.panes.values().any(|p| p.track.status.is_some())
+            }
         }
     }
     pub(super) fn selection_text(&self, sel: &Selection) -> Option<String> {

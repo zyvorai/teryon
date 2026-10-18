@@ -129,6 +129,7 @@ impl Desktop {
                         if icon_button(ui, &t, Icon::Spark, "Ask AI  ⌘J").clicked() {
                             self.run_action(ActionKind::Ai);
                         }
+                        self.agent_pill(ui);
                         if icon_button(ui, &t, Icon::List, "Commands").clicked() {
                             self.palette = true;
                         }

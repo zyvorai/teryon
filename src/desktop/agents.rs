@@ -130,6 +130,33 @@ impl Desktop {
             });
     }
 
+    /// A pill in the top bar for the most urgent agent, so the status is visible even when pane bars are hidden.
+    pub(super) fn agent_pill(&mut self, ui: &mut egui::Ui) {
+        let list = self.agents_list();
+        let Some((_, kind, status, ..)) = list.first() else {
+            return;
+        };
+        let t = self.theme.clone();
+        let c = status_color(&t, *status);
+        let more = if list.len() > 1 {
+            format!(" +{}", list.len() - 1)
+        } else {
+            String::new()
+        };
+        let text = format!("{} · {}{more}", kind.name(), status.label());
+        let button = egui::Button::new(RichText::new(text).size(11.5).color(c))
+            .fill(c.gamma_multiply(0.16))
+            .stroke(Stroke::NONE)
+            .corner_radius(egui::CornerRadius::same(9));
+        if ui
+            .add(button)
+            .on_hover_text("Agents overview  ⌘⇧A")
+            .clicked()
+        {
+            self.agents_open = true;
+        }
+    }
+
     /// Every agent in the active workspace, needing-you first.
     pub(super) fn agents_list(&self) -> Vec<(u64, Kind, Status, String, String)> {
         let mut out: Vec<_> = self
