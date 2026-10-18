@@ -66,3 +66,14 @@ git push -u origin main
 ```
 
 Replace `YOUR_ORG` with the organization you control. The delivered archive is GitHub-ready source; no repository creation, remote push, Mac deployment, hosted workflow run, code signing or notarization is implied by its existence.
+
+## macOS release (signed and notarized)
+
+CI publishes only the tar.gz archives. The `.dmg` and `.pkg` are built on a Mac holding the Developer ID Application and Installer certificates and a `notarytool` keychain profile:
+
+```sh
+scripts/release-macos.sh   # env: MACORA_SIGN_IDENTITY, DEVELOPER_ID_INSTALLER, NOTARY_PROFILE
+gh release upload vX.Y.Z dist/TERYON-X.Y.Z.dmg dist/TERYON-X.Y.Z.pkg dist/SHA256SUMS-macos-X.Y.Z
+```
+
+`pkgbuild --sign` needs a GUI login session; over plain ssh run the script from Terminal.app.

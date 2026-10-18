@@ -18,7 +18,7 @@ Implemented features are documented in the README. This file names the gaps so a
 - Device handoff means detach one controller and attach another. No invitation links, separate-user RBAC, hosted collaboration, screen broadcasting or organization administration.
 - No CPU/memory/thermal dashboard, Apple GPU scheduling, GPU workload control, sleep prevention or wake-on-LAN integration.
 - SSH requires existing noninteractive key/agent authentication. Password onboarding and first-use host-key enrollment remain ordinary OpenSSH tasks.
-- Mac app bundles can be assembled locally, but notarization, App Store submission, automatic updates and signed distributions are not included.
+- Signed and notarized `.dmg`/`.pkg` are built by hand on a Mac with `scripts/release-macos.sh` and attached to the GitHub Release; CI does not build them. App Store submission and automatic updates are not included.
 
 ## Next engineering milestones
 
