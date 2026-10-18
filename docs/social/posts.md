@@ -61,6 +61,48 @@ Attach `teryon-social-card.jpg` to post 1, `docs/images/desktop-0.15-grid.png` t
 
 For a single big post instead of a thread, use post 1 and put posts 2 and 8 in the first reply.
 
+## X: one long post (Premium)
+
+Attach `teryon-social-card.jpg`, then `docs/images/desktop-0.15-grid.png` and `docs/images/desktop-0.15-files.png`.
+
+> Introducing TERYON 🚀
+>
+> Close the laptop. Your shells stay.
+>
+> TERYON keeps real terminals alive on your Mac mini or Linux box and reattaches over plain OpenSSH. A small per-user
+> service on the host owns the PTYs; your laptop connects over the OpenSSH you already use. Sleep, switch networks, come
+> back tomorrow: same live shells. No new ports, no new accounts.
+>
+> What's in 0.15:
+>
+> 🤖 Agent-aware panes. Claude Code, Codex, Gemini CLI, aider, Cursor and OpenCode get a live status chip (working, needs
+> you, idle, done), and you get a notification when a background agent is waiting on you. ⌘⇧A lists them all.
+>
+> 🌙 "While you were away". Reattach and a card tells you what finished and what failed, built from shell marks, no AI
+> needed.
+>
+> 🔌 An MCP server, so your coding agent gets a terminal that survives it:
+> claude mcp add teryon -- teryon mcp --allow-write
+> Durable panes, local or over SSH. Reads are always on; writes are opt-in and only touch the server's own workspace.
+>
+> ⌨️ AI in your prompt, without handing over control. ⌘⇧K: describe a command, get one command with a risk label. It's
+> inserted at your prompt and never runs until you press Enter. Secrets in terminal text are scrubbed before they reach a
+> model.
+>
+> 🗂️ A Finder-like file browser (⌘B), local or over SSH. Space is Quick Look, a double-click types a quoted path, and
+> download, rename and move to Trash are one right-click away. Nothing is deleted outright.
+>
+> 🖥️ A native desktop app with rounded pane cards, splits you can drag, 20 themes and a command palette.
+>
+> Honest status: it's a 0.15 engineering preview. Input is acknowledged, not guaranteed executed, and a reboot ends live
+> processes. The limits are written down in docs/LIMITATIONS.md.
+>
+> Rust. Open source. Apache-2.0.
+> github.com/zyvorai/teryon
+> zyvorai.github.io/teryon
+>
+> Try it, break it, tell me what's missing.
+
 ## LinkedIn
 
 > I got tired of losing shells when a laptop sleeps or the Wi-Fi drops, so I built TERYON.
