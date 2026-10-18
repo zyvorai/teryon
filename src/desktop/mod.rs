@@ -1332,7 +1332,11 @@ impl Desktop {
                 for (row, (_, i)) in ranked.iter().enumerate() {
                     let action = &list[*i];
                     let selected = row == self.palette_sel && !typed;
-                    let resp = ui.add(egui::SelectableLabel::new(selected, &action.title));
+                    // Full-width rows, so the shortcut hint sits at the row's right edge instead of on the label.
+                    let resp = ui.add_sized(
+                        [ui.available_width(), 24.],
+                        egui::SelectableLabel::new(selected, &action.title),
+                    );
                     if !action.hint.is_empty() {
                         ui.painter().text(
                             resp.rect.right_center() - Vec2::new(8., 0.),

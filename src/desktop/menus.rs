@@ -117,9 +117,12 @@ fn submenu(ui: &mut egui::Ui, cx: &Cx, label: &str, add: impl FnOnce(&mut egui::
         v.widgets.open.weak_bg_fill = color(cx.theme.primary);
         v.widgets.open.fg_stroke.color = Color32::WHITE;
         ui.set_min_width(220.);
-        ui.menu_button(format!("{label}   ›"), |ui| {
-            ui.set_min_width(220.);
-            add(ui);
+        // Justified, so the row spans the menu and the submenu opens beside it instead of on top of it.
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+            ui.menu_button(format!("{label}   ›"), |ui| {
+                ui.set_min_width(220.);
+                add(ui);
+            });
         });
     });
 }
