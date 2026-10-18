@@ -1493,6 +1493,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3459,6 +3461,7 @@ dependencies = [
  "clap_complete",
  "crossterm",
  "eframe",
+ "image",
  "libc",
  "portable-pty",
  "ratatui",

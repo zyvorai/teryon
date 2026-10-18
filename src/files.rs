@@ -125,16 +125,158 @@ pub fn list(target: &Target, dir: &str) -> Result<Vec<Entry>> {
 
 /// The first `PREVIEW_BYTES` (plus one, to tell truncation) of a file.
 pub fn read_head(target: &Target, path: &str) -> Result<Vec<u8>> {
+    read_bytes(target, path, PREVIEW_BYTES + 1)
+}
+
+/// At most `max` bytes from the start of a file.
+pub fn read_bytes(target: &Target, path: &str, max: usize) -> Result<Vec<u8>> {
     safe_path(path)?;
-    let want = PREVIEW_BYTES + 1;
     if target.local() {
         let file = std::fs::File::open(path).with_context(|| format!("open {path}"))?;
         let mut buf = Vec::new();
-        file.take(want as u64).read_to_end(&mut buf)?;
+        file.take(max as u64).read_to_end(&mut buf)?;
         return Ok(buf);
     }
-    let script = format!("head -c {want} -- {}", util::shell_quote(path));
-    run_remote(target, &script, want)
+    let script = format!("head -c {max} -- {}", util::shell_quote(path));
+    run_remote(target, &script, max)
+}
+
+/// Is this a name a rename may produce? One path component, nothing a shell or a path would mangle.
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\0', '\n'])
+}
+
+/// Rename `old` to `new` inside `dir`, refusing to replace anything that exists.
+pub fn rename(target: &Target, dir: &str, old: &str, new: &str) -> Result<()> {
+    safe_path(dir)?;
+    if !valid_name(old) || !valid_name(new) {
+        bail!("that is not a valid file name");
+    }
+    if target.local() {
+        let to = std::path::Path::new(dir).join(new);
+        if to.symlink_metadata().is_ok() {
+            bail!("{new} already exists");
+        }
+        std::fs::rename(std::path::Path::new(dir).join(old), &to)
+            .with_context(|| format!("rename {old}"))?;
+        return Ok(());
+    }
+    let (d, o, n) = (
+        util::shell_quote(dir),
+        util::shell_quote(old),
+        util::shell_quote(new),
+    );
+    let script = format!(
+        "cd -- {d} && if [ -e {n} ] || [ -L {n} ]; then echo 'already exists' >&2; exit 1; fi && mv -- {o} {n}"
+    );
+    run_remote(target, &script, 4096).map(|_| ())
+}
+
+/// Copy `dir/name` (a file or a folder) from an SSH host into the local folder `dest`, streaming
+/// `tar` over SSH so neither machine needs rsync. An existing local item of that name is never replaced.
+pub fn download(target: &Target, dir: &str, name: &str, dest: &std::path::Path) -> Result<()> {
+    safe_path(dir)?;
+    if target.local() {
+        bail!("download expects an SSH host");
+    }
+    if !valid_name(name) {
+        bail!("that is not a valid file name");
+    }
+    if dest.join(name).symlink_metadata().is_ok() {
+        bail!("{name} is already in {}", dest.display());
+    }
+    std::fs::create_dir_all(dest)?;
+    let script = format!(
+        "cd -- {} && tar -cf - -- {}",
+        util::shell_quote(dir),
+        util::shell_quote(name)
+    );
+    let mut remote = target
+        .ssh()
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("run ssh")?;
+    let stream = remote.stdout.take().context("ssh output")?;
+    let unpack = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg("-")
+        .arg("-C")
+        .arg(dest)
+        .stdin(Stdio::from(stream))
+        .output()
+        .context("run tar")?;
+    let sent = remote.wait_with_output().context("wait for ssh")?;
+    if !sent.status.success() {
+        let why = String::from_utf8_lossy(&sent.stderr);
+        bail!(
+            "{}",
+            why.lines().last().unwrap_or("remote tar failed").trim()
+        );
+    }
+    if !unpack.status.success() {
+        let why = String::from_utf8_lossy(&unpack.stderr);
+        bail!("{}", why.lines().last().unwrap_or("tar failed").trim());
+    }
+    Ok(())
+}
+
+/// Where "Move to Trash" puts things on this machine.
+fn local_trash_dir() -> Result<std::path::PathBuf> {
+    let home = util::home()?;
+    Ok(if cfg!(target_os = "macos") {
+        home.join(".Trash")
+    } else {
+        home.join(".local/share/Trash/files")
+    })
+}
+
+fn unique(name: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    format!("{name}-{now}")
+}
+
+fn trash_local_into(path: &str, trash: &std::path::Path) -> Result<()> {
+    let name = path.rsplit('/').next().unwrap_or_default();
+    if !valid_name(name) {
+        bail!("refusing to move that path");
+    }
+    std::fs::create_dir_all(trash)?;
+    let mut to = trash.join(name);
+    if to.symlink_metadata().is_ok() {
+        to = trash.join(unique(name));
+    }
+    std::fs::rename(path, &to).with_context(|| format!("move {name} to the trash"))
+}
+
+/// Move a file or folder out of the way, recoverably: to the Trash on this machine, or to
+/// `~/.teryon-trash` on an SSH host. Nothing is deleted.
+pub fn trash(target: &Target, path: &str) -> Result<()> {
+    safe_path(path)?;
+    if path == "/" || path.trim_end_matches('/').is_empty() {
+        bail!("refusing to move the root");
+    }
+    if target.local() {
+        return trash_local_into(path, &local_trash_dir()?);
+    }
+    let name = path.rsplit('/').next().unwrap_or_default();
+    if !valid_name(name) {
+        bail!("refusing to move that path");
+    }
+    let script = format!(
+        "T=\"$HOME/.teryon-trash\" && mkdir -p \"$T\" && mv -- {} \"$T/\"{}\"-$(date +%s)\"",
+        util::shell_quote(path),
+        util::shell_quote(name),
+    );
+    run_remote(target, &script, 4096).map(|_| ())
 }
 
 fn run_remote(target: &Target, script: &str, cap: usize) -> Result<Vec<u8>> {
@@ -282,8 +424,89 @@ mod tests {
         let head = read_head(&target, "/etc/hosts").unwrap();
         assert!(matches!(classify(&head), Preview::Text { .. }));
         assert!(list(&target, "/definitely/not/here").is_err());
+        // Rename and trash on the host, with awkward names, in a scratch directory.
+        let scratch = format!("/tmp/teryon-ssh-test-{}", std::process::id());
+        run_remote(
+            &target,
+            &format!("mkdir -p {scratch} && cd {scratch} && echo hi > \"it's a.txt\""),
+            64,
+        )
+        .unwrap();
+        rename(&target, &scratch, "it's a.txt", "b c.txt").unwrap();
+        assert!(rename(&target, &scratch, "nope", "x").is_err());
+        trash(&target, &format!("{scratch}/b c.txt")).unwrap();
+        let left = list(&target, &scratch).unwrap();
+        assert!(left.is_empty(), "{left:?}");
+        run_remote(
+            &target,
+            &format!("rm -rf {scratch} \"$HOME\"/.teryon-trash/'b c.txt'-*"),
+            64,
+        )
+        .unwrap();
+        // Download a spaced file and a folder through tar, into a temp folder.
+        run_remote(&target, &format!("mkdir -p {scratch}/dir && cd {scratch} && echo hi > 'a b.txt' && echo in > dir/inner"), 64).unwrap();
+        let out = std::env::temp_dir().join(format!("teryon-dl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        download(&target, &scratch, "a b.txt", &out).unwrap();
+        download(&target, &scratch, "dir", &out).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join("a b.txt")).unwrap(),
+            "hi\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("dir/inner")).unwrap(),
+            "in\n"
+        );
+        assert!(
+            download(&target, &scratch, "a b.txt", &out).is_err(),
+            "never replaces"
+        );
+        assert!(download(&target, &scratch, "missing", &out).is_err());
+        let _ = std::fs::remove_dir_all(&out);
+        run_remote(&target, &format!("rm -rf {scratch}"), 64).unwrap();
         // A name with a quote and a space must survive the remote shell.
         assert!(read_head(&target, "/tmp/it's here").is_err());
+    }
+
+    #[test]
+    fn names_are_checked_and_rename_never_replaces() {
+        for bad in ["", ".", "..", "a/b", "a\nb", "a\0b"] {
+            assert!(!valid_name(bad), "{bad:?}");
+        }
+        assert!(valid_name("my file (1).txt"));
+        let dir = std::env::temp_dir().join(format!("teryon-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a"), "1").unwrap();
+        std::fs::write(dir.join("b"), "2").unwrap();
+        let target = Target::new("local".into(), None).unwrap();
+        let d = dir.to_str().unwrap();
+        assert!(rename(&target, d, "a", "b").is_err());
+        assert_eq!(std::fs::read_to_string(dir.join("b")).unwrap(), "2");
+        assert!(rename(&target, d, "a", "../escape").is_err());
+        rename(&target, d, "a", "c d").unwrap();
+        assert!(dir.join("c d").exists() && !dir.join("a").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trash_moves_things_aside_and_keeps_clashing_names() {
+        let base = std::env::temp_dir().join(format!("teryon-trash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let bin = base.join("bin");
+        std::fs::create_dir_all(base.join("work/folder")).unwrap();
+        std::fs::write(base.join("work/folder/inner"), "x").unwrap();
+        std::fs::write(base.join("work/note"), "n").unwrap();
+        trash_local_into(base.join("work/folder").to_str().unwrap(), &bin).unwrap();
+        assert!(bin.join("folder/inner").exists() && !base.join("work/folder").exists());
+        std::fs::create_dir_all(base.join("work/folder")).unwrap();
+        trash_local_into(base.join("work/folder").to_str().unwrap(), &bin).unwrap();
+        assert_eq!(std::fs::read_dir(&bin).unwrap().count(), 2);
+        assert!(trash_local_into("/", &bin).is_err());
+        let target = Target::new("local".into(), None).unwrap();
+        assert!(trash(&target, "/").is_err());
+        assert!(trash(&target, "relative").is_err());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

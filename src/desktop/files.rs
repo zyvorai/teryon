@@ -8,9 +8,43 @@ const WIDTH: f32 = 270.;
 /// Directory listings are reused for this long before the next automatic refresh.
 const REFRESH: Duration = Duration::from_secs(4);
 
+/// What Quick Look has to show.
+#[derive(Clone)]
+enum Shown {
+    Doc(Preview),
+    Image {
+        width: usize,
+        height: usize,
+        rgba: std::sync::Arc<Vec<u8>>,
+    },
+}
+
+/// A question the sidebar asks before changing something.
+enum Dialog {
+    Rename {
+        name: String,
+        text: String,
+        focus: bool,
+    },
+    Trash {
+        name: String,
+        dir: bool,
+    },
+}
+
 enum Msg {
     Listed(String, Result<Vec<Entry>, String>),
-    Previewed(String, Result<Preview, String>),
+    Previewed(String, Result<Shown, String>),
+    /// A rename, trash or download finished: what to tell the user, and whether to relist.
+    Done(String, bool),
+}
+
+/// Largest image Quick Look reads.
+const IMAGE_BYTES: usize = 8 * 1024 * 1024;
+
+fn is_image(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(_, e)| matches!(e.to_lowercase().as_str(), "png" | "jpg" | "jpeg"))
 }
 
 pub(super) struct Browser {
@@ -26,7 +60,10 @@ pub(super) struct Browser {
     hidden: bool,
     selected: Option<String>,
     /// Quick Look: file name and what was read, `None` while loading.
-    look: Option<(String, Option<Result<Preview, String>>)>,
+    look: Option<(String, Option<Result<Shown, String>>)>,
+    /// The decoded image of the open Quick Look, with the name it belongs to.
+    look_tex: Option<(String, egui::TextureHandle)>,
+    dialog: Option<Dialog>,
     /// A row had keyboard focus last frame, so keys belong to the sidebar and not the pane.
     pub(super) has_focus: bool,
     tx: mpsc::Sender<Msg>,
@@ -48,11 +85,24 @@ impl Browser {
             hidden: false,
             selected: None,
             look: None,
+            look_tex: None,
+            dialog: None,
             has_focus: false,
             tx,
             rx,
         }
     }
+}
+
+/// Decode an image and shrink it so a big photo doesn't become a huge texture.
+fn decode(bytes: &[u8]) -> Result<Shown, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| format!("can't read this image: {e}"))?;
+    let img = img.thumbnail(1400, 1400).to_rgba8();
+    Ok(Shown::Image {
+        width: img.width() as usize,
+        height: img.height() as usize,
+        rgba: std::sync::Arc::new(img.into_raw()),
+    })
 }
 
 /// `'quoted path'` ready to type at a shell prompt.
@@ -61,11 +111,17 @@ fn quoted(path: &str) -> String {
 }
 
 impl Desktop {
+    /// Keys belong to the sidebar (not the pane) while a row has focus or a question is open.
+    pub(super) fn files_capture_keys(&self) -> bool {
+        self.files.has_focus || self.files.dialog.is_some()
+    }
+
     pub(super) fn files_toggle(&mut self) {
         self.files.open = !self.files.open;
         if !self.files.open {
             self.files.has_focus = false;
             self.files.look = None;
+            self.files.dialog = None;
         } else {
             self.files.follow = true;
         }
@@ -94,10 +150,45 @@ impl Desktop {
         self.files.look = Some((name.to_string(), None));
         let tx = self.files.tx.clone();
         std::thread::spawn(move || {
-            let result = fs::read_head(&target, &path)
-                .map(|b| fs::classify(&b))
-                .map_err(|e| e.to_string());
+            let result = if is_image(&path) {
+                fs::read_bytes(&target, &path, IMAGE_BYTES)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| decode(&b))
+            } else {
+                fs::read_head(&target, &path)
+                    .map(|b| Shown::Doc(fs::classify(&b)))
+                    .map_err(|e| e.to_string())
+            };
             let _ = tx.send(Msg::Previewed(path, result));
+        });
+    }
+
+    /// Run a change on a worker thread and report back with a toast and a fresh listing.
+    fn files_do(
+        &mut self,
+        what: &'static str,
+        job: impl FnOnce(&crate::transport::Target) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let Some(target) = self.target.clone() else {
+            return;
+        };
+        let tx = self.files.tx.clone();
+        std::thread::spawn(move || {
+            let msg = match job(&target) {
+                Ok(()) => (format!("{what} done"), true),
+                Err(e) => (format!("{what} failed: {e}"), false),
+            };
+            let _ = tx.send(Msg::Done(msg.0, msg.1));
+        });
+    }
+
+    /// Copy a file or folder from an SSH host into ~/Downloads, never replacing what is there.
+    fn files_download(&mut self, name: &str) {
+        let (dir, name) = (self.files.dir.clone(), name.to_string());
+        self.toast(format!("Downloading {name}…"));
+        self.files_do("Download", move |target| {
+            let dest = crate::util::home()?.join("Downloads");
+            fs::download(target, &dir, &name, &dest)
         });
     }
 
@@ -124,6 +215,13 @@ impl Desktop {
                             self.files.entries.clear();
                             self.files.error = Some(e);
                         }
+                    }
+                }
+                Msg::Done(text, relist) => {
+                    self.toast(text);
+                    if relist && !self.files.dir.is_empty() {
+                        let dir = self.files.dir.clone();
+                        self.files_list(&dir);
                     }
                 }
                 Msg::Previewed(path, result) => {
@@ -280,6 +378,9 @@ impl Desktop {
                                     ("Quick Look", Some(Row::Look)),
                                     ("Insert path", Some(Row::Insert)),
                                     ("Copy path", Some(Row::CopyPath)),
+                                    ("Download to Downloads", (!local).then_some(Row::Download)),
+                                    ("Rename…", Some(Row::Rename)),
+                                    ("Move to Trash…", Some(Row::Trash)),
                                     (if e.dir { "cd here" } else { "" }, e.dir.then_some(Row::Cd)),
                                     (
                                         "Reveal in Finder",
@@ -379,6 +480,18 @@ impl Desktop {
                     ctx.copy_text(path.clone());
                     self.toast("Path copied".to_string());
                 }
+                Row::Download => self.files_download(&name),
+                Row::Rename => {
+                    self.files.dialog = Some(Dialog::Rename {
+                        text: name.clone(),
+                        name,
+                        focus: true,
+                    });
+                }
+                Row::Trash => {
+                    let dir = self.files.entries.iter().any(|e| e.name == name && e.dir);
+                    self.files.dialog = Some(Dialog::Trash { name, dir });
+                }
                 Row::Cd => self.files_insert(&format!("cd {}", quoted(&path))),
                 Row::Reveal => {
                     let _ = std::process::Command::new("open")
@@ -391,6 +504,116 @@ impl Desktop {
             self.files_toggle();
         }
         self.look_window(ctx);
+        self.files_dialog(ctx);
+    }
+
+    /// Ask before renaming or moving to the Trash; nothing happens until the button is pressed.
+    fn files_dialog(&mut self, ctx: &egui::Context) {
+        let t = self.theme.clone();
+        let local = self.host == "local";
+        let dir = self.files.dir.clone();
+        let mut run: Option<Dialog> = None;
+        let mut cancel = false;
+        match &mut self.files.dialog {
+            None => return,
+            Some(Dialog::Rename { name, text, focus }) => {
+                egui::Window::new("Rename")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
+                    .show(ctx, |ui| {
+                        ui.set_min_width(320.);
+                        ui.label(
+                            RichText::new(format!("New name for {name}")).color(color(t.muted)),
+                        );
+                        let edit =
+                            ui.add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY));
+                        if *focus {
+                            edit.request_focus();
+                            *focus = false;
+                        }
+                        let valid = fs::valid_name(text) && text != name;
+                        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        if !fs::valid_name(text) && !text.is_empty() {
+                            ui.label(
+                                RichText::new("A name can't contain / or line breaks")
+                                    .size(11.5)
+                                    .color(color(t.warning)),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked()
+                                || ui.input(|i| i.key_pressed(Key::Escape))
+                            {
+                                cancel = true;
+                            }
+                            ui.add_enabled_ui(valid, |ui| {
+                                if (primary_button(ui, &t, "Rename").clicked() || enter) && valid {
+                                    run = Some(Dialog::Rename {
+                                        name: name.clone(),
+                                        text: text.clone(),
+                                        focus: false,
+                                    });
+                                }
+                            });
+                        });
+                    });
+            }
+            Some(Dialog::Trash { name, dir: is_dir }) => {
+                let place = if local {
+                    "the Trash"
+                } else {
+                    "~/.teryon-trash on the host"
+                };
+                egui::Window::new("Move to Trash?")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
+                    .show(ctx, |ui| {
+                        ui.set_min_width(320.);
+                        let what = if *is_dir {
+                            "folder and everything in it"
+                        } else {
+                            "file"
+                        };
+                        ui.label(format!(
+                            "Move the {what} “{name}” to {place}? It can be put back from there."
+                        ));
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked()
+                                || ui.input(|i| i.key_pressed(Key::Escape))
+                            {
+                                cancel = true;
+                            }
+                            if primary_button(ui, &t, "Move to Trash").clicked() {
+                                run = Some(Dialog::Trash {
+                                    name: name.clone(),
+                                    dir: *is_dir,
+                                });
+                            }
+                        });
+                    });
+            }
+        }
+        if cancel {
+            self.files.dialog = None;
+        }
+        match run {
+            Some(Dialog::Rename { name, text, .. }) => {
+                self.files.dialog = None;
+                self.files.selected = Some(text.clone());
+                self.files_do("Rename", move |target| {
+                    fs::rename(target, &dir, &name, &text)
+                });
+            }
+            Some(Dialog::Trash { name, .. }) => {
+                self.files.dialog = None;
+                self.files.selected = None;
+                let path = fs::join(&dir, &name);
+                self.files_do("Move to Trash", move |target| fs::trash(target, &path));
+            }
+            None => {}
+        }
     }
 
     /// The Quick Look window for the file chosen with Space or the context menu.
@@ -400,6 +623,20 @@ impl Desktop {
         };
         let t = self.theme.clone();
         let mut open = true;
+        // Upload a decoded image once per file.
+        if let Some(Ok(Shown::Image {
+            width,
+            height,
+            rgba,
+        })) = &state
+        {
+            if self.files.look_tex.as_ref().map(|(n, _)| n) != Some(&name) {
+                let image = egui::ColorImage::from_rgba_unmultiplied([*width, *height], rgba);
+                let tex = ctx.load_texture("teryon-quicklook", image, egui::TextureOptions::LINEAR);
+                self.files.look_tex = Some((name.clone(), tex));
+            }
+        }
+        let tex = self.files.look_tex.clone();
         egui::Window::new(format!("Quick Look · {name}"))
             .id(egui::Id::new("teryon-quicklook"))
             .open(&mut open)
@@ -411,7 +648,20 @@ impl Desktop {
                 Some(Err(e)) => {
                     ui.label(RichText::new(e).color(color(t.warning)));
                 }
-                Some(Ok(Preview::Binary { bytes })) => {
+                Some(Ok(Shown::Image { width, height, .. })) => {
+                    ui.label(
+                        RichText::new(format!("{width} × {height}"))
+                            .size(11.)
+                            .color(color(t.muted)),
+                    );
+                    if let Some((_, tex)) = tex.as_ref() {
+                        let avail = ui.available_size();
+                        let size = tex.size_vec2();
+                        let scale = (avail.x / size.x).min(avail.y.max(120.) / size.y).min(1.);
+                        ui.add(egui::Image::new((tex.id(), size * scale)));
+                    }
+                }
+                Some(Ok(Shown::Doc(Preview::Binary { bytes }))) => {
                     ui.label(
                         RichText::new(format!(
                             "Binary file ({} read). Nothing to show as text.",
@@ -420,7 +670,7 @@ impl Desktop {
                         .color(color(t.muted)),
                     );
                 }
-                Some(Ok(Preview::Text { text, truncated })) => {
+                Some(Ok(Shown::Doc(Preview::Text { text, truncated }))) => {
                     if *truncated {
                         ui.label(
                             RichText::new(format!("First {} shown", fs::human(fs::PREVIEW_BYTES)))
@@ -440,11 +690,15 @@ impl Desktop {
             });
         if !open {
             self.files.look = None;
+            self.files.look_tex = None;
         }
     }
 }
 
 enum Row {
+    Download,
+    Rename,
+    Trash,
     Open(bool),
     Look,
     Insert,
@@ -550,8 +804,59 @@ mod tests {
         }
         assert!(matches!(
             &app.files.look,
-            Some((n, Some(Ok(Preview::Text { text, .. })))) if n == "README.md" && text.starts_with("# hello")
+            Some((n, Some(Ok(Shown::Doc(Preview::Text { text, .. }))))) if n == "README.md" && text.starts_with("# hello")
         ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn images_decode_and_shrink_and_junk_is_an_error() {
+        let img = image::RgbaImage::from_pixel(3000, 1000, image::Rgba([10, 20, 30, 255]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let Ok(Shown::Image {
+            width,
+            height,
+            rgba,
+        }) = decode(png.get_ref())
+        else {
+            panic!("png should decode");
+        };
+        assert_eq!((width, height), (1400, 467));
+        assert_eq!(rgba.len(), width * height * 4);
+        assert!(decode(b"not an image").is_err());
+        assert!(is_image("Photo.JPG") && is_image("a.png") && !is_image("notes.txt"));
+    }
+
+    #[test]
+    fn rename_and_trash_dialogs_draw_and_change_files_only_when_confirmed() {
+        let dir = std::env::temp_dir().join(format!("teryon-dialog-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("old.txt"), "x").unwrap();
+        let (mut app, _rx) = app_with_screen("");
+        app.target = crate::transport::Target::new("local".into(), None).ok();
+        app.files.open = true;
+        app.files.dir = dir.to_string_lossy().into_owned();
+        app.files.follow = false;
+        let ctx = egui::Context::default();
+        app.files.dialog = Some(Dialog::Rename {
+            name: "old.txt".into(),
+            text: "new.txt".into(),
+            focus: true,
+        });
+        assert!(app.files_capture_keys());
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.files_ui(ctx));
+        // Drawing the question changes nothing on disk.
+        assert!(dir.join("old.txt").exists() && !dir.join("new.txt").exists());
+        app.files.dialog = Some(Dialog::Trash {
+            name: "old.txt".into(),
+            dir: false,
+        });
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.files_ui(ctx));
+        assert!(dir.join("old.txt").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

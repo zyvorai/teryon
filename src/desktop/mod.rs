@@ -648,7 +648,7 @@ impl Desktop {
             || self.draft_open
             || self.history.is_some()
             || self.confirm_close
-            || self.files.has_focus
+            || self.files_capture_keys()
         {
             return;
         }
