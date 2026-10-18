@@ -15,6 +15,7 @@ pub mod keymap;
 pub mod keys;
 pub mod layout;
 pub mod marks;
+pub mod mcp;
 pub mod protocol;
 pub mod recent;
 pub mod record;

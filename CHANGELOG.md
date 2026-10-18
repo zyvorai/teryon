@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.0 — `teryon mcp`
+
+- **MCP server for agents**: `teryon mcp [--allow-write] [--host H] [--workspace W]` lets Claude Code, Codex and other MCP clients use TERYON's persistent panes, local or over SSH. Read tools (`list_workspaces`, `list_panes`, `read_pane`, `search_scrollback`, `wait_for`) are always on; `new_pane`, `send_keys` and `close_pane` need `--allow-write` and only touch the server's own workspace. Hosts are limited to `local`, configured hosts and SSH aliases; returned text is redacted. `--print-config` prints the setup line for Claude Code and a Claude Desktop snippet. See `docs/MCP.md`.
+- Verified end to end with Claude Code itself starting a pane, waiting for its output and reading it back.
+
 ## 0.13.0 — AI in the prompt
 
 - **Command bar** (⌘⇧K, also in the ▾ menu and the palette): describe what you want ("show what listens on port 3000") and get one command with a one-line explanation and a risk label, using the pane's directory, shell and OS. **Enter inserts it at your prompt; nothing runs until you press Enter.** ⌥Enter runs it directly only when it is single-line, rated low risk and not on the denylist; blocked commands cannot be inserted at all.

@@ -662,3 +662,108 @@ fn a_fake_agent_is_reported_as_the_foreground_command_and_its_prompt_is_readable
         teryon::agents::Status::NeedsYou
     );
 }
+
+struct Mcp {
+    child: Child,
+    out: std::io::BufReader<std::process::ChildStdout>,
+    next: u64,
+}
+impl Mcp {
+    fn start(d: &Daemon, extra: &[&str]) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .arg("mcp")
+            .args(extra)
+            .env("TERYON_RUNTIME_DIR", d.dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let out = std::io::BufReader::new(child.stdout.take().unwrap());
+        Self {
+            child,
+            out,
+            next: 1,
+        }
+    }
+    fn rpc(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        use std::io::{BufRead, Write};
+        let id = self.next;
+        self.next += 1;
+        let line =
+            serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        let stdin = self.child.stdin.as_mut().unwrap();
+        writeln!(stdin, "{line}").unwrap();
+        stdin.flush().unwrap();
+        let mut reply = String::new();
+        self.out.read_line(&mut reply).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["id"], id);
+        v
+    }
+    fn call(&mut self, name: &str, args: serde_json::Value) -> (String, bool) {
+        let v = self.rpc(
+            "tools/call",
+            serde_json::json!({"name": name, "arguments": args}),
+        );
+        (
+            v["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            v["result"]["isError"].as_bool().unwrap(),
+        )
+    }
+}
+impl Drop for Mcp {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn mcp_server_runs_a_persistent_pane_waits_for_output_and_respects_the_controller() {
+    let d = Daemon::start();
+    let mut m = Mcp::start(&d, &["--allow-write"]);
+    let init = m.rpc("initialize", serde_json::json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}));
+    assert_eq!(init["result"]["serverInfo"]["name"], "teryon");
+    // A durable pane running a job that prints after a short delay.
+    let (msg, err) = m.call(
+        "new_pane",
+        serde_json::json!({"command": ["sh", "-c", "sleep 1; echo ready-for-mcp; sleep 20"]}),
+    );
+    assert!(!err && msg.contains("started pane"), "{msg}");
+    let pane: u64 = msg.split_whitespace().nth(2).unwrap().parse().unwrap();
+    let (hit, err) = m.call(
+        "wait_for",
+        serde_json::json!({"pane": pane, "pattern": "ready-for-[a-z]+", "timeout_s": 10}),
+    );
+    assert!(!err && hit == "MATCH: ready-for-mcp", "{hit}");
+    let (text, _) = m.call("read_pane", serde_json::json!({"pane": pane}));
+    assert!(text.contains("ready-for-mcp"));
+    let (list, _) = m.call("list_workspaces", serde_json::json!({}));
+    assert!(list.contains("mcp\tpanes="), "{list}");
+    let (panes, _) = m.call("list_panes", serde_json::json!({}));
+    assert!(panes.contains("running"), "{panes}");
+    // The pane belongs to the daemon, so it outlives this MCP server.
+    drop(m);
+    let mut c = d.client();
+    c.attach("mcp", true);
+    assert!(c
+        .snapshot()
+        .iter()
+        .any(|p| p.id == pane && p.exited.is_none()));
+    // When another client controls the workspace, reads still work and writes explain why they fail.
+    let mut owner = d.client();
+    owner.attach("mcp", false);
+    let mut m2 = Mcp::start(&d, &["--allow-write"]);
+    let (text, err) = m2.call("read_pane", serde_json::json!({"pane": pane}));
+    assert!(!err && text.contains("ready-for-mcp"), "{text}");
+    let (msg, err) = m2.call("send_keys", serde_json::json!({"pane": pane, "text": "x"}));
+    assert!(err && msg.contains("controlled by another"), "{msg}");
+    // Without --allow-write there are no write tools at all.
+    let mut ro = Mcp::start(&d, &[]);
+    let tools = ro.rpc("tools/list", serde_json::json!({}));
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 5);
+}

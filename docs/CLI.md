@@ -84,6 +84,7 @@ Pane directories represent the directory used at creation. `cd` in the shell doe
   desktop app instead.
 * `teryon shell-init zsh|bash|fish` prints the shell integration script (see [SHELL-INTEGRATION.md](SHELL-INTEGRATION.md)).
 * `teryon ai [PROMPT]`, `teryon ai --set-key`, `teryon ai --check`: chat with Claude and let it act with your approval (`docs/AI.md`).
+* `teryon mcp [--allow-write] [--print-config]`: MCP server so agents can use persistent panes (`docs/MCP.md`).
 * `teryon setup [-y]` is a short guided check: tools, importing SSH hosts, reachability (with the exact
   `doctor --fix` command when a host fails) and theme. Every step asks first and it is safe to re-run.
 

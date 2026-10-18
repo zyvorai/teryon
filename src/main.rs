@@ -210,6 +210,24 @@ enum Commands {
         #[arg(long)]
         command: bool,
     },
+    /// Model Context Protocol server: lets Claude Code, Codex and other agents use persistent TERYON panes.
+    Mcp {
+        /// Host used when a tool call names none (`local`, a configured host or an SSH alias).
+        #[arg(long, default_value = "local")]
+        host: String,
+        /// The workspace this server owns: the only one it writes to.
+        #[arg(long, short, default_value = "mcp")]
+        workspace: String,
+        /// Allow new_pane, send_keys and close_pane (reading is always allowed).
+        #[arg(long)]
+        allow_write: bool,
+        /// Do not redact secrets from terminal text returned to the agent.
+        #[arg(long)]
+        no_redact: bool,
+        /// Print the setup line for Claude Code and a Claude Desktop JSON snippet, then exit.
+        #[arg(long)]
+        print_config: bool,
+    },
     /// Show the desktop configuration, or validate it with --check.
     Config {
         /// Exit with an error if `[desktop]` in config.toml is invalid.
@@ -882,6 +900,39 @@ fn run() -> Result<i32> {
             command,
         } => {
             return teryon::ai::cli::run(prompt, set_key, check, command);
+        }
+        Commands::Mcp {
+            host,
+            workspace,
+            allow_write,
+            no_redact,
+            print_config,
+        } => {
+            if print_config {
+                let exe =
+                    std::env::current_exe().map_or("teryon".into(), |p| p.display().to_string());
+                print!("{}", teryon::mcp::print_config(&exe, allow_write));
+                return Ok(0);
+            }
+            let allowed = teryon::mcp::allowed_hosts();
+            if !allowed.contains(&host) {
+                bail!("host {host:?} is not `local`, a configured host or an SSH alias");
+            }
+            let mut server = teryon::mcp::Server {
+                backend: teryon::mcp::Real { remote_bin: bin },
+                opts: teryon::mcp::Options {
+                    host,
+                    workspace,
+                    allow_write,
+                    redact: !no_redact,
+                    allowed_hosts: allowed,
+                },
+            };
+            teryon::mcp::serve(
+                &mut server,
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+            )?;
         }
         Commands::Config { check, keys } => {
             let path = config::path()?;
