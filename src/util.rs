@@ -68,6 +68,24 @@ pub fn nonce() -> Result<String> {
 pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
+/// Replace `path` with `bytes` through a 0600 temp file and a rename, creating parent directories.
+pub fn write_private_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    let mut f = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    f.write_all(bytes)?;
+    drop(f);
+    fs::rename(tmp, path)?;
+    Ok(())
+}
 pub fn private_write(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let mut f = OpenOptions::new()

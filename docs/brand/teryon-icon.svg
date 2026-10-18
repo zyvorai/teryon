@@ -1,17 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Zyvor favicon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="TERYON">
   <defs>
-    <linearGradient id="bg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ff5a15"/>
-      <stop offset="1" stop-color="#cc420a"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2c2e"/>
+      <stop offset="1" stop-color="#0a0a0b"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#64d2ff"/>
+      <stop offset="1" stop-color="#0a84ff"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="url(#bg)"/>
-  <path
-    d="M18.5,20.5 45.5,20.5 18.5,43.5 45.5,43.5"
-    fill="none"
-    stroke="#ffffff"
-    stroke-width="8.3"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <rect width="1024" height="1024" rx="230" fill="url(#tile)"/>
+  <rect x="3" y="3" width="1018" height="1018" rx="227" fill="none" stroke="#ffffff" stroke-opacity=".10" stroke-width="6"/>
+  <!-- a T, then the cursor waiting for the next key: the shell that is still there when you come back -->
+  <rect x="262" y="246" width="440" height="116" rx="58" fill="url(#ink)"/>
+  <rect x="444" y="304" width="116" height="486" rx="58" fill="url(#ink)"/>
+  <rect x="614" y="674" width="116" height="116" rx="30" fill="#f5f5f7"/>
 </svg>

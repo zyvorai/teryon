@@ -39,16 +39,16 @@ pub fn plain_rows() -> Vec<String> {
         .collect()
 }
 
-/// Zyvor orange gradient endpoints (the Z mark's `#ff5a15`), identical in every theme.
-const ORANGE_FROM: (u8, u8, u8) = (0xff, 0x5a, 0x15);
-const ORANGE_TO: (u8, u8, u8) = (0xff, 0x9a, 0x5c);
+/// TERYON blue gradient endpoints (the mark's `#0a84ff` to `#64d2ff`), identical in every theme.
+const BLUE_FROM: (u8, u8, u8) = (0x0a, 0x84, 0xff);
+const BLUE_TO: (u8, u8, u8) = (0x64, 0xd2, 0xff);
 
-/// The banner with a left-to-right Zyvor orange gradient, followed by the tagline in the theme's muted color.
+/// The banner with a left-to-right TERYON blue gradient, followed by the tagline in the theme's muted color.
 pub fn banner(theme: &Theme, color: bool) -> String {
     let mut out = String::new();
     let rows = plain_rows();
     let width = rows[0].chars().count().max(2) - 1;
-    let (from, to) = (ORANGE_FROM, ORANGE_TO);
+    let (from, to) = (BLUE_FROM, BLUE_TO);
     for row in &rows {
         for (i, ch) in row.chars().enumerate() {
             if color && ch != ' ' {
@@ -100,7 +100,7 @@ mod tests {
     fn banner_color_is_optional() {
         let t = Theme::load("tokyo-night").unwrap();
         assert!(!banner(&t, false).contains('\x1b'));
-        assert!(banner(&t, true).contains("\x1b[38;2;255;90;21m"));
+        assert!(banner(&t, true).contains("\x1b[38;2;10;132;255m"));
         assert!(banner(&t, false).ends_with("work.\n"));
     }
 }

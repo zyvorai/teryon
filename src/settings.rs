@@ -17,6 +17,8 @@ pub struct DesktopSettings {
     pub theme: Option<String>,
     pub font_size: Option<f32>,
     pub layout: Option<String>,
+    /// The first-run hint has been shown.
+    pub welcomed: Option<bool>,
 }
 
 impl DesktopSettings {
@@ -72,6 +74,7 @@ mod tests {
             theme: Some("nord".into()),
             font_size: Some(14.),
             layout: Some("grid".into()),
+            welcomed: Some(true),
         };
         s.save_to(&path).unwrap();
         use std::os::unix::fs::PermissionsExt;

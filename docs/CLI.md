@@ -28,6 +28,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `about` | Banner, version and active theme |
 | `config [--check] [--keys]` | Show or validate the `[desktop]` configuration, or list key bindings |
 | `themes --preview` | Show built-in palettes |
+| `themes --import FILE [--as NAME] [--force]` | Convert an iTerm2, Alacritty, Ghostty or Kitty color scheme to a TERYON theme in `~/.config/teryon/themes/` |
 | `themes --export wezterm NAME` | Print a WezTerm `config.colors` block for a theme |
 | `init` | Create config; never overwrite |
 | `remove HOST -w NAME --force` | Remove a detached workspace, terminating live panes |
@@ -74,6 +75,15 @@ Close a desktop window to detach. Use its draft review controls to submit drafts
 16 workspaces, 16 total panes, 8 panes per workspace. Each pane retains up to 2,000 terminal scrollback lines. Terminal geometry is limited to 2–160 rows and 10–400 columns; larger views show a bounded terminal. Input is capped at 64 KiB per action. Use a file transfer for larger content. Pane titles accept 1–80 bytes without control characters; workspace names accept 1–64 ASCII letters, digits, `_` and `-`.
 
 Pane directories represent the directory used at creation. `cd` in the shell does not update layout metadata in this release.
+
+## Getting started
+
+* `teryon` (no arguments) opens a small picker: recent workspaces first, then hosts from your config, your
+  `~/.ssh/config` and `local`. Type to filter, Enter to connect, Tab to list a host's workspaces, or type
+  `user@host` to connect to something new. Add `--desktop` (or `start = "desktop"` in `config.toml`) to open the
+  desktop app instead.
+* `teryon setup [-y]` is a short guided check: tools, importing SSH hosts, reachability (with the exact
+  `doctor --fix` command when a host fails) and theme. Every step asks first and it is safe to re-run.
 
 ## Desktop
 

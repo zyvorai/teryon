@@ -58,6 +58,51 @@ pub const BUILTINS: [&str; 20] = [
     "forest",
     "high-contrast",
 ];
+/// Folder for themes the user added or imported (`teryon themes --import`).
+pub fn user_dir() -> Option<std::path::PathBuf> {
+    Some(crate::util::home().ok()?.join(".config/teryon/themes"))
+}
+fn simple_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 40
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+/// Where a bare theme name would live in the user folder (None for names with path characters).
+pub fn user_theme_path(name: &str) -> Option<std::path::PathBuf> {
+    simple_name(name).then(|| user_dir().map(|d| d.join(format!("{name}.toml"))))?
+}
+/// Names of the user's own themes, sorted.
+pub fn user_themes() -> Vec<String> {
+    let Some(dir) = user_dir() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            (p.extension()? == "toml").then(|| p.file_stem()?.to_str().map(str::to_string))?
+        })
+        .filter(|n| simple_name(n) && !BUILTINS.contains(&n.as_str()))
+        .collect();
+    names.sort();
+    names
+}
+/// Built-in theme ids followed by the user's own.
+pub fn all_names() -> Vec<String> {
+    BUILTINS
+        .iter()
+        .map(|s| (*s).to_string())
+        .chain(user_themes())
+        .collect()
+}
+/// Whether `name` can be used as the file name of an imported theme.
+pub fn valid_user_name(name: &str) -> bool {
+    simple_name(name) && !BUILTINS.contains(&name)
+}
 fn hex(value: &str) -> Result<Color> {
     if value.len() != 7
         || !value.starts_with('#')
@@ -235,7 +280,12 @@ impl Theme {
             "sakura" => include_str!("../themes/sakura.toml"),
             "forest" => include_str!("../themes/forest.toml"),
             "high-contrast" => include_str!("../themes/high-contrast.toml"),
-            path => return Self::parse(&std::fs::read_to_string(path)?),
+            other => {
+                if let Some(path) = user_theme_path(other).filter(|p| p.is_file()) {
+                    return Self::parse(&std::fs::read_to_string(path)?);
+                }
+                return Self::parse(&std::fs::read_to_string(other)?);
+            }
         };
         Self::parse(content)
     }

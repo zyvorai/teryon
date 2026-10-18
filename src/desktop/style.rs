@@ -49,7 +49,9 @@ pub(super) fn vt_color(c: vt100::Color, default: Color32, theme: &Theme) -> Colo
         vt100::Color::Rgb(r, g, b) => Color32::from_rgb(r, g, b),
     }
 }
-pub(super) const ZYVOR_ORANGE: Color32 = Color32::from_rgb(0xff, 0x5a, 0x15);
+/// TERYON's own colors: the mark's gradient runs from `BRAND_CYAN` to `BRAND_BLUE`.
+pub(super) const BRAND_BLUE: Color32 = Color32::from_rgb(0x0a, 0x84, 0xff);
+pub(super) const BRAND_CYAN: Color32 = Color32::from_rgb(0x64, 0xd2, 0xff);
 
 pub(super) const SYSTEM_FONTS: &str = "/System/Library/Fonts";
 
@@ -322,15 +324,44 @@ pub(super) fn primary_button(ui: &mut egui::Ui, t: &Theme, text: &str) -> egui::
     )
 }
 
-/// The Zyvor Z (stroke logomark, 18x18 units) at 18px, followed by the product name.
+/// The TERYON mark (a T and the cursor waiting beside it, from `docs/brand/teryon-icon.svg`)
+/// painted into `rect`; the geometry is the icon's 1024-unit design scaled to the rectangle.
+pub(super) fn paint_mark(painter: &egui::Painter, rect: Rect) {
+    let k = rect.width().min(rect.height()) / 1024.;
+    let at = |x: f32, y: f32, w: f32, h: f32, r: f32, c: Color32| {
+        let min = rect.min + Vec2::new(x, y) * k;
+        painter.rect_filled(
+            Rect::from_min_size(min, Vec2::new(w, h) * k),
+            egui::CornerRadius::same((r * k).round().clamp(0., 255.) as u8),
+            c,
+        );
+    };
+    let bar = mix_color(BRAND_CYAN, BRAND_BLUE, 0.35);
+    at(262., 246., 440., 116., 58., bar);
+    at(
+        444.,
+        304.,
+        116.,
+        486.,
+        58.,
+        mix_color(BRAND_CYAN, BRAND_BLUE, 0.7),
+    );
+    at(
+        614.,
+        674.,
+        116.,
+        116.,
+        30.,
+        Color32::from_rgb(0xf5, 0xf5, 0xf7),
+    );
+}
+fn mix_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let f = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
+}
+/// The mark at 20px, followed by the product name.
 pub(super) fn brand_mark(ui: &mut egui::Ui, t: &Theme) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(18.), Sense::hover());
-    let points = [(2., 2.), (16., 2.), (6.6, 16.), (16., 16.)]
-        .map(|(x, y)| rect.min + Vec2::new(x, y))
-        .to_vec();
-    ui.painter().add(egui::Shape::line(
-        points,
-        Stroke::new(2.6_f32, ZYVOR_ORANGE),
-    ));
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.), Sense::hover());
+    paint_mark(ui.painter(), rect);
     ui.label(weighted(ui.ctx(), "TERYON", "bold", 14.).color(color(t.foreground)));
 }

@@ -21,6 +21,16 @@ pub struct Config {
     /// Desktop app options (`[desktop]`).
     #[serde(default)]
     pub desktop: DesktopConfig,
+    /// What plain `teryon` opens after you pick a host: the terminal UI or the desktop app.
+    #[serde(default)]
+    pub start: StartMode,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StartMode {
+    #[default]
+    Tui,
+    Desktop,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,6 +67,9 @@ pub struct DesktopConfig {
     /// Brightness of unfocused panes, 0.2 (dim) to 1.0 (no dimming).
     pub unfocused_opacity: f32,
     pub copy_on_select: bool,
+    /// Themes to switch to when macOS goes light or dark (either may be left out).
+    pub theme_light: Option<String>,
+    pub theme_dark: Option<String>,
     /// Lines of history shown when scrolling back.
     pub scrollback_lines: usize,
     pub pane_titles: PaneTitles,
@@ -77,6 +90,8 @@ impl Default for DesktopConfig {
             window_opacity: 1.,
             unfocused_opacity: 0.82,
             copy_on_select: false,
+            theme_light: None,
+            theme_dark: None,
             scrollback_lines: 10_000,
             pane_titles: PaneTitles::Auto,
             confirm_quit: false,
@@ -100,6 +115,17 @@ impl DesktopConfig {
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
         if !(100..=1_000_000).contains(&self.scrollback_lines) {
             bail!("desktop.scrollback_lines must be between 100 and 1000000");
+        }
+        for (key, name) in [
+            ("theme_light", &self.theme_light),
+            ("theme_dark", &self.theme_dark),
+        ] {
+            if let Some(n) = name
+                .as_deref()
+                .filter(|n| crate::theme::Theme::load(n).is_err())
+            {
+                bail!("desktop.{key} = \"{n}\" is not a known theme");
+            }
         }
         let (_, problems) = crate::keymap::Keymap::build(&self.keys);
         if let Some(first) = problems.first() {
@@ -139,6 +165,7 @@ pub fn load() -> Result<Config> {
             mouse: false,
             hosts: BTreeMap::new(),
             desktop: DesktopConfig::default(),
+            start: StartMode::Tui,
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -180,7 +207,7 @@ pub fn ssh_hosts(content: &str) -> Vec<String> {
 pub fn add_hosts(names: &[String]) -> Result<Vec<String>> {
     let path = path()?;
     if !path.exists() {
-        init()?;
+        write_new(&format!("theme = \"{}\"\n", default_theme()))?;
     }
     let existing = load()?;
     let added: Vec<String> = names
@@ -205,6 +232,55 @@ pub fn add_hosts(names: &[String]) -> Result<Vec<String>> {
         .write_all(text.as_bytes())?;
     Ok(added)
 }
+/// Create the config file with `text`; refuses to replace an existing one.
+fn write_new(text: &str) -> Result<PathBuf> {
+    let path = path()?;
+    if path.exists() {
+        bail!("configuration already exists: {}", path.display());
+    }
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    util::private_write(&path, text.as_bytes())?;
+    Ok(path)
+}
+/// `text` with its top-level `theme = "..."` line set to `name` (added first if missing).
+pub fn set_theme_text(text: &str, name: &str) -> String {
+    let line = format!("theme = \"{name}\"");
+    let mut done = false;
+    let mut in_table = false;
+    let mut out: Vec<String> = Vec::new();
+    for l in text.lines() {
+        if l.trim_start().starts_with('[') {
+            in_table = true;
+        }
+        if !done && !in_table && l.trim_start().starts_with("theme") && l.contains('=') {
+            out.push(line.clone());
+            done = true;
+        } else {
+            out.push(l.to_string());
+        }
+    }
+    if !done {
+        out.insert(0, line);
+    }
+    out.join("\n") + "\n"
+}
+/// Persist `name` as the default theme in `config.toml`, creating the file if needed.
+pub fn set_theme(name: &str) -> Result<()> {
+    let path = path()?;
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    util::write_private_atomic(&path, set_theme_text(&text, name).as_bytes())
+}
+/// The target for `host`: a configured alias or a plain `[user@]host`.
+pub fn target(host: &str, remote_bin: Option<String>) -> Result<crate::transport::Target> {
+    let cfg = load()?;
+    match cfg.hosts.get(host) {
+        Some(h) => crate::transport::Target::new(
+            h.destination.clone(),
+            remote_bin.or_else(|| h.remote_bin.clone()),
+        ),
+        None => crate::transport::Target::new(host.to_string(), remote_bin),
+    }
+}
 pub fn init() -> Result<PathBuf> {
     let path = path()?;
     if path.exists() {
@@ -225,6 +301,10 @@ mod tests {
         assert!(parse_desktop("[desktop]\nfont_sise = 15.0\n").is_err());
         assert!(parse_desktop("[desktop]\nfont_size = 2.0\n").is_err());
         assert!(parse_desktop("[desktop]\ncursor_style = \"blob\"\n").is_err());
+        assert!(parse_desktop("[desktop]\ntheme_dark = \"no-such-theme\"\n").is_err());
+        assert!(
+            parse_desktop("[desktop]\ntheme_dark = \"nord\"\ntheme_light = \"pearl\"\n").is_ok()
+        );
         assert!(parse_desktop("[desktop.keys]\nnope = \"cmd+x\"\n").is_err());
         assert!(parse_desktop("[desktop.keys]\npalette = \"cmd+d\"\n").is_err());
     }
@@ -239,6 +319,17 @@ mod tests {
             parse_desktop(&enabled).is_ok(),
             "uncommented example must stay valid"
         );
+    }
+    #[test]
+    fn set_theme_text_replaces_or_prepends_without_touching_tables() {
+        let a = set_theme_text("theme = \"nord\"\nsplash = true\n", "dracula");
+        assert_eq!(a, "theme = \"dracula\"\nsplash = true\n");
+        let b = set_theme_text("splash = true\n[hosts.x]\ntheme = \"inner\"\n", "nord");
+        assert_eq!(
+            b,
+            "theme = \"nord\"\nsplash = true\n[hosts.x]\ntheme = \"inner\"\n"
+        );
+        assert_eq!(set_theme_text("", "nord"), "theme = \"nord\"\n");
     }
     #[test]
     fn ssh_hosts_skips_wildcards_and_comments() {

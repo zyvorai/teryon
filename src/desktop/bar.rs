@@ -86,11 +86,19 @@ impl Desktop {
                     brand_mark(ui, &t);
                     ui.add_space(2.);
                     if self.tabs.len() > 1 {
+                        let many_hosts = self.tabs.iter().any(|t| t.host != self.tabs[0].host);
                         let items: Vec<(usize, String)> = self
                             .tabs
                             .iter()
                             .enumerate()
-                            .map(|(i, tab)| (i, tab.name.clone()))
+                            .map(|(i, tab)| {
+                                let label = if many_hosts {
+                                    format!("{}/{}", tab.host, tab.name)
+                                } else {
+                                    tab.name.clone()
+                                };
+                                (i, label)
+                            })
                             .collect();
                         let mut pick = self.active;
                         segmented(ui, &t, &mut pick, &items);

@@ -3,6 +3,8 @@ theme = "mac27-dark"
 splash = true
 # Click to focus panes, wheel opens history. Replaces terminal text selection (hold Shift/Option to select).
 mouse = false
+# What plain `teryon` opens after you pick a host: "tui" or "desktop" (needs the desktop build).
+start = "tui"
 
 [hosts.mini]
 destination = "susant@mini.local"
@@ -23,6 +25,8 @@ destination = "susant@mini.local"
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect
 # unfocused_opacity = 0.82         # brightness of unfocused panes
 # copy_on_select = false
+# theme_light = "mac27-light"      # follow macOS appearance (either one may be left out)
+# theme_dark = "mac27-dark"
 # scrollback_lines = 10000
 # pane_titles = "auto"             # auto | always | never
 # confirm_quit = false

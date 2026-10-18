@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="TERYON mark">
+  <defs>
+    <linearGradient id="ink" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#64d2ff"/>
+      <stop offset="1" stop-color="#0a84ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="6.14" y="5.77" width="10.31" height="2.72" rx="1.36" fill="url(#ink)"/>
+  <rect x="10.41" y="7.13" width="2.72" height="11.39" rx="1.36" fill="url(#ink)"/>
+  <rect x="14.39" y="15.8" width="2.72" height="2.72" rx="0.7" fill="currentColor"/>
+</svg>

@@ -25,6 +25,7 @@ mod icons;
 mod panes;
 mod style;
 mod term;
+mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
 use icons::*;
 use panes::{arrange, Dir, Weights};
@@ -37,6 +38,8 @@ struct Pane {
 }
 /// Everything that belongs to one attached workspace; parked tabs keep theirs here.
 struct Session {
+    host: String,
+    target: Option<Target>,
     workspace: String,
     online: bool,
     notice: String,
@@ -51,6 +54,7 @@ struct Session {
 }
 /// A tab; the active one's state lives in `Desktop`, so `state` is None for it.
 struct Tab {
+    host: String,
     name: String,
     state: Option<Session>,
 }
@@ -94,6 +98,16 @@ pub struct Desktop {
     pending: Vec<egui::ViewportCommand>,
     fullscreen: bool,
     on_top: bool,
+    /// Palette catalogs (refreshed when it opens) and welcome/cheat-sheet state.
+    theme_names: Vec<String>,
+    open_entries: Vec<(String, String)>,
+    palette_was_open: bool,
+    cheatsheet: bool,
+    tip_index: usize,
+    offline_since: Option<Instant>,
+    theme_id_cache: Option<(String, Option<String>)>,
+    /// Last macOS appearance seen, so a manual theme choice sticks until it changes.
+    last_system_dark: Option<bool>,
     /// Message currently floating in the corner, and the last `notice` already turned into one.
     toast: Option<(String, Instant)>,
     toasted: String,
@@ -170,9 +184,9 @@ struct TermOut {
     action: Option<PaneAction>,
 }
 
-/// Built-in theme ids (as accepted by `--theme`) matching a theme's display name.
-fn builtin_id(display_name: &str) -> Option<&'static str> {
-    BUILTINS
+/// The id (as accepted by `--theme`) of the built-in or user theme with this display name.
+fn find_theme_id(display_name: &str) -> Option<String> {
+    crate::theme::all_names()
         .into_iter()
         .find(|id| Theme::load(id).is_ok_and(|t| t.name == display_name))
 }
@@ -187,11 +201,12 @@ impl Desktop {
         rx: Receiver<Update>,
     ) -> Self {
         Self {
-            host,
             tabs: vec![Tab {
+                host: host.clone(),
                 name: workspace.clone(),
                 state: None,
             }],
+            host,
             active: 0,
             target: None,
             weights: Weights::default(),
@@ -214,6 +229,14 @@ impl Desktop {
             pending: Vec::new(),
             fullscreen: false,
             on_top: false,
+            theme_names: BUILTINS.iter().map(|s| (*s).to_string()).collect(),
+            open_entries: Vec::new(),
+            palette_was_open: false,
+            cheatsheet: false,
+            tip_index: 0,
+            offline_since: None,
+            theme_id_cache: None,
+            last_system_dark: None,
             toast: None,
             toasted: String::new(),
             window_title: String::new(),
@@ -256,6 +279,8 @@ impl Desktop {
         }
     }
     fn swap_session(&mut self, other: &mut Session) {
+        std::mem::swap(&mut self.host, &mut other.host);
+        std::mem::swap(&mut self.target, &mut other.target);
         std::mem::swap(&mut self.workspace, &mut other.workspace);
         std::mem::swap(&mut self.online, &mut other.online);
         std::mem::swap(&mut self.notice, &mut other.notice);
@@ -292,26 +317,43 @@ impl Desktop {
         }
         self.notice = notice;
     }
-    fn open_tab(&mut self, name: &str) {
-        if let Some(i) = self.tabs.iter().position(|t| t.name == name) {
+    /// Switch to the tab for `host`/`name`, opening it (on that host) if it does not exist yet.
+    fn open_tab(&mut self, host: &str, name: &str) {
+        let active = self.active;
+        let same = |tab: &Tab| tab.host == host && tab.name == name;
+        if let Some(i) = self.tabs.iter().position(same) {
             self.activate(i);
             return;
         }
-        let Some(target) = self.target.clone() else {
-            self.notice = "Tabs are unavailable in this session".into();
+        let target = if host == self.host {
+            self.target.clone()
+        } else {
+            config::target(host, None).ok()
+        };
+        let Some(target) = target else {
+            self.toast(format!(
+                "Cannot open {host}: check the host name or your config"
+            ));
             return;
         };
         if !valid_name(name) {
-            self.notice = "Usage: tab NAME (letters, digits, - and _)".into();
+            self.notice = "Workspace names use letters, digits, - and _".into();
             return;
         }
+        let _ = active;
         let (tx, rx) = mpsc::sync_channel(64);
         let (utx, urx) = mpsc::sync_channel(32);
-        let (ws, readonly) = (name.to_string(), self.readonly);
-        thread::spawn(move || worker(target, ws, readonly, None, rx, utx, (30, 100)));
+        let (ws, readonly, worker_target) = (name.to_string(), self.readonly, target.clone());
+        thread::spawn(move || worker(worker_target, ws, readonly, None, rx, utx, (30, 100)));
+        if self.persist {
+            crate::recent::record(host, name);
+        }
         self.tabs.push(Tab {
+            host: host.into(),
             name: name.into(),
             state: Some(Session {
+                host: host.into(),
+                target: Some(target),
                 workspace: name.into(),
                 online: false,
                 notice: "Connecting…".into(),
@@ -439,7 +481,7 @@ impl Desktop {
         "capture"=>self.send(Command::Capture(self.focus,CapturePurpose::View(String::new()))),
         "export"=>self.send(Command::Capture(self.focus,CapturePurpose::Export(arg.into()))),
         "draft"=>self.draft_open=true,
-        "tab"=>self.open_tab(arg),"closetab"=>self.close_tab(),
+        "tab"=>{let host=self.host.clone();self.open_tab(&host,arg)},"open"=>{let mut p=arg.split_whitespace();match p.next(){Some(h)=>self.open_tab(h,p.next().unwrap_or("default")),None=>self.notice="Usage: open HOST [WORKSPACE]".into()}},"closetab"=>self.close_tab(),
         _=>self.notice="Commands: new [cwd], rename TITLE, close, split, layout NAME, theme NAME, search TEXT, capture, export /file, draft, tab NAME, closetab".into(),
     }
     }
@@ -585,7 +627,13 @@ impl Desktop {
             install_fonts(ctx, self.cfg.font_family.as_deref());
             self.applied_font = Some(self.cfg.font_family.clone());
         }
+        self.follow_system_theme(ctx);
         self.window_focused = ctx.input(|i| i.focused);
+        if self.online {
+            self.offline_since = None;
+        } else if self.offline_since.is_none() {
+            self.offline_since = Some(Instant::now());
+        }
         self.fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         self.poll_config();
         self.sync_toast();
@@ -655,6 +703,10 @@ impl Desktop {
                         }
                     });
                     self.highlight = self.find_text.to_lowercase();
+                }
+                if self.panes.is_empty() {
+                    self.welcome_ui(ui);
+                    return;
                 }
                 let ids: Vec<u64> = self.panes.keys().copied().collect();
                 let shown = visible_ids(&ids, self.focus, self.layout);
@@ -755,12 +807,16 @@ impl Desktop {
                         self.focus = id;
                     }
                 }
-                if self.panes.is_empty() {
-                    ui.label("Connecting to your persistent workspace…");
-                }
             });
+        if self.palette && !self.palette_was_open {
+            self.refresh_catalog();
+        }
+        self.palette_was_open = self.palette;
         if self.palette {
             self.palette_ui(ctx);
+        }
+        if self.cheatsheet {
+            self.cheatsheet_ui(ctx);
         }
         self.toast_ui(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && self.cfg.confirm_quit && !self.quit_ok {
@@ -928,34 +984,41 @@ impl Desktop {
                 self.palette = true;
             }
             ActionKind::CloseTab => self.close_tab(),
-            ActionKind::Theme(name) => match Theme::load_native(name) {
+            ActionKind::Theme(name) => match Theme::load_native(&name) {
                 Ok(t) => {
                     self.committed_theme = t.clone();
                     self.theme = t;
                 }
                 Err(e) => self.notice = e.to_string(),
             },
+            ActionKind::OpenWorkspace => {
+                self.command = "Open: ".into();
+                self.palette = true;
+            }
+            ActionKind::Open(host, ws) => self.open_tab(&host, &ws),
+            ActionKind::CheatSheet => self.cheatsheet = !self.cheatsheet,
             ActionKind::FindNext => self.find_step(false),
             ActionKind::FindPrev => self.find_step(true),
             ActionKind::TabJump(n) => self.activate(n),
             ActionKind::TabMove(d) => self.move_tab(d),
             ActionKind::NextTheme | ActionKind::PrevTheme | ActionKind::RandomTheme => {
-                let now = builtin_id(&self.committed_theme.name).unwrap_or("mac27-dark");
+                let now = self.theme_id().unwrap_or_else(|| "mac27-dark".into());
+                let names = self.theme_names.clone();
                 let next = match kind {
-                    ActionKind::NextTheme => theme_step(now, 1),
-                    ActionKind::PrevTheme => theme_step(now, -1),
+                    ActionKind::NextTheme => theme_step(&names, &now, 1),
+                    ActionKind::PrevTheme => theme_step(&names, &now, -1),
                     _ => {
                         let nanos = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map_or(0, |d| d.subsec_nanos() as usize);
-                        BUILTINS[nanos % BUILTINS.len()]
+                        names[nanos % names.len().max(1)].clone()
                     }
                 };
                 self.run_action(ActionKind::Theme(next));
             }
             ActionKind::ThemeVariant => {
-                let now = builtin_id(&self.committed_theme.name).unwrap_or("mac27-dark");
-                match theme_counterpart(now) {
+                let now = self.theme_id().unwrap_or_else(|| "mac27-dark".into());
+                match theme_counterpart(&now, &self.theme_names) {
                     Some(other) => self.run_action(ActionKind::Theme(other)),
                     None => self.toast("This theme has no light/dark counterpart"),
                 }
@@ -996,7 +1059,7 @@ impl Desktop {
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
-        let list = actions(&self.keymap);
+        let list = actions(&self.keymap, &self.theme_names, &self.open_entries);
         let query = self.command.clone();
         let (word, arg) = query
             .trim_start()
@@ -1099,6 +1162,32 @@ impl Desktop {
             self.palette = false;
         }
     }
+    /// Id of the committed theme, remembered per display name (loading themes is not free).
+    fn theme_id(&mut self) -> Option<String> {
+        let name = self.committed_theme.name.clone();
+        if self.theme_id_cache.as_ref().map(|(n, _)| n) != Some(&name) {
+            self.theme_id_cache = Some((name.clone(), find_theme_id(&name)));
+        }
+        self.theme_id_cache.as_ref().and_then(|(_, id)| id.clone())
+    }
+    /// Switch to `theme_light` / `theme_dark` when macOS changes appearance (and once at start).
+    fn follow_system_theme(&mut self, ctx: &egui::Context) {
+        let (light, dark) = (self.cfg.theme_light.clone(), self.cfg.theme_dark.clone());
+        if light.is_none() && dark.is_none() {
+            return;
+        }
+        let Some(system) = ctx.system_theme() else {
+            return;
+        };
+        let is_dark = system == egui::Theme::Dark;
+        if self.last_system_dark == Some(is_dark) {
+            return;
+        }
+        self.last_system_dark = Some(is_dark);
+        if let Some(name) = if is_dark { dark } else { light } {
+            self.run_action(ActionKind::Theme(name));
+        }
+    }
     fn toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), Instant::now()));
     }
@@ -1164,13 +1253,14 @@ impl Desktop {
             self.active = to;
         }
     }
-    fn settings_snapshot(&self) -> DesktopSettings {
+    fn settings_snapshot(&mut self) -> DesktopSettings {
         DesktopSettings {
             width: Some(self.win_size.x.round()).filter(|w| *w > 0.),
             height: Some(self.win_size.y.round()).filter(|h| *h > 0.),
-            theme: builtin_id(&self.committed_theme.name).map(str::to_string),
+            theme: self.theme_id(),
             font_size: Some(self.font_size),
             layout: Some(self.layout.name().to_string()),
+            welcomed: Some(true),
         }
     }
     /// Remember window size, theme, font and layout; throttled unless `force`.
@@ -1276,6 +1366,9 @@ pub fn run(
         settings.width.unwrap_or(1180.),
         settings.height.unwrap_or(760.),
     );
+    if settings.welcomed != Some(true) {
+        app.toast("Press ⌘K for everything, ⌘/ for shortcuts");
+    }
     app.saved = settings;
     eframe::run_native(
         "TERYON — Your Mac mini. Wherever you work.",
@@ -1452,8 +1545,11 @@ mod tests {
         let (btx, _brx) = mpsc::sync_channel(4);
         let (butx, burx) = mpsc::sync_channel(4);
         app.tabs.push(Tab {
+            host: "m".into(),
             name: "b".into(),
             state: Some(Session {
+                host: "m".into(),
+                target: None,
                 workspace: "b".into(),
                 online: false,
                 notice: String::new(),
@@ -1526,7 +1622,7 @@ mod tests {
         assert_eq!(app.layout, LayoutMode::Single);
         app.run_action(ActionKind::Zoom);
         assert_eq!(app.layout, LayoutMode::Grid);
-        app.run_action(ActionKind::Theme("dracula"));
+        app.run_action(ActionKind::Theme("dracula".into()));
         assert_eq!(app.theme.name, "Dracula");
         app.run_action(ActionKind::FontUp);
         assert_eq!(app.font_size, 14.);
@@ -1534,7 +1630,7 @@ mod tests {
         assert!(app.palette && app.command == "tab ");
         app.command = "lay gr".into();
         render(&mut app, &ctx, 900.);
-        assert!(actions(&app.keymap)
+        assert!(actions(&app.keymap, &app.theme_names, &[])
             .iter()
             .any(|a| a.title == "Layout: grid"));
         assert!(uikit::fuzzy_score("lay gr", "Layout: grid").is_some());
@@ -1546,8 +1642,11 @@ mod tests {
             let (tx, _rx) = mpsc::sync_channel(4);
             let (_utx, urx) = mpsc::sync_channel(4);
             app.tabs.push(Tab {
+                host: "m".into(),
                 name: name.into(),
                 state: Some(Session {
+                    host: "m".into(),
+                    target: None,
                     workspace: name.into(),
                     online: false,
                     notice: String::new(),
@@ -1716,5 +1815,45 @@ mod tests {
         app.palette = false;
         render(&mut app, &ctx, 900.);
         assert_eq!(app.theme.name, "Nord");
+    }
+    #[test]
+    fn follows_the_system_appearance_and_keeps_manual_choices_until_it_changes() {
+        let mut app = app_with("nord");
+        app.cfg.theme_light = Some("pearl".into());
+        app.cfg.theme_dark = Some("dracula".into());
+        let ctx = egui::Context::default();
+        let run = |app: &mut Desktop, dark: bool| {
+            let raw = egui::RawInput {
+                system_theme: Some(if dark {
+                    egui::Theme::Dark
+                } else {
+                    egui::Theme::Light
+                }),
+                ..Default::default()
+            };
+            let _ = ctx.run(raw, |ctx| app.frame(ctx));
+        };
+        run(&mut app, true);
+        assert_eq!(app.theme.name, "Dracula");
+        app.run_action(ActionKind::Theme("nord".into()));
+        run(&mut app, true);
+        assert_eq!(
+            app.theme.name, "Nord",
+            "same appearance: manual choice stays"
+        );
+        run(&mut app, false);
+        assert_eq!(app.theme.name, "Pearl");
+    }
+    #[test]
+    fn opening_a_workspace_adds_a_tab_per_host_and_reuses_existing_ones() {
+        let mut app = app_with("nord");
+        app.target = Target::new("local".into(), None).ok();
+        app.open_tab("m", "other");
+        assert_eq!((app.tabs.len(), app.active), (2, 1));
+        assert_eq!((app.host.as_str(), app.workspace.as_str()), ("m", "other"));
+        app.open_tab("m", "a");
+        assert_eq!((app.tabs.len(), app.active), (2, 0));
+        app.close_tab();
+        assert_eq!(app.tabs.len(), 1);
     }
 }

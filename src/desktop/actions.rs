@@ -14,6 +14,9 @@ pub(super) enum Scroll {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum ActionKind {
     Palette,
+    OpenWorkspace,
+    Open(String, String),
+    CheatSheet,
     NewPane,
     NewPaneRight,
     NewPaneBelow,
@@ -33,7 +36,7 @@ pub(super) enum ActionKind {
     CloseTab,
     TabJump(usize),
     TabMove(isize),
-    Theme(&'static str),
+    Theme(String),
     NextTheme,
     PrevTheme,
     RandomTheme,
@@ -56,6 +59,8 @@ impl ActionKind {
         Some(
             match self {
                 Self::Palette => "palette",
+                Self::OpenWorkspace => "open_workspace",
+                Self::CheatSheet => "cheatsheet",
                 Self::NewPane => "new_pane",
                 Self::NewPaneRight => "new_pane_right",
                 Self::NewPaneBelow => "new_pane_below",
@@ -98,7 +103,9 @@ impl ActionKind {
                 Self::History => "history",
                 Self::CopyScreen => "copy_screen",
                 Self::Draft => "draft",
-                Self::Layout(_) | Self::Theme(_) | Self::TabMove(_) => return None,
+                Self::Layout(_) | Self::Theme(_) | Self::TabMove(_) | Self::Open(..) => {
+                    return None
+                }
             }
             .to_string(),
         )
@@ -112,6 +119,8 @@ impl ActionKind {
         }
         Some(match name {
             "palette" => Self::Palette,
+            "open_workspace" => Self::OpenWorkspace,
+            "cheatsheet" => Self::CheatSheet,
             "new_pane" => Self::NewPane,
             "new_pane_right" => Self::NewPaneRight,
             "new_pane_below" => Self::NewPaneBelow,
@@ -164,9 +173,15 @@ pub(super) struct Action {
     pub kind: ActionKind,
 }
 /// Palette entries; shortcut hints come from the live keymap so rebinding shows up immediately.
-pub(super) fn actions(keymap: &Keymap) -> Vec<Action> {
+pub(super) fn actions(
+    keymap: &Keymap,
+    themes: &[String],
+    opens: &[(String, String)],
+) -> Vec<Action> {
     let plain = [
         ("Command palette", ActionKind::Palette),
+        ("Open workspace…", ActionKind::OpenWorkspace),
+        ("Shortcut cheat sheet", ActionKind::CheatSheet),
         ("New pane", ActionKind::NewPane),
         ("New pane to the right", ActionKind::NewPaneRight),
         ("New pane below", ActionKind::NewPaneBelow),
@@ -229,32 +244,39 @@ pub(super) fn actions(keymap: &Keymap) -> Vec<Action> {
             kind: ActionKind::Layout(mode),
         });
     }
-    for name in BUILTINS {
+    for name in themes {
         list.push(Action {
             title: format!("Theme: {name}"),
             hint: String::new(),
-            kind: ActionKind::Theme(name),
+            kind: ActionKind::Theme(name.clone()),
+        });
+    }
+    for (host, ws) in opens {
+        list.push(Action {
+            title: format!("Open: {host} / {ws}"),
+            hint: String::new(),
+            kind: ActionKind::Open(host.clone(), ws.clone()),
         });
     }
     list
 }
 /// Commands that take an argument and run through `execute` when one is typed.
-pub(super) const ARG_COMMANDS: [&str; 7] = [
-    "new", "rename", "theme", "search", "export", "tab", "layout",
+pub(super) const ARG_COMMANDS: [&str; 8] = [
+    "new", "rename", "theme", "search", "export", "tab", "layout", "open",
 ];
-/// The theme to switch to for `delta` steps through the built-ins (wrapping).
-pub(super) fn theme_step(current: &str, delta: isize) -> &'static str {
-    let at = BUILTINS.iter().position(|n| *n == current).unwrap_or(0) as isize;
-    BUILTINS[(at + delta).rem_euclid(BUILTINS.len() as isize) as usize]
+/// The theme to switch to for `delta` steps through `names` (wrapping); `names` is never empty.
+pub(super) fn theme_step(names: &[String], current: &str, delta: isize) -> String {
+    let at = names.iter().position(|n| n == current).unwrap_or(0) as isize;
+    names[(at + delta).rem_euclid(names.len().max(1) as isize) as usize].clone()
 }
 /// The light or dark sibling of a built-in theme (`mac27-dark` <-> `mac27-light`), if one exists.
-pub(super) fn theme_counterpart(current: &str) -> Option<&'static str> {
+pub(super) fn theme_counterpart(current: &str, names: &[String]) -> Option<String> {
     let other = if let Some(stem) = current.strip_suffix("-dark") {
         format!("{stem}-light")
     } else {
         format!("{}-dark", current.strip_suffix("-light")?)
     };
-    BUILTINS.iter().copied().find(|n| *n == other)
+    names.iter().find(|n| **n == other).cloned()
 }
 
 #[cfg(test)]
@@ -273,7 +295,8 @@ mod tests {
     #[test]
     fn palette_lists_shortcuts_from_the_keymap() {
         let (map, _) = Keymap::build(&Default::default());
-        let list = actions(&map);
+        let themes: Vec<String> = BUILTINS.iter().map(|s| s.to_string()).collect();
+        let list = actions(&map, &themes, &[("mini".into(), "dev".into())]);
         let hint = |k: ActionKind| list.iter().find(|a| a.kind == k).unwrap().hint.clone();
         assert_eq!(hint(ActionKind::NewPaneBelow), "⇧⌘D");
         assert_eq!(hint(ActionKind::Focus(Dir::Left)), "⌥⌘←");
@@ -286,10 +309,17 @@ mod tests {
     }
     #[test]
     fn theme_stepping_wraps_and_finds_counterparts() {
-        assert_eq!(theme_step("mac27-dark", -1), BUILTINS[BUILTINS.len() - 1]);
-        assert_eq!(theme_step(BUILTINS[BUILTINS.len() - 1], 1), "mac27-dark");
-        assert_eq!(theme_counterpart("mac27-dark"), Some("mac27-light"));
-        assert_eq!(theme_counterpart("apple-light"), Some("apple-dark"));
-        assert_eq!(theme_counterpart("nord"), None);
+        let names: Vec<String> = BUILTINS.iter().map(|s| s.to_string()).collect();
+        assert_eq!(theme_step(&names, "mac27-dark", -1), *names.last().unwrap());
+        assert_eq!(theme_step(&names, names.last().unwrap(), 1), "mac27-dark");
+        assert_eq!(
+            theme_counterpart("mac27-dark", &names).as_deref(),
+            Some("mac27-light")
+        );
+        assert_eq!(
+            theme_counterpart("apple-light", &names).as_deref(),
+            Some("apple-dark")
+        );
+        assert_eq!(theme_counterpart("nord", &names), None);
     }
 }

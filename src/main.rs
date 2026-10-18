@@ -9,7 +9,7 @@ use std::{
 use teryon::{
     brand, config, daemon,
     protocol::*,
-    theme::{Theme, BUILTINS},
+    theme::Theme,
     transport::{Rpc, Target},
     ui,
 };
@@ -27,8 +27,11 @@ struct Cli {
         help = "Absolute path to the remote teryon binary"
     )]
     remote_bin: Option<String>,
+    /// With no command: open the desktop app instead of the terminal UI after picking a host.
+    #[arg(long)]
+    desktop: bool,
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 #[derive(Subcommand)]
 enum Commands {
@@ -179,6 +182,12 @@ enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+    /// Guided first-run setup: tools, SSH hosts, reachability, theme.
+    Setup {
+        /// Accept every default without asking.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
     /// Show the desktop configuration, or validate it with --check.
     Config {
         /// Exit with an error if `[desktop]` in config.toml is invalid.
@@ -192,6 +201,15 @@ enum Commands {
     Themes {
         #[arg(long)]
         preview: bool,
+        /// Import a color scheme (iTerm2 .itermcolors, Alacritty .toml, Ghostty or Kitty config) as a theme.
+        #[arg(long, value_name = "FILE", conflicts_with_all = ["preview", "export"])]
+        import: Option<PathBuf>,
+        /// Name for the imported theme (default: the file name).
+        #[arg(long = "as", value_name = "NAME", requires = "import")]
+        import_as: Option<String>,
+        /// Replace an existing imported theme of the same name.
+        #[arg(long, requires = "import")]
+        force: bool,
         /// Print a terminal color scheme for NAME (a built-in or a theme file); only `wezterm` is supported.
         #[arg(long, value_name = "TERMINAL", requires = "name", value_parser = ["wezterm"])]
         export: Option<String>,
@@ -283,12 +301,7 @@ struct LayoutPane {
     cwd: String,
 }
 fn target(host: String, remote_bin: Option<String>) -> Result<Target> {
-    let cfg = config::load()?;
-    if let Some(h) = cfg.hosts.get(&host) {
-        Target::new(h.destination.clone(), remote_bin.or(h.remote_bin.clone()))
-    } else {
-        Target::new(host, remote_bin)
-    }
+    config::target(&host, remote_bin)
 }
 /// Bell + OSC 9 for terminals, plus a macOS notification (message passed as argv, never interpolated).
 fn notify_done(label: &str, code: u32) {
@@ -300,6 +313,81 @@ fn notify_done(label: &str, code: u32) {
     };
     eprint!("\x07\x1b]9;{message}\x07");
     teryon::util::notify(&message);
+}
+/// Open the desktop app; command line beats the remembered theme, which beats the config file.
+#[cfg(feature = "desktop")]
+fn run_desktop(
+    host: String,
+    workspace: String,
+    readonly: bool,
+    cwd: Option<String>,
+    theme: Option<String>,
+    bin: Option<String>,
+) -> Result<()> {
+    teryon::recent::record(&host, &workspace);
+    let cfg = config::load()?;
+    let settings = teryon::settings::DesktopSettings::load();
+    let name = theme
+        .or_else(|| settings.theme.clone())
+        .unwrap_or_else(|| cfg.theme.clone());
+    let theme = Theme::load_native(&name)?;
+    teryon::desktop::run(
+        target(host, bin)?,
+        workspace,
+        readonly,
+        cwd,
+        theme,
+        settings,
+    )
+}
+/// Plain `teryon`: pick a host/workspace (recents, config, ~/.ssh/config) and connect.
+fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        Cli::command().print_help()?;
+        println!();
+        return Ok(2);
+    }
+    let cfg = config::load()?;
+    let theme = Theme::load(&cfg.theme)?;
+    let hosts: Vec<String> = cfg.hosts.keys().cloned().collect();
+    let ssh = teryon::util::home()
+        .ok()
+        .and_then(|h| std::fs::read_to_string(h.join(".ssh/config")).ok())
+        .map(|t| config::ssh_hosts(&t))
+        .unwrap_or_default();
+    let entries = teryon::start::build_entries(&hosts, &teryon::recent::load(), &ssh);
+    let lister_bin = bin.clone();
+    let mut lister = move |host: &str| -> Result<Vec<String>> {
+        let mut rpc = target(host.to_string(), lister_bin.clone())?.connect()?;
+        match rpc.call(Request::List)? {
+            Response::Workspaces { items } => Ok(items.into_iter().map(|w| w.name).collect()),
+            _ => bail!("unexpected response"),
+        }
+    };
+    let Some(choice) = teryon::start::pick(entries, &theme, &mut lister)? else {
+        return Ok(0);
+    };
+    let desktop = want_desktop || cfg.start == config::StartMode::Desktop;
+    if desktop {
+        #[cfg(feature = "desktop")]
+        {
+            run_desktop(choice.host, choice.workspace, false, None, None, bin)?;
+            return Ok(0);
+        }
+        #[cfg(not(feature = "desktop"))]
+        bail!("this build has no desktop app; rebuild with --features desktop");
+    }
+    teryon::recent::record(&choice.host, &choice.workspace);
+    connect_tui(
+        target(choice.host, bin)?,
+        choice.workspace,
+        false,
+        None,
+        None,
+        false,
+    )?;
+    Ok(0)
 }
 fn connect_tui(
     target: Target,
@@ -359,7 +447,10 @@ fn capture(rpc: &mut Rpc, pane: u64) -> Result<String> {
 fn run() -> Result<i32> {
     let cli = Cli::parse();
     let bin = cli.remote_bin;
-    match cli.command {
+    let Some(command) = cli.command else {
+        return start(bin, cli.desktop);
+    };
+    match command {
         #[cfg(feature = "desktop")]
         Commands::Desktop {
             host,
@@ -367,23 +458,7 @@ fn run() -> Result<i32> {
             readonly,
             cwd,
             theme,
-        } => {
-            let cfg = config::load()?;
-            let settings = teryon::settings::DesktopSettings::load();
-            // Command line beats remembered choice, which beats the config file.
-            let name = theme
-                .or_else(|| settings.theme.clone())
-                .unwrap_or_else(|| cfg.theme.clone());
-            let theme = Theme::load_native(&name)?;
-            teryon::desktop::run(
-                target(host, bin)?,
-                workspace,
-                readonly,
-                cwd,
-                theme,
-                settings,
-            )?;
-        }
+        } => run_desktop(host, workspace, readonly, cwd, theme, bin)?,
         Commands::Daemon => daemon::run()?,
         Commands::Relay => daemon::relay()?,
         Commands::About { theme } => {
@@ -413,28 +488,34 @@ fn run() -> Result<i32> {
             cwd,
             theme,
             no_splash,
-        } => connect_tui(
-            target(host, bin)?,
-            workspace,
-            readonly,
-            cwd,
-            theme,
-            no_splash,
-        )?,
+        } => {
+            teryon::recent::record(&host, &workspace);
+            connect_tui(
+                target(host, bin)?,
+                workspace,
+                readonly,
+                cwd,
+                theme,
+                no_splash,
+            )?
+        }
         Commands::Attach {
             workspace,
             host,
             readonly,
             theme,
             no_splash,
-        } => connect_tui(
-            target(host, bin)?,
-            workspace,
-            readonly,
-            None,
-            theme,
-            no_splash,
-        )?,
+        } => {
+            teryon::recent::record(&host, &workspace);
+            connect_tui(
+                target(host, bin)?,
+                workspace,
+                readonly,
+                None,
+                theme,
+                no_splash,
+            )?
+        }
         Commands::Dashboard { local, watch } => {
             let cfg = config::load()?;
             loop {
@@ -721,6 +802,10 @@ fn run() -> Result<i32> {
                 .call(Request::Shutdown { force })?;
             println!("Daemon stopped");
         }
+        Commands::Setup { yes } => {
+            let mut io = teryon::setup::Console { assume_yes: yes };
+            teryon::setup::run(&mut io, &mut teryon::setup::Real { bin })?;
+        }
         Commands::Config { check, keys } => {
             let path = config::path()?;
             println!(
@@ -766,12 +851,54 @@ fn run() -> Result<i32> {
             }
         }
         Commands::Themes {
+            import: Some(file),
+            import_as,
+            force,
+            ..
+        } => {
+            let text = std::fs::read_to_string(&file)?;
+            let stem = file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("imported")
+                .to_lowercase()
+                .replace(' ', "-");
+            let name = import_as.unwrap_or(stem);
+            if !teryon::theme::valid_user_name(&name) {
+                bail!("theme names use letters, digits, - and _ (and cannot reuse a built-in name): {name}");
+            }
+            let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let Some(format) = teryon::themeimport::detect(file_name, &text) else {
+                bail!("could not tell which terminal this color scheme is from");
+            };
+            let (mut spec, notes) = teryon::themeimport::import(&text, format, &name)?;
+            spec.name = name.clone();
+            let path = teryon::theme::user_theme_path(&name).context("theme path")?;
+            if path.exists() && !force {
+                bail!(
+                    "{} already exists; use --force to replace it",
+                    path.display()
+                );
+            }
+            teryon::util::write_private_atomic(&path, toml::to_string(&spec)?.as_bytes())?;
+            Theme::load(&name)?;
+            for n in notes {
+                eprintln!("note: {n}");
+            }
+            println!(
+                "Imported {format:?} scheme as theme \"{name}\" ({})",
+                path.display()
+            );
+            println!("Use it with: teryon connect HOST --theme {name}   or set theme = \"{name}\" in config.toml");
+        }
+        Commands::Themes {
             export: Some(_),
             name: Some(name),
             ..
         } => print!("{}", Theme::load(&name)?.to_wezterm_lua()),
         Commands::Themes { preview, .. } => {
-            for name in BUILTINS {
+            for name in teryon::theme::all_names() {
+                let name = name.as_str();
                 let t = Theme::load(name)?;
                 if preview {
                     fn rgb(c: ratatui::style::Color) -> (u8, u8, u8) {

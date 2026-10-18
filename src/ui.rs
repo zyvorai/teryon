@@ -656,11 +656,12 @@ fn draw(f: &mut Frame, app: &App) {
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
-                "  Z ",
+                "  T",
                 Style::default()
-                    .fg(Color::Rgb(0xff, 0x5a, 0x15))
+                    .fg(Color::Rgb(0x0a, 0x84, 0xff))
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled("▪ ", Style::default().fg(Color::Rgb(0xf5, 0xf5, 0xf7))),
             Span::styled(
                 "TERYON  ",
                 Style::default()

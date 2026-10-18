@@ -6,11 +6,22 @@ terminal.
 
 ## Top bar
 
-Window buttons (macOS: the title bar is merged into the bar), the Z mark, the workspace (or tabs when
+Window buttons (macOS: the title bar is merged into the bar), the TERYON mark, the workspace (or tabs when
 you have several), `+` for a new tab, one numbered chip per pane, then on the right a connection dot
 with latency, the layout switch, **New pane**, and the command palette. Messages appear as a short
 toast in the bottom-left corner instead of a status bar. Drag empty bar space to move the window;
 double-click it to maximize.
+
+## Getting around
+
+* **Welcome card**: while a workspace has no panes the window explains what is happening; if the host cannot
+  be reached it shows the error and the exact `teryon doctor HOST --fix --binary …` command with a copy button,
+  plus your recent workspaces to open instead.
+* **⌘O Open workspace…** lists recent workspaces and your configured hosts; choosing one opens it as a new tab,
+  on that host (tabs of different hosts are labelled `host/workspace`). `open HOST [WORKSPACE]` works in the palette too.
+* **⌘/ cheat sheet** lists every shortcut from the live keymap, with rotating tips. The first run shows a one-time hint.
+* **Auto light/dark**: set `theme_light` and `theme_dark` in `[desktop]` to follow the macOS appearance; a theme
+  you pick by hand stays until the appearance changes.
 
 ## Panes and splits
 
@@ -65,6 +76,8 @@ role of ⌘ (so ⇧ variants are not available there).
 
 | Keys | Action |
 |---|---|
+| ⌘O | Open a workspace (new tab, any host) |
+| ⌘/ | Shortcut cheat sheet |
 | ⌘K | Command palette (fuzzy search of every action; ↑/↓ over a theme previews it) |
 | ⌘D / ⇧⌘D | New pane to the right / below |
 | ⌥⌘ arrows | Focus the pane in that direction |

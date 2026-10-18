@@ -16,6 +16,13 @@ One slim top bar, splits you can drag and navigate by keyboard, selection modes,
 
 A static landing page lives in `site/` and deploys to GitHub Pages through `.github/workflows/pages.yml` (set Settings → Pages → Source to "GitHub Actions" once). Preview it with `scripts/build-site.sh && open site/dist/index.html`.
 
+## Start in one command
+
+```bash
+teryon            # pick a host and workspace (recents, config, ~/.ssh/config)
+teryon setup      # guided first run: tools, SSH hosts, reachability, theme
+```
+
 ## Build and try locally
 
 Requires Rust (the repository pins 1.94.0 via rust-toolchain.toml), macOS or Linux, and a UTF-8 terminal.

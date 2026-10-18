@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 — Easy start and our own mark
+
+- New TERYON logo: a blue T with the cursor waiting beside it (replaces the Zyvor Z everywhere: icon, wordmark, app, banner, site).
+- `teryon` with no arguments opens a host/workspace picker (recents, config hosts, `~/.ssh/config`, `local`); `--desktop` or `start = "desktop"` opens the app instead. Recents are remembered in `~/.teryon/recent.toml`.
+- `teryon setup`: a re-runnable guided check (tools, SSH host import, reachability with the exact fix command, theme).
+- `teryon themes --import FILE` converts iTerm2, Alacritty, Ghostty and Kitty color schemes; user themes in `~/.config/teryon/themes/` appear everywhere themes are listed.
+- Desktop: welcome card with the fix command when a host is unreachable, ⌘O to open any workspace as a new tab on any host, ⌘/ shortcut cheat sheet, a one-time first-run hint, and `theme_light` / `theme_dark` to follow macOS appearance.
+- `import-ssh` no longer writes the example host when it has to create the config.
+
 ## 0.6.0 — One slim bar, Ghostty-style desktop
 
 - The sidebar and status bar are gone: one 30 px top bar (window buttons merged into it on macOS) holds the workspace/tabs, pane chips, layout switch, New pane and the palette; messages are short toasts.

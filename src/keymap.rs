@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 /// Every action a key can trigger, by the name used in `[desktop.keys]`.
 pub const ACTION_NAMES: &[&str] = &[
     "palette",
+    "open_workspace",
+    "cheatsheet",
     "new_pane",
     "new_pane_right",
     "new_pane_below",
@@ -59,6 +61,8 @@ pub const ACTION_NAMES: &[&str] = &[
 /// Default bindings as `(chord, action)`; an action may appear more than once.
 pub const DEFAULTS: &[(&str, &str)] = &[
     ("cmd+k", "palette"),
+    ("cmd+o", "open_workspace"),
+    ("cmd+/", "cheatsheet"),
     ("cmd+d", "new_pane_right"),
     ("cmd+shift+d", "new_pane_below"),
     ("cmd+shift+enter", "zoom"),
@@ -134,6 +138,7 @@ pub fn canon_key(name: &str) -> Option<String> {
         "period" | "." => ".",
         "openbracket" | "[" => "[",
         "closebracket" | "]" => "]",
+        "slash" | "/" => "/",
         "space" | " " => "space",
         "tab" | "backspace" | "delete" | "home" | "end" | "pageup" | "pagedown" | "insert" => {
             return Some(n)

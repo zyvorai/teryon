@@ -62,3 +62,13 @@ teryon connect mini --theme /Users/susant/.config/teryon/my-theme.toml
 Theme files are loaded locally. They contain no scripts. They style app chrome and default terminal colors; explicit colors emitted by remote applications retain their ANSI/true-color meaning. Dark-oriented shell themes may need their own light variant when using Pearl.
 
 The desktop font size slider ranges from 11 to 24 points. Terminal glyph coverage depends on the frontend's available fonts; this preview does not ship a complete CJK or color-emoji font stack. The TUI uses your terminal emulator's fonts.
+
+## Your own themes and imports
+
+Theme files in `~/.config/teryon/themes/NAME.toml` are picked up by name (`--theme NAME`, `theme = "NAME"`,
+the palette). `teryon themes --import FILE` converts a scheme from another terminal into one: iTerm2
+`.itermcolors`, Alacritty `.toml`, and Ghostty or Kitty config files (the format is detected). Missing palette
+colors are filled with xterm defaults, secondary text is lightened until it reaches a 4.5:1 contrast, and the
+command warns when the scheme's own foreground/background contrast is lower than that.
+
+With `theme_light` / `theme_dark` in the `[desktop]` section the desktop follows the macOS appearance.
