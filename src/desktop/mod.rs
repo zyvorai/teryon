@@ -143,6 +143,7 @@ pub struct Desktop {
     unfocused_dim: f32,
     /// Per pane: the finished-command text last shown as a toast and when it appeared (seconds).
     wake_set: bool,
+    term_focused: bool,
     /// When the active tab last changed, for the short cross-fade.
     tab_fade_at: Option<Instant>,
     chip_toasts: HashMap<u64, (String, f64)>,
@@ -321,6 +322,7 @@ impl Desktop {
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
             wake_set: false,
+            term_focused: false,
             tab_fade_at: None,
             chip_toasts: HashMap::new(),
             noise_tex: None,
@@ -708,8 +710,14 @@ impl Desktop {
     }
     }
     fn keyboard(&mut self, ctx: &egui::Context) {
-        let terminal_focus =
-            ctx.memory(|m| m.focused()) == Some(egui::Id::new(("teryon-terminal", self.focus)));
+        let term_id = egui::Id::new(("teryon-terminal", self.focus));
+        let mut terminal_focus = ctx.memory(|m| m.focused()) == Some(term_id);
+        // egui walks focus on Tab and the arrows; the shell must keep those keys and the focus.
+        if !terminal_focus && self.term_focused && !ctx.wants_keyboard_input() {
+            ctx.memory_mut(|m| m.request_focus(term_id));
+            terminal_focus = true;
+        }
+        self.term_focused = terminal_focus;
         if (ctx.wants_keyboard_input() && !terminal_focus)
             || self.palette
             || self.draft_open
