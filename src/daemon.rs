@@ -324,7 +324,7 @@ impl Pane {
     fn view(
         &self,
         known: Option<u64>,
-        mirror: Option<&mut Option<crate::screensync::ServerMirror>>,
+        mut sync: Option<&mut crate::screensync::PaneSync>,
     ) -> PaneView {
         let st = self.state.lock().unwrap();
         let (rows, cols) = st.parser.screen().size();
@@ -332,13 +332,13 @@ impl Pane {
         let top = st.parser.screen().scrolled_total();
         let log = &st.parser.callbacks().log;
         let (mut screen, mut screen_b64, mut diff_from, mut digest) = (None, None, None, None);
-        match (changed, mirror) {
+        match (changed, sync.as_deref_mut()) {
             (false, _) => {}
             (true, None) => screen = Some(st.parser.screen().state_formatted()),
-            (true, Some(m)) => {
+            (true, Some(sync)) => {
                 // A client that asks for diffs also reads the compact text form.
                 let e = crate::screensync::ServerMirror::encode(
-                    m,
+                    &mut sync.mirror,
                     st.parser.screen(),
                     st.revision,
                     known,
@@ -347,7 +347,7 @@ impl Pane {
                 (diff_from, digest) = (e.diff_from, e.digest);
             }
         };
-        PaneView {
+        let mut view = PaneView {
             id: self.id,
             title: self.title.lock().unwrap().clone(),
             cwd: log.cwd.clone().unwrap_or_else(|| self.cwd.clone()),
@@ -357,6 +357,7 @@ impl Pane {
             revision: st.revision,
             screen,
             screen_b64,
+            same_meta: false,
             diff_from,
             digest,
             exited: st.exited,
@@ -384,7 +385,12 @@ impl Pane {
                     })
                     .collect()
             }),
+        };
+        // A client that asks for diffs is not sent the pane details again while they are unchanged.
+        if let Some(sync) = sync {
+            sync.trim(&mut view);
         }
+        view
     }
     /// Listening ports of this pane's processes. Returns the last answer at once; when it is older
     /// than 5 seconds a background thread refreshes it (`lsof` can take a moment).
@@ -543,7 +549,7 @@ struct Connection {
     readonly: bool,
     hello: bool,
     /// What this connection was last sent for each pane, to diff the next screen against.
-    mirrors: BTreeMap<u64, Option<crate::screensync::ServerMirror>>,
+    mirrors: BTreeMap<u64, crate::screensync::PaneSync>,
 }
 
 /// Host stats, sampled at most every 5 seconds however many clients ask.

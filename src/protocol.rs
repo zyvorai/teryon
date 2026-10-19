@@ -113,7 +113,12 @@ pub struct PaneView {
     pub cols: u16,
     pub revision: u64,
     /// Complete ANSI terminal state when changed. None means retain the old state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screen: Option<Vec<u8>>,
+    /// Nothing but the screen and `revision` changed since the last reply on this connection, so the
+    /// title, directory, process, ports and line numbers are left out: reuse the ones already held.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub same_meta: bool,
     /// The same bytes as `screen`, as base64 text (about a third of the size of a JSON number array).
     /// Sent instead of `screen` to clients that asked for diffs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -124,14 +129,15 @@ pub struct PaneView {
     /// Checksum of the screen the diff produces (see `screensync::digest`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exited: Option<u32>,
     /// Shell-integration marks, sent together with `screen`; old daemons never send them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marks: Option<Vec<Mark>>,
     /// Absolute number of the first retained history line, and of the top visible row.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub first_line: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub top_line: u64,
     /// Command line of the pane's foreground process (e.g. `claude` or `node /…/codex`); old daemons send none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,6 +154,9 @@ pub struct PaneView {
     /// Kitty keyboard protocol flags in force for the pane's current screen; old daemons send 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub kbd: u8,
+}
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
 }
 fn is_zero(n: &u8) -> bool {
     *n == 0

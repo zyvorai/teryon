@@ -1,6 +1,7 @@
 //! Sending a pane's screen as a difference from the last one the client received, instead of the
 //! whole screen every time, with a checksum so either side notices if the two ever disagree and
 //! falls back to a full snapshot.
+use crate::protocol::PaneView;
 use std::collections::BTreeMap;
 
 /// A full snapshot is sent at least this often, so a bug cannot drift for long.
@@ -49,6 +50,36 @@ fn mirror_of(rows: u16, cols: u16, full: &[u8]) -> vt100::Parser {
     let mut p = vt100::Parser::new(rows, cols, 0);
     p.process(full);
     p
+}
+
+/// Everything the daemon remembers about what one client holds for one pane.
+#[derive(Default)]
+pub struct PaneSync {
+    pub mirror: Option<ServerMirror>,
+    meta: Option<String>,
+}
+
+impl PaneSync {
+    /// Leave out the pane details (`same_meta`) when they are what this client was last sent;
+    /// otherwise remember them as sent. A changed screen does not matter: the details are their own.
+    pub fn trim(&mut self, view: &mut PaneView) {
+        let key = format!(
+            "{}\0{}\0{:?}\0{:?}\0{:?}\0{}\0{}",
+            view.title, view.cwd, view.pid, view.fg, view.ports, view.first_line, view.top_line
+        );
+        if self.meta.as_deref() == Some(key.as_str()) {
+            view.title.clear();
+            view.cwd.clear();
+            view.pid = None;
+            view.fg = None;
+            view.ports.clear();
+            view.first_line = 0;
+            view.top_line = 0;
+            view.same_meta = true;
+        } else {
+            self.meta = Some(key);
+        }
+    }
 }
 
 /// What the daemon has sent one client for one pane: a copy of that client's screen.
@@ -112,6 +143,48 @@ impl ServerMirror {
             diff_from: None,
             digest: None,
         }
+    }
+}
+
+/// The pane details a client last received in full, to fill in the replies that leave them out.
+#[derive(Default)]
+pub struct MetaCache {
+    panes: BTreeMap<u64, PaneView>,
+}
+
+impl MetaCache {
+    /// Make `view` complete. `false` when it leaves details out that this client never received.
+    pub fn complete(&mut self, view: &mut PaneView) -> bool {
+        if !view.same_meta {
+            let mut keep = PaneView {
+                id: view.id,
+                ..Default::default()
+            };
+            keep.title.clone_from(&view.title);
+            keep.cwd.clone_from(&view.cwd);
+            keep.pid = view.pid;
+            keep.fg.clone_from(&view.fg);
+            keep.ports.clone_from(&view.ports);
+            keep.first_line = view.first_line;
+            keep.top_line = view.top_line;
+            self.panes.insert(view.id, keep);
+            return true;
+        }
+        let Some(m) = self.panes.get(&view.id) else {
+            return false;
+        };
+        view.title.clone_from(&m.title);
+        view.cwd.clone_from(&m.cwd);
+        view.pid = m.pid;
+        view.fg.clone_from(&m.fg);
+        view.ports.clone_from(&m.ports);
+        view.first_line = m.first_line;
+        view.top_line = m.top_line;
+        view.same_meta = false;
+        true
+    }
+    pub fn retain(&mut self, live: impl Fn(u64) -> bool) {
+        self.panes.retain(|id, _| live(*id));
     }
 }
 
@@ -256,6 +329,66 @@ mod tests {
             sent * 5 < full,
             "sent {sent} bytes against {full} for full snapshots"
         );
+    }
+    fn view(title: &str, fg: &str, revision: u64) -> PaneView {
+        PaneView {
+            id: 1,
+            title: title.into(),
+            cwd: "/work/project".into(),
+            pid: Some(77),
+            revision,
+            fg: Some(fg.into()),
+            ports: vec![3000],
+            first_line: 4,
+            top_line: 9,
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn unchanged_pane_details_are_left_out_and_filled_back_in() {
+        let (mut sync, mut cache) = (PaneSync::default(), MetaCache::default());
+        // The first reply carries everything.
+        let mut v = view("zsh", "-zsh", 1);
+        sync.trim(&mut v);
+        assert!(!v.same_meta && v.title == "zsh");
+        assert!(cache.complete(&mut v));
+        // A quiet one carries almost nothing, and comes back complete.
+        let mut quiet = view("zsh", "-zsh", 1);
+        sync.trim(&mut quiet);
+        assert!(quiet.same_meta && quiet.title.is_empty() && quiet.cwd.is_empty());
+        assert!(quiet.fg.is_none() && quiet.ports.is_empty() && quiet.pid.is_none());
+        let slim = serde_json::to_string(&quiet).unwrap().len();
+        let whole = serde_json::to_string(&view("zsh", "-zsh", 1))
+            .unwrap()
+            .len();
+        assert!(slim * 10 < whole * 7, "slim {slim} bytes against {whole}");
+        assert!(cache.complete(&mut quiet));
+        let want = view("zsh", "-zsh", 1);
+        assert_eq!(
+            (&quiet.title, &quiet.cwd, quiet.pid, &quiet.fg, &quiet.ports),
+            (&want.title, &want.cwd, want.pid, &want.fg, &want.ports)
+        );
+        assert_eq!((quiet.first_line, quiet.top_line), (4, 9));
+        assert!(!quiet.same_meta);
+        // A change in any detail sends them all again; so does a changed screen.
+        let mut moved = view("zsh", "vim notes.md", 1);
+        sync.trim(&mut moved);
+        assert!(!moved.same_meta);
+        assert!(cache.complete(&mut moved));
+        // And once sent, a changed screen on its own does not bring them back.
+        let mut next = view("zsh", "vim notes.md", 2);
+        sync.trim(&mut next);
+        assert!(next.same_meta);
+    }
+    #[test]
+    fn a_client_without_the_details_asks_to_start_over() {
+        let mut cache = MetaCache::default();
+        let mut quiet = PaneView {
+            id: 5,
+            same_meta: true,
+            ..Default::default()
+        };
+        assert!(!cache.complete(&mut quiet));
     }
     #[test]
     fn a_client_that_missed_an_update_asks_for_a_full_snapshot() {
