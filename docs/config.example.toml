@@ -27,6 +27,7 @@ destination = "susant@mini.local"
 # window_blur = 40                 # blur behind a transparent window (macOS)
 # background_gradient = ["#16161e", "#2a2b3b", "#16161e"]
 # gradient_angle = 135.0
+# tab_active_bg = "#82aaff"        # also tab_bar_bg, tab_active_fg, tab_inactive_bg, tab_inactive_fg
 # tab_bar = "bottom"              # with chrome = "none": a strip of tabs and a clock along the bottom
 # initial_cols = 124               # open windows this size (set both), instead of the last size
 # initial_rows = 42

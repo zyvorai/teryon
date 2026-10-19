@@ -49,70 +49,116 @@ impl Desktop {
             });
         ctx.request_repaint_after(Duration::from_millis(60));
     }
-    /// One row holding everything the old sidebar and status bar showed.
-    /// The bottom tab strip of a bare window: one pill per tab (active one filled with the accent),
-    /// a "+" button and the local time.
+    /// The bottom tab strip of a bare window, styled like WezTerm's: rounded tabs (the active one
+    /// filled and underlined), a new-tab button and a clock.
     pub(super) fn tab_strip(&mut self, ctx: &egui::Context) {
         if self.cfg.tab_bar != crate::config::TabBar::Bottom {
             return;
         }
         let t = self.theme.clone();
-        let strip = mix(t.background, ratatui::style::Color::Rgb(0, 0, 0), 0.35);
+        let pick_color = |custom: &Option<String>, fallback: Color32| {
+            custom
+                .as_deref()
+                .and_then(super::triggers::parse_hex)
+                .unwrap_or(fallback)
+        };
+        let strip = pick_color(
+            &self.cfg.tab_bar_bg,
+            color(mix(t.background, ratatui::style::Color::Rgb(0, 0, 0), 0.35)),
+        );
+        let active_bg = pick_color(&self.cfg.tab_active_bg, color(t.accent));
+        let active_fg = pick_color(&self.cfg.tab_active_fg, strip);
+        let idle_bg = pick_color(
+            &self.cfg.tab_inactive_bg,
+            color(mix(t.background, t.foreground, 0.12)),
+        );
+        let idle_fg = pick_color(
+            &self.cfg.tab_inactive_fg,
+            color(mix(t.accent, t.foreground, 0.5)),
+        );
+        let hover_bg = color(t.border);
+        let hover_fg = color(t.foreground);
         let mut pick = None;
         let mut new_tab = false;
         egui::TopBottomPanel::bottom("teryon-tab-strip")
             .exact_height(TAB_STRIP_HEIGHT)
             .frame(
                 egui::Frame::new()
-                    .fill(color(strip).gamma_multiply(self.cfg.window_opacity))
+                    .fill(strip.gamma_multiply(self.cfg.window_opacity))
                     .inner_margin(egui::Margin::symmetric(6, 2)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.;
+                    // One rounded chip: `fill` and `ink` at rest, the hover pair under the pointer.
+                    let chip = |ui: &mut egui::Ui,
+                                text: String,
+                                on: bool,
+                                fill: Color32,
+                                ink: Color32,
+                                hover: (Color32, Color32)| {
+                        let galley = ui
+                            .painter()
+                            .layout_no_wrap(text, FontId::monospace(13.), ink);
+                        let size = Vec2::new(galley.size().x + 20., TAB_STRIP_HEIGHT - 6.);
+                        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+                        let hovered = response.hovered() && !on;
+                        let (fill, ink) = if hovered { hover } else { (fill, ink) };
+                        ui.painter().rect_filled(
+                            rect,
+                            egui::CornerRadius::same((size.y / 2.) as u8),
+                            fill,
+                        );
+                        let origin = rect.center() - galley.size() / 2.;
+                        ui.painter().galley(origin, galley.clone(), ink);
+                        if on {
+                            // Bold look and the underline WezTerm draws under the active tab.
+                            ui.painter()
+                                .galley(origin + Vec2::new(0.6, 0.), galley.clone(), ink);
+                            let y = origin.y + galley.size().y - 1.;
+                            ui.painter().line_segment(
+                                [
+                                    Pos2::new(origin.x, y),
+                                    Pos2::new(origin.x + galley.size().x, y),
+                                ],
+                                Stroke::new(1_f32, ink),
+                            );
+                        }
+                        response
+                    };
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let on = i == self.active;
-                        let (fill, text) = if on {
-                            (color(t.accent), color(strip))
-                        } else {
-                            (
-                                color(mix(strip, t.foreground, 0.12)),
-                                color(mix(t.accent, t.foreground, 0.5)),
-                            )
-                        };
                         let name = match self.panes.get(&self.focus) {
                             Some(p) if on && !p.info.title.is_empty() => p.info.title.as_str(),
                             _ if tab.name.starts_with("win-") => "shell",
                             _ => tab.name.as_str(),
                         };
-                        let label = RichText::new(format!(" {}: {} ", i + 1, name))
-                            .size(13.)
-                            .color(text);
-                        let label = if on {
-                            label.strong().underline()
+                        let name: String = name.chars().take(22).collect();
+                        let text = format!(
+                            "\u{f120} {} {name}",
+                            if on { "\u{25cf}" } else { "\u{25cb}" }
+                        );
+                        let (fill, ink) = if on {
+                            (active_bg, active_fg)
                         } else {
-                            label
+                            (idle_bg, idle_fg)
                         };
-                        let button = egui::Button::new(label)
-                            .fill(fill)
-                            .corner_radius(egui::CornerRadius::same(8));
-                        if ui.add(button).clicked() {
+                        if chip(ui, text, on, fill, ink, (hover_bg, hover_fg)).clicked() {
                             pick = Some(i);
                         }
                     }
-                    let plus =
-                        egui::Button::new(RichText::new(" + ").size(13.).color(color(t.accent)))
-                            .fill(color(strip))
-                            .corner_radius(egui::CornerRadius::same(8));
-                    if ui.add(plus).on_hover_text("New tab").clicked() {
+                    if chip(ui, "+".into(), false, strip, active_bg, (active_bg, strip))
+                        .on_hover_text("New tab")
+                        .clicked()
+                    {
                         new_tab = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            RichText::new(clock_now())
+                            RichText::new(format!("\u{f017} {}", clock_now()))
                                 .monospace()
                                 .size(13.)
-                                .color(color(t.accent)),
+                                .color(active_bg),
                         );
                     });
                 });
@@ -125,6 +171,7 @@ impl Desktop {
             self.run_action(ActionKind::NewTab);
         }
     }
+    /// One row holding everything the old sidebar and status bar showed.
     pub(super) fn top_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme.clone();
         let width = ctx.screen_rect().width();

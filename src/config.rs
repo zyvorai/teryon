@@ -259,6 +259,12 @@ pub struct DesktopConfig {
     pub chrome: Chrome,
     /// `"bottom"` adds a WezTerm-style tab strip with a clock under a bare window.
     pub tab_bar: TabBar,
+    /// `#RRGGBB` colors of the tab strip: its background, the active tab, inactive tabs.
+    pub tab_bar_bg: Option<String>,
+    pub tab_active_bg: Option<String>,
+    pub tab_active_fg: Option<String>,
+    pub tab_inactive_bg: Option<String>,
+    pub tab_inactive_fg: Option<String>,
     /// Open windows this many columns by rows wide (both or neither), instead of the last size.
     pub initial_cols: Option<u16>,
     pub initial_rows: Option<u16>,
@@ -304,6 +310,11 @@ impl Default for DesktopConfig {
             pane_titles: PaneTitles::Auto,
             chrome: Chrome::Full,
             tab_bar: TabBar::Off,
+            tab_bar_bg: None,
+            tab_active_bg: None,
+            tab_active_fg: None,
+            tab_inactive_bg: None,
+            tab_inactive_fg: None,
             initial_cols: None,
             initial_rows: None,
             fresh_window: false,
@@ -355,7 +366,19 @@ impl DesktopConfig {
             c.strip_prefix('#')
                 .is_some_and(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))
         };
-        for c in self.cursor_color.iter().chain(&self.background_gradient) {
+        let tab_colors = [
+            &self.tab_bar_bg,
+            &self.tab_active_bg,
+            &self.tab_active_fg,
+            &self.tab_inactive_bg,
+            &self.tab_inactive_fg,
+        ];
+        for c in self
+            .cursor_color
+            .iter()
+            .chain(&self.background_gradient)
+            .chain(tab_colors.into_iter().flatten())
+        {
             if !is_hex(c) {
                 bail!("desktop colors must look like #RRGGBB, not {c:?}");
             }
