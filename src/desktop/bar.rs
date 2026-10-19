@@ -3,6 +3,7 @@ use super::*;
 
 /// Height of the bar; the macOS traffic lights sit inside it.
 pub(super) const BAR_HEIGHT: f32 = 34.;
+pub(super) const TAB_STRIP_HEIGHT: f32 = 28.;
 /// Space kept free for the macOS window buttons when the title bar is merged into the bar.
 const TRAFFIC_LIGHTS: f32 = 78.;
 const TOAST_SECONDS: f32 = 4.;
@@ -49,6 +50,81 @@ impl Desktop {
         ctx.request_repaint_after(Duration::from_millis(60));
     }
     /// One row holding everything the old sidebar and status bar showed.
+    /// The bottom tab strip of a bare window: one pill per tab (active one filled with the accent),
+    /// a "+" button and the local time.
+    pub(super) fn tab_strip(&mut self, ctx: &egui::Context) {
+        if self.cfg.tab_bar != crate::config::TabBar::Bottom {
+            return;
+        }
+        let t = self.theme.clone();
+        let strip = mix(t.background, ratatui::style::Color::Rgb(0, 0, 0), 0.35);
+        let mut pick = None;
+        let mut new_tab = false;
+        egui::TopBottomPanel::bottom("teryon-tab-strip")
+            .exact_height(TAB_STRIP_HEIGHT)
+            .frame(
+                egui::Frame::new()
+                    .fill(color(strip).gamma_multiply(self.cfg.window_opacity))
+                    .inner_margin(egui::Margin::symmetric(6, 2)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.;
+                    for (i, tab) in self.tabs.iter().enumerate() {
+                        let on = i == self.active;
+                        let (fill, text) = if on {
+                            (color(t.accent), color(strip))
+                        } else {
+                            (
+                                color(mix(strip, t.foreground, 0.12)),
+                                color(mix(t.accent, t.foreground, 0.5)),
+                            )
+                        };
+                        let name = match self.panes.get(&self.focus) {
+                            Some(p) if on && !p.info.title.is_empty() => p.info.title.as_str(),
+                            _ if tab.name.starts_with("win-") => "shell",
+                            _ => tab.name.as_str(),
+                        };
+                        let label = RichText::new(format!(" {}: {} ", i + 1, name))
+                            .size(13.)
+                            .color(text);
+                        let label = if on {
+                            label.strong().underline()
+                        } else {
+                            label
+                        };
+                        let button = egui::Button::new(label)
+                            .fill(fill)
+                            .corner_radius(egui::CornerRadius::same(8));
+                        if ui.add(button).clicked() {
+                            pick = Some(i);
+                        }
+                    }
+                    let plus =
+                        egui::Button::new(RichText::new(" + ").size(13.).color(color(t.accent)))
+                            .fill(color(strip))
+                            .corner_radius(egui::CornerRadius::same(8));
+                    if ui.add(plus).on_hover_text("New tab").clicked() {
+                        new_tab = true;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(clock_now())
+                                .monospace()
+                                .size(13.)
+                                .color(color(t.accent)),
+                        );
+                    });
+                });
+            });
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        if let Some(i) = pick {
+            self.activate(i);
+        }
+        if new_tab {
+            self.run_action(ActionKind::NewTab);
+        }
+    }
     pub(super) fn top_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme.clone();
         let width = ctx.screen_rect().width();
@@ -269,4 +345,18 @@ impl Desktop {
             }
         }
     }
+}
+
+/// Local time as `HH:MM:SS`.
+fn clock_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as libc::time_t;
+    // SAFETY: `tm` is plain data that localtime_r fully fills, and both pointers are valid.
+    let tm = unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm
+    };
+    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }

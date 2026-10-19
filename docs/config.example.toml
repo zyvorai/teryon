@@ -22,7 +22,8 @@ destination = "susant@mini.local"
 # padding = 8.0
 # padding_x = 8.0                  # left and right; also padding_top and padding_bottom (default: padding)
 # pane_inset = 10.0                # space around the panes; 0 runs them edge to edge
-# chrome = "none"                  # full | none: "none" is only the terminal, no title bar or tab strip
+# chrome = "none"                 # full | none: "none" is only the terminal, no title bar or tab strip
+# tab_bar = "bottom"              # with chrome = "none": a strip of tabs and a clock along the bottom
 # initial_cols = 124               # open windows this size (set both), instead of the last size
 # initial_rows = 42
 # scrollbar = "auto"               # auto: only while scrolled back | always: its size shows how much history there is

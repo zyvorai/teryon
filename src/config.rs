@@ -143,6 +143,14 @@ pub enum Scrollbar {
     Always,
 }
 /// How much window decoration the desktop app draws.
+/// A strip of tabs along the bottom edge of a bare window (`chrome = "none"`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabBar {
+    #[default]
+    Off,
+    Bottom,
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Chrome {
@@ -240,6 +248,8 @@ pub struct DesktopConfig {
     pub pane_titles: PaneTitles,
     /// `"none"` draws only the terminal: no title bar and no tab strip (restart to apply).
     pub chrome: Chrome,
+    /// `"bottom"` adds a WezTerm-style tab strip with a clock under a bare window.
+    pub tab_bar: TabBar,
     /// Open windows this many columns by rows wide (both or neither), instead of the last size.
     pub initial_cols: Option<u16>,
     pub initial_rows: Option<u16>,
@@ -280,6 +290,7 @@ impl Default for DesktopConfig {
             scrollback_lines: 10_000,
             pane_titles: PaneTitles::Auto,
             chrome: Chrome::Full,
+            tab_bar: TabBar::Off,
             initial_cols: None,
             initial_rows: None,
             fresh_window: false,

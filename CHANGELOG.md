@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop: `tab_bar = "bottom"` adds a WezTerm-style tab strip (tab pills, a new-tab button and a clock) under a bare `chrome = "none"` window.
+
 - **Zsh power features** in `teryon shell-init zsh`, no plugins needed: history in `~/.teryon/history.jsonl`, ghost-text suggestions, syntax highlighting, a fuzzy picker for Ctrl-R (history with status, duration and directory), Ctrl-T (files) and Alt-C (directories), fuzzy Tab completion, `z`/`zi` directory jump and an opt-in two-line prompt with git state. `[shell]` in `config.toml` switches each on or off; `teryon-features` shows what is active. See `docs/SHELL-INTEGRATION.md`.
 - Desktop: ⌘⇧H searches the command history; `[desktop] chrome = "none"` draws only the terminal (no title bar, tab strip or empty-pane hints) and `initial_cols`/`initial_rows` size new windows, and `fresh_window = true` gives every window a new shell that ends when the window closes (leftovers from a crash are removed at the next start). Text padding can differ per side (`padding_x`, `padding_top`, `padding_bottom`) and `scrollbar = "always"` keeps a scrollbar thumb on the live screen.
 - Signed and notarized `TERYON-X.Y.Z.dmg` and `.pkg` are attached to releases by `scripts/release-macos.sh` (built by hand on a Mac; CI still builds the tar.gz archives).

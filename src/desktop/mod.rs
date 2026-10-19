@@ -834,6 +834,7 @@ impl Desktop {
             self.top_bar(ctx);
         } else {
             self.chrome_drag(ctx);
+            self.tab_strip(ctx);
         }
         self.files_ui(ctx);
         self.ai_panel(ctx);
@@ -1606,6 +1607,8 @@ impl Desktop {
         let (margin_x, margin_y) = (left + right + inset, top + bottom + inset);
         let bar = if self.cfg.chrome == crate::config::Chrome::Full {
             bar::BAR_HEIGHT
+        } else if self.cfg.tab_bar == crate::config::TabBar::Bottom {
+            bar::TAB_STRIP_HEIGHT
         } else {
             0.
         };
