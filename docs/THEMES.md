@@ -10,6 +10,8 @@ Eighteen themes are embedded in the executable, so changing machines does not re
 | `apple-light` | White page, `#f5f5f7` panels, text-safe blue/green/amber accents |
 | `tokyo-night` | Matches WezTerm's "Tokyo Night (Gogh)": deep navy, blue accent, green status |
 | `tokyo-night-storm` | Lighter slate variant of Tokyo Night |
+| `tokyo-night-day` | Light Tokyo Night with darkened text so it passes the contrast test |
+| `carbon` | Neutral near-black (#161616) with a soft blue accent |
 | `catppuccin-mocha` | Warm mauve on dark chocolate |
 | `dracula` | Purple accent, neon green status |
 | `gruvbox-dark` | Retro warm browns and yellow |

@@ -100,13 +100,14 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Terminal | ANSI colors, alternate screen, Unicode cells, cursor/application modes, bracketed paste, common function/control keys, cursor/status query responses |
 | Pane management | Create, focus, rename, explicitly terminate; single, vertical, horizontal and 2×2 grid layouts (up to 4 panes visible), zoom, fuzzy pane switcher, optional mouse focus |
 | Native desktop | GPU canvas, pane navigation, command palette, theme chooser, font size control, copy visible screen |
+| Desktop polish | Bare window with a bottom tab strip (program icons, busy spinner, ×), transparency and macOS background blur, gradient and grain backgrounds, rounded corners, native full screen, accent scrollbar, eased cursor, smooth scroll-back, theme cross-fade, inline images (iTerm2 `OSC 1337`, PNG/JPEG); see [DESKTOP.md](docs/DESKTOP.md) |
 | Power tools | Quick select, vi-style copy mode, snippets, broadcast input, regex find, floating panes, drag-and-drop upload, triggers |
 | Shell-aware | Optional shell integration: prompt jumping, last-command output, exit-status chips, long-command notifications |
 | Zsh power features | Built into the shell integration: history suggestions, syntax highlighting, fuzzy Ctrl-R / Ctrl-T / Alt-C / Tab, `z` directory jump and an optional git prompt (`docs/SHELL-INTEGRATION.md`) |
 | Easy start | `teryon` picker, `teryon setup`, theme import from iTerm2/Alacritty/Ghostty/Kitty, saved layouts that come back after a reboot |
 | File-type colors | New shells get `CLICOLOR`/`LS_COLORS` (only if unset), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
 | Terminal UI | Responsive sidebar, pane borders, status bar, help overlay, prefix shortcuts |
-| Themes | Apple Dark (default, follows the netra/apple.com contract), Apple Light, Tokyo Night, Tokyo Night Storm, Catppuccin Mocha, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, Obsidian, Pearl, Aurora, Ember, Ocean, Sakura, Forest, High Contrast; custom TOML palettes; WezTerm export |
+| Themes | Apple Dark (default, follows the netra/apple.com contract), Apple Light, Tokyo Night, Tokyo Night Storm, Tokyo Night Day, Carbon, Catppuccin Mocha, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, Obsidian, Pearl, Aurora, Ember, Ocean, Sakura, Forest, High Contrast; custom TOML palettes; WezTerm export |
 | Output | Bounded 2,000-line terminal scrollback, retained-output search, private text exports |
 | Offline drafts | In-memory local draft editor with explicit review and submission |
 | Durable tasks | Spawn an argv-based command in a persistent pane; optionally wait and return its exit status |

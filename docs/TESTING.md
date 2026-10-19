@@ -19,6 +19,18 @@ Counts overlap across compiler/configuration runs; the totals should not be adde
 
 The runner's initial Rust 1.99.1 optimized build produced dependency archive/link errors. Pinning Rust 1.94.0 resolved that release-build issue; the pinned compiler is used by the repository and workflow definitions.
 
+## Latest local run (macOS, 0.16.0)
+
+Run on the Apple Silicon Mac the 0.16.0 release was built on (2026-10-19, Rust 1.98.1 rather than the pinned 1.94.0), with the committed lockfile:
+
+| Check | Result |
+|---|---|
+| `cargo test --features desktop` | **259 passed**: 233 library/UI, 2 CLI, 1 history CLI, 2 picker PTY, 16 session, 5 zsh widget |
+| `cargo test --no-default-features` | **196 passed** (the desktop-only UI tests are not built) |
+| `cargo fmt --check`, `cargo clippy --all-targets --features desktop -- -D warnings` | **Passed** |
+
+The Linux table above is from the earlier session and its counts are no longer current; the evidence files under `test-results/` were not regenerated. The 0.16.0 `.dmg` and `.pkg` were signed and notarized (accepted by Apple, stapled) and the installed app passes Gatekeeper. Desktop visuals added in 0.16.0 (inline images, command chip, tab icons, fullscreen, gradient, grain) were checked by screenshot on macOS; smooth scrolling, the theme cross-fade and the eased cursor were not.
+
 ## Real-process coverage
 
 The session tests start a real daemon process and real PTY-backed shells/tasks. They verify:
@@ -69,6 +81,6 @@ Do not run default-feature rebuilds concurrently with native smoke tests; they s
 
 ## Still requires validation
 
-Physical Apple Silicon and macOS GUI behavior; laptop/mini sleep and wake; launchd/systemd installation on a real login session; signed/notarized distribution; long-lived reliability, latency and memory benchmarks; nontrivial jump-host/server policies; firewall and network blackhole cases; and compatibility with your exact Vim/Neovim, shell plugins and terminal applications.
+Broader macOS GUI behavior beyond the one Mac used; laptop/mini sleep and wake; launchd/systemd installation on a real login session; notarized builds on other Macs; the 0.16.0 animations (smooth scroll, theme fade, eased cursor); long-lived reliability, latency and memory benchmarks; nontrivial jump-host/server policies; firewall and network blackhole cases; and compatibility with your exact Vim/Neovim, shell plugins and terminal applications.
 
-Provided CI, app-bundle and service scripts are source deliverables, not evidence they were deployed to your account or hardware. No public GitHub repository or release was published by these tests.
+Provided CI, app-bundle and service scripts are source deliverables, not evidence they were deployed to your account or hardware. These tests publish nothing; releases are cut by hand with `scripts/release-macos.sh`.
