@@ -81,6 +81,7 @@ impl Desktop {
         let mut pick = None;
         let mut new_tab = false;
         egui::TopBottomPanel::bottom("teryon-tab-strip")
+            .show_separator_line(false)
             .exact_height(TAB_STRIP_HEIGHT)
             .frame(
                 egui::Frame::new()
@@ -100,29 +101,18 @@ impl Desktop {
                         let galley = ui
                             .painter()
                             .layout_no_wrap(text, FontId::monospace(13.), ink);
-                        let size = Vec2::new(galley.size().x + 20., TAB_STRIP_HEIGHT - 6.);
+                        let size = Vec2::new(galley.size().x + 20., TAB_STRIP_HEIGHT - 4.);
                         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
                         let hovered = response.hovered() && !on;
                         let (fill, ink) = if hovered { hover } else { (fill, ink) };
-                        ui.painter().rect_filled(
-                            rect,
-                            egui::CornerRadius::same((size.y / 2.) as u8),
-                            fill,
-                        );
+                        ui.painter()
+                            .rect_filled(rect, egui::CornerRadius::same(8), fill);
                         let origin = rect.center() - galley.size() / 2.;
                         ui.painter().galley(origin, galley.clone(), ink);
                         if on {
-                            // Bold look and the underline WezTerm draws under the active tab.
+                            // A second strike a hair to the right reads as bold.
                             ui.painter()
-                                .galley(origin + Vec2::new(0.6, 0.), galley.clone(), ink);
-                            let y = origin.y + galley.size().y - 1.;
-                            ui.painter().line_segment(
-                                [
-                                    Pos2::new(origin.x, y),
-                                    Pos2::new(origin.x + galley.size().x, y),
-                                ],
-                                Stroke::new(1_f32, ink),
-                            );
+                                .galley(origin + Vec2::new(0.6, 0.), galley, ink);
                         }
                         response
                     };
@@ -147,9 +137,16 @@ impl Desktop {
                             pick = Some(i);
                         }
                     }
-                    if chip(ui, "+".into(), false, strip, active_bg, (active_bg, strip))
-                        .on_hover_text("New tab")
-                        .clicked()
+                    if chip(
+                        ui,
+                        "+".into(),
+                        false,
+                        Color32::TRANSPARENT,
+                        active_bg,
+                        (active_bg, strip),
+                    )
+                    .on_hover_text("New tab")
+                    .clicked()
                     {
                         new_tab = true;
                     }
