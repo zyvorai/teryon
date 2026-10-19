@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- New shells get a richer `LS_COLORS` (source, config, docs, images, video, audio, archives, lock files, Makefile/Dockerfile/README) and an `EZA_COLORS` for `eza -l` columns.
+
 - Desktop: the cursor is orange (`#D97757`) and blinks by default; set `cursor_color` / `cursor_blink = false` to change it.
 
 ## 0.16.1

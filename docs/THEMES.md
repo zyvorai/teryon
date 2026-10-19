@@ -35,7 +35,7 @@ teryon desktop mini --theme aurora
 
 ## File-type colors
 
-New shells start with `CLICOLOR=1` and a tuned `LS_COLORS`/`LSCOLORS` (directories blue, executables green, symlinks cyan, archives red, images and video purple), but only for variables the service's environment does not already set, and your shell rc can override them. These use ANSI indexes, so the active theme repaints them; remote programs that emit explicit RGB colors keep them.
+New shells start with `CLICOLOR=1`, a tuned `LS_COLORS`/`LSCOLORS` and an `EZA_COLORS` for `eza` (directories bold blue, executables bold green, symlinks cyan, archives red, images magenta, video bold magenta, audio cyan, source code yellow, config and data bright cyan, documents white, lock files and build leftovers dim; permission, size, user and date columns in `eza -l` get their own colors). They are ANSI indexes, so every theme repaints them. Variables you already set are left alone, and a rc file can override them.
 
 Cycle themes in the TUI with Ctrl+Space followed by `t`. In either command palette, run `theme ocean`. In the desktop sidebar, use the theme picker. These changes affect the current client; set the preferred startup theme in `~/.config/teryon/config.toml`:
 

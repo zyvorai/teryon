@@ -129,16 +129,40 @@ struct Pane {
     fg: Mutex<(std::time::Instant, Option<String>)>,
 }
 
-/// Friendly `ls` colors for new shells: directories blue, executables green, symlinks cyan, archives
-/// red, media purple. They use ANSI indexes, so every TERYON theme repaints them. Variables the
-/// daemon's environment already sets are left alone, and a shell rc file can still override these.
-fn file_type_env(already_set: impl Fn(&str) -> bool) -> Vec<(&'static str, &'static str)> {
-    const LS_COLORS: &str = "di=1;34:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=33;40:su=30;41:sg=30;46:tw=30;42:ow=34;42:*.tar=31:*.tgz=31:*.gz=31:*.zip=31:*.xz=31:*.bz2=31:*.7z=31:*.dmg=31:*.png=35:*.jpg=35:*.jpeg=35:*.gif=35:*.svg=35:*.webp=35:*.mp3=36:*.wav=36:*.flac=36:*.mp4=35:*.mov=35:*.mkv=35";
+/// Friendly `ls`/`eza` colors for new shells: directories bold blue, executables bold green, symlinks
+/// cyan, archives red, images magenta, video bold magenta, audio cyan, source code yellow, config and
+/// data bright cyan, documents white, build leftovers dim. They use ANSI indexes, so every TERYON theme
+/// repaints them. Variables the daemon's environment already sets are left alone, and a shell rc file
+/// can still override these.
+fn file_type_env(already_set: impl Fn(&str) -> bool) -> Vec<(&'static str, String)> {
+    const BASE: &str = "di=1;34:ln=1;36:so=35:pi=33:ex=1;32:bd=34;46:cd=33;40:su=30;41:sg=30;46:tw=30;42:ow=34;42:or=1;31:mi=1;31";
+    const GROUPS: &[(&str, &str)] = &[
+        ("31", "tar tgz gz zip xz bz2 7z rar zst lz4 dmg iso pkg deb rpm jar war apk"),
+        ("35", "png jpg jpeg gif svg webp bmp ico heic tiff psd avif"),
+        ("1;35", "mp4 mov mkv avi webm m4v flv"),
+        ("36", "mp3 wav flac aac ogg m4a opus"),
+        ("93", "rs py js mjs ts tsx jsx go c h cc cpp hpp java kt swift rb php lua zig cs sql html css scss vue svelte"),
+        ("1;32", "sh zsh bash fish"),
+        ("96", "json toml yaml yml ini conf cfg env xml plist"),
+        ("97", "md txt rst pdf doc docx pages epub"),
+        ("90", "lock o a so dylib class pyc log tmp bak swp"),
+    ];
+    const NAMES: &str = "*Makefile=1;93:*Dockerfile=1;96:*README.md=1;97:*LICENSE=97:*Cargo.toml=1;96:*package.json=1;96";
+    const EZA: &str = "ur=33:uw=31:ux=32:ue=32:gr=33:gw=31:gx=32:tr=33:tw=31:tx=32:sn=36:sb=36:uu=33:gu=33:un=31:gn=31:da=34:xx=90:hd=1;4";
     const LSCOLORS: &str = "Exgxfxdxcxegedabagacad";
+    let mut ls = String::from(BASE);
+    for (sgr, exts) in GROUPS {
+        for ext in exts.split(' ') {
+            ls.push_str(&format!(":*.{ext}={sgr}"));
+        }
+    }
+    ls.push(':');
+    ls.push_str(NAMES);
     [
-        ("CLICOLOR", "1"),
-        ("LSCOLORS", LSCOLORS),
-        ("LS_COLORS", LS_COLORS),
+        ("CLICOLOR", "1".to_string()),
+        ("LSCOLORS", LSCOLORS.to_string()),
+        ("LS_COLORS", ls),
+        ("EZA_COLORS", EZA.to_string()),
     ]
     .into_iter()
     .filter(|(name, _)| !already_set(name))
@@ -787,11 +811,19 @@ mod tests {
     #[test]
     fn file_type_colors_never_override_user_settings() {
         let all = file_type_env(|_| false);
-        assert_eq!(all.len(), 3);
-        assert!(all.iter().any(|(n, v)| *n == "CLICOLOR" && *v == "1"));
+        assert_eq!(all.len(), 4);
+        assert!(all.iter().any(|(n, v)| *n == "CLICOLOR" && v == "1"));
+        for (name, value) in all.iter().filter(|(n, _)| n.ends_with("_COLORS")) {
+            assert!(
+                value.split(':').all(|e| e.split_once('=').is_some_and(
+                    |(k, v)| !k.is_empty() && v.split(';').all(|n| n.parse::<u8>().is_ok())
+                )),
+                "{name} has a malformed entry"
+            );
+        }
         let none = file_type_env(|_| true);
         assert!(none.is_empty());
         let some = file_type_env(|n| n == "LS_COLORS");
-        assert!(some.iter().all(|(n, _)| *n != "LS_COLORS") && some.len() == 2);
+        assert!(some.iter().all(|(n, _)| *n != "LS_COLORS") && some.len() == 3);
     }
 }

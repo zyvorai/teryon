@@ -105,7 +105,7 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Shell-aware | Optional shell integration: prompt jumping, last-command output, exit-status chips, long-command notifications |
 | Zsh power features | Built into the shell integration: history suggestions, syntax highlighting, fuzzy Ctrl-R / Ctrl-T / Alt-C / Tab, `z` directory jump and an optional git prompt (`docs/SHELL-INTEGRATION.md`) |
 | Easy start | `teryon` picker, `teryon setup`, theme import from iTerm2/Alacritty/Ghostty/Kitty, saved layouts that come back after a reboot |
-| File-type colors | New shells get `CLICOLOR`/`LS_COLORS` (only if unset), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
+| File-type colors | New shells get `CLICOLOR`/`LS_COLORS`/`EZA_COLORS` (only if unset; separate colors for source, config, docs, media, archives), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
 | Terminal UI | Responsive sidebar, pane borders, status bar, help overlay, prefix shortcuts |
 | Themes | Apple Dark (default, follows the netra/apple.com contract), Apple Light, Tokyo Night, Tokyo Night Storm, Tokyo Night Day, Carbon, Catppuccin Mocha, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, Obsidian, Pearl, Aurora, Ember, Ocean, Sakura, Forest, High Contrast; custom TOML palettes; WezTerm export |
 | Output | Bounded 2,000-line terminal scrollback, retained-output search, private text exports |
