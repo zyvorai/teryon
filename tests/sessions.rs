@@ -1080,8 +1080,11 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
     let (mut known_d, mut known_w) = (BTreeMap::new(), BTreeMap::new());
     let (mut bytes_d, mut bytes_w, mut diffs_seen) = (0usize, 0usize, 0usize);
     let mut mirrors = ClientMirrors::default();
+    let mut meta = teryon::screensync::MetaCache::default();
+    let mut details = None;
     let mut rebuilt: Option<Vec<u8>> = None;
     let mut full_w: Option<Vec<u8>> = None;
+    let mut whole_details = None;
     let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {
         let Response::State { panes } = with_diff.call(Request::Poll {
@@ -1094,6 +1097,15 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         bytes_d += serde_json::to_string(&panes).unwrap().len();
         for p in &panes {
             known_d.insert(p.id.to_string(), p.revision);
+            let mut p = p.clone();
+            let p = &mut p;
+            assert!(
+                meta.complete(p),
+                "details were left out that were never sent"
+            );
+            if p.id == pane {
+                details = Some((p.title.clone(), p.cwd.clone(), p.fg.clone()));
+            }
             assert!(p.screen.is_none(), "a diff client is sent the compact form");
             let bytes = p
                 .screen_b64
@@ -1124,6 +1136,9 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         bytes_w += serde_json::to_string(&panes).unwrap().len();
         for p in &panes {
             known_w.insert(p.id.to_string(), p.revision);
+            if p.id == pane {
+                whole_details = Some((p.title.clone(), p.cwd.clone(), p.fg.clone()));
+            }
             if let Some(b) = &p.screen {
                 full_w = Some(b.clone());
             }
@@ -1145,10 +1160,14 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         "the viewer should have been sent diffs, saw {diffs_seen}"
     );
     eprintln!("scrolling pane: {bytes_d} bytes of JSON as diffs, {bytes_w} as whole screens");
+    assert_eq!(
+        details, whole_details,
+        "the title, directory and command survive being left out of quiet replies"
+    );
     assert!(a.contains("line") && b.contains("line"));
     assert_eq!(a, b, "diffs rebuild exactly what whole snapshots show");
     assert!(
-        bytes_d * 3 < bytes_w,
+        bytes_d * 5 < bytes_w,
         "diffs sent {bytes_d} bytes against {bytes_w} for whole screens"
     );
 }

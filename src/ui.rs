@@ -220,6 +220,7 @@ pub(crate) fn worker(
                 // Screen diffs save bandwidth on a real link; a local socket has none to save.
                 let mut diff_ok = false;
                 let mut mirrors = crate::screensync::ClientMirrors::default();
+                let mut meta = crate::screensync::MetaCache::default();
                 if let Ok(Response::Info {
                     os,
                     arch,
@@ -434,7 +435,18 @@ pub(crate) fn worker(
                             let mut resync = Vec::new();
                             if diff_ok {
                                 mirrors.retain(|id| panes.iter().any(|p| p.id == id));
+                                meta.retain(|id| panes.iter().any(|p| p.id == id));
                                 for p in panes.iter_mut() {
+                                    // Details the daemon left out come back from what was sent before;
+                                    // if there is nothing to come back from, start over for this pane.
+                                    if !meta.complete(p) {
+                                        p.screen = None;
+                                        p.screen_b64 = None;
+                                        p.diff_from = None;
+                                        p.digest = None;
+                                        resync.push(p.id);
+                                        continue;
+                                    }
                                     // The compact text form back to bytes. Text that does not decode
                                     // becomes a diff based on no revision, which forces a resync.
                                     if let Some(text) = p.screen_b64.take() {
