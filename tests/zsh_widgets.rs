@@ -16,6 +16,15 @@ fn teryon(home: &std::path::Path, args: &[&str]) {
 }
 /// A zsh with the integration loaded (and compinit plus a `foo` completer when asked for).
 fn shell(home: &std::path::Path, work: &std::path::Path, completion: bool) -> Session {
+    shell_with(home, work, completion, b"")
+}
+/// Like `shell`, sending `before` (for example an `export`) ahead of loading the integration.
+fn shell_with(
+    home: &std::path::Path,
+    work: &std::path::Path,
+    completion: bool,
+    before: &[u8],
+) -> Session {
     let init = Command::new(env!("CARGO_BIN_EXE_teryon"))
         .args(["shell-init", "zsh"])
         .output()
@@ -32,6 +41,7 @@ fn shell(home: &std::path::Path, work: &std::path::Path, completion: bool) -> Se
         s.send(b"print -r -- COMP_$((6*7))\n");
         s.expect("COMP_42");
     }
+    s.send(before);
     s.send(b"source $HOME/init.zsh\n");
     s.send(b"print -r -- LOADED_$((6*7))\n");
     s.expect("LOADED_42");
@@ -142,4 +152,32 @@ fn z_jumps_to_the_most_used_match_and_zi_lets_you_choose() {
     pause();
     s.send(b"print -r -- NOW_$(basename $PWD)\n");
     s.expect("NOW_proj-b");
+}
+#[test]
+fn the_opt_in_prompt_shows_git_state_and_never_runs_a_hostile_branch_name() {
+    if !have_zsh() || Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .current_dir(work.path())
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(ok.success(), "git {args:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+    git(&["checkout", "-q", "-b", "x$(touch${IFS}PWNED)%F{red}"]);
+    std::fs::write(work.path().join("new.txt"), "").unwrap();
+    let mut s = shell_with(home.path(), work.path(), false, b"export TERYON_PROMPT=1\n");
+    s.send(b"\n");
+    s.expect("on x$(touch${IFS}PWNED)%F{red}");
+    s.expect("[?");
+    s.expect("\u{276f} ");
+    assert!(!work.path().join("PWNED").exists());
+    s.send(b"false\n");
+    s.expect("\u{2717}1");
 }

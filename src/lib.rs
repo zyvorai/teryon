@@ -21,6 +21,7 @@ pub mod layout;
 pub mod marks;
 pub mod mcp;
 pub mod picker;
+pub mod prompt;
 pub mod protocol;
 pub mod recent;
 pub mod record;

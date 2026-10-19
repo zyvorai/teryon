@@ -20,13 +20,15 @@ if [[ -z "$__teryon_integrated" ]]; then
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
 fi
-# History, autosuggestions, syntax highlighting, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) fuzzy Tab and z/zi directory jump. Set TERYON_PLUS=0 before this line to turn them off.
+# History, autosuggestions, syntax highlighting, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) fuzzy Tab, z/zi directory jump and an opt-in prompt. Set TERYON_PLUS=0 before this line to turn them off.
 if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
-  typeset -g __teryon_plus=1 __teryon_hint=
+  typeset -g __teryon_plus=1 __teryon_hint= __teryon_last_status=0 __teryon_last_ms=0
   typeset -ga __teryon_hls; __teryon_hls=()
   __teryon_record() {
+    __teryon_last_status=$1 __teryon_last_ms=0
     [[ -n "$__teryon_cmd" && -n "$__teryon_t0" ]] || return
     local -i ms=$(( (EPOCHREALTIME - __teryon_t0) * 1000 ))
+    __teryon_last_ms=$ms
     command teryon hist add --exit "$1" --ms "$ms" --cwd "$PWD" -- "$__teryon_cmd" >/dev/null 2>&1 &!
     __teryon_cmd= __teryon_t0=
   }
@@ -183,6 +185,16 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
         [[ -n "$d" ]] && builtin cd -- "$d"
       }
     fi
+  fi
+  # Prompt (opt-in): set TERYON_PROMPT=1 before this line for a two-line prompt with git state.
+  if [[ "${TERYON_PROMPT:-0}" == 1 ]]; then
+    setopt prompt_subst
+    typeset -g __teryon_prompt=
+    __teryon_prompt_hook() {
+      __teryon_prompt=$(command teryon prompt --status "$__teryon_last_status" --ms "$__teryon_last_ms" --cwd "$PWD" 2>/dev/null)
+    }
+    add-zsh-hook precmd __teryon_prompt_hook
+    PROMPT='${__teryon_prompt}'
   fi
   autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-pre-redraw __teryon_redraw

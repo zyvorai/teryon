@@ -217,6 +217,16 @@ enum Commands {
         #[arg(long, default_value = "")]
         query: String,
     },
+    /// A two-line zsh prompt: directory, git, language, last command's duration and status.
+    #[command(hide = true)]
+    Prompt {
+        #[arg(long, default_value_t = 0)]
+        status: i32,
+        #[arg(long, default_value_t = 0)]
+        ms: u64,
+        #[arg(long, default_value = ".")]
+        cwd: String,
+    },
     /// Frequently used directories behind `z` (used by the zsh functions).
     #[command(hide = true, subcommand)]
     Jump(JumpCommand),
@@ -1019,6 +1029,10 @@ fn run() -> Result<i32> {
                 }
                 None => std::process::exit(1),
             }
+        }
+        Commands::Prompt { status, ms, cwd } => {
+            let home = std::env::var("HOME").unwrap_or_default();
+            print!("{}", teryon::prompt::prompt(status, ms, &cwd, &home));
         }
         Commands::Jump(cmd) => {
             let now = std::time::SystemTime::now()
