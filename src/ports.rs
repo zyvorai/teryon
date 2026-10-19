@@ -105,3 +105,28 @@ mod tests {
         }
     }
 }
+
+/// Suggested local forward description for a listening port (loopback only).
+pub fn suggest_forward(port: u16) -> String {
+    format!("127.0.0.1:{port}:127.0.0.1:{port}")
+}
+
+/// Human-readable label for a discovered port.
+pub fn port_label(port: u16) -> String {
+    match port {
+        3000 | 5173 | 8080 | 8000 | 4200 => format!("{port} (dev server)"),
+        22 => format!("{port} (ssh)"),
+        80 | 443 => format!("{port} (http)"),
+        _ => port.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod suggest_tests {
+    use super::*;
+    #[test]
+    fn suggest_and_label() {
+        assert_eq!(suggest_forward(3000), "127.0.0.1:3000:127.0.0.1:3000");
+        assert!(port_label(5173).contains("dev server"));
+    }
+}

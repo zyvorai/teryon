@@ -13,6 +13,8 @@ pub(super) struct Track {
     computed: Instant,
     pub(super) status: Option<Status>,
     since: Instant,
+    /// Where the agent got to, from its screen the last time it was read.
+    pub(super) summary: Option<String>,
 }
 impl Default for Track {
     fn default() -> Self {
@@ -25,8 +27,15 @@ impl Default for Track {
             computed: now - Duration::from_secs(5),
             status: None,
             since: now,
+            summary: None,
         }
     }
+}
+
+/// The "prompt all idle agents" dialog.
+pub(super) struct AgentPrompt {
+    text: String,
+    focus: bool,
 }
 
 fn status_color(t: &Theme, s: Status) -> Color32 {
@@ -78,6 +87,9 @@ impl Desktop {
                 let screen = pane.parser.screen();
                 let (_, cols) = screen.size();
                 let rows: Vec<String> = screen.rows(0, cols).collect();
+                if let Some(line) = agents::summary(&rows) {
+                    tr.summary = Some(line);
+                }
                 agents::status(&rows, now.duration_since(tr.changed))
             };
             let prev = tr.status;
@@ -95,7 +107,10 @@ impl Desktop {
                         Status::Done => messages.push((
                             "agent_done",
                             *id,
-                            format!("{name} finished in pane {id}"),
+                            match &tr.summary {
+                                Some(line) => format!("{name} finished in pane {id}: {line}"),
+                                None => format!("{name} finished in pane {id}"),
+                            },
                         )),
                         _ => {}
                     }
@@ -202,6 +217,115 @@ impl Desktop {
         ));
     }
 
+    /// Start `kind` in a new pane next to the focused one (same directory).
+    pub(super) fn spawn_agent(&mut self, kind: Kind) {
+        if self.readonly || !self.online {
+            self.toast("Can't start an agent: no writable connection");
+            return;
+        }
+        self.spawn_cmd = Some(kind.launch().to_string());
+        let cwd = self.focus_cwd();
+        self.send(Command::New(cwd));
+    }
+    /// A pane that was just created for `spawn_agent` gets its command typed in.
+    pub(super) fn run_spawned(&mut self, pane: u64) {
+        if let Some(cmd) = self.spawn_cmd.take() {
+            let mut data = cmd.into_bytes();
+            data.push(b'\r');
+            self.send(Command::Input { pane, data });
+        }
+    }
+    /// Agents sitting at their own prompt: the only ones a broadcast prompt is typed into
+    /// (typing into a working agent queues text, into an approval prompt answers it).
+    pub(super) fn prompt_targets(&self) -> Vec<u64> {
+        self.panes
+            .iter()
+            .filter(|(_, p)| p.track.kind.is_some() && p.track.status == Some(Status::Idle))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+    pub(super) fn open_agent_prompt(&mut self) {
+        if self.readonly {
+            self.toast("Read only");
+        } else {
+            self.agent_prompt = Some(AgentPrompt {
+                text: String::new(),
+                focus: true,
+            });
+        }
+    }
+    /// Type `text` and Enter into every idle agent; returns how many got it.
+    pub(super) fn send_agent_prompt(&mut self, text: &str) -> usize {
+        let text = text.trim();
+        let targets = self.prompt_targets();
+        if text.is_empty() || targets.is_empty() {
+            return 0;
+        }
+        for pane in &targets {
+            let bracketed = self
+                .panes
+                .get(pane)
+                .is_some_and(|p| p.parser.screen().bracketed_paste());
+            let mut data = keys::paste(text, bracketed || text.contains('\n'));
+            data.push(b'\r');
+            self.send(Command::Input { pane: *pane, data });
+        }
+        targets.len()
+    }
+    pub(super) fn agent_prompt_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut prompt) = self.agent_prompt.take() else {
+            return;
+        };
+        let n = self.prompt_targets().len();
+        let (mut send, mut cancel) = (false, false);
+        egui::Window::new("Prompt agents")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_TOP, [0., 90.])
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "Typed and sent to {n} idle agent(s). Working agents and ones waiting for approval are skipped."
+                    ))
+                    .size(12.),
+                );
+                let edit = ui.add(
+                    egui::TextEdit::multiline(&mut prompt.text)
+                        .desired_width(420.)
+                        .desired_rows(3),
+                );
+                if prompt.focus {
+                    edit.request_focus();
+                    prompt.focus = false;
+                }
+                if edit.has_focus()
+                    && ui.input(|i| i.key_pressed(Key::Enter) && i.modifiers.command)
+                {
+                    send = true;
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(n > 0 && !prompt.text.trim().is_empty(), egui::Button::new("Send  ⌘↩"))
+                        .clicked()
+                    {
+                        send = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+                if ui.input(|i| i.key_pressed(Key::Escape)) {
+                    cancel = true;
+                }
+            });
+        if send {
+            let sent = self.send_agent_prompt(&prompt.text);
+            self.toast(format!("Prompt sent to {sent} agent(s)"));
+        } else if !cancel {
+            self.agent_prompt = Some(prompt);
+        }
+    }
+
     /// Every agent in the active workspace, needing-you first.
     pub(super) fn agents_list(&self) -> Vec<(u64, Kind, Status, String, String)> {
         let mut out: Vec<_> = self
@@ -231,6 +355,14 @@ impl Desktop {
         }
         let list = self.agents_list();
         let t = self.theme.clone();
+        let summaries: BTreeMap<u64, String> = self
+            .panes
+            .iter()
+            .filter_map(|(id, p)| Some((*id, p.track.summary.clone()?)))
+            .collect();
+        let idle = self.prompt_targets().len();
+        let mut spawn: Option<Kind> = None;
+        let mut prompt_all = false;
         let mut jump = None;
         let mut answer: Option<(u64, Kind, bool)> = None;
         let quick = self.cfg.agent_quick_approve && !self.readonly;
@@ -250,7 +382,7 @@ impl Desktop {
                     );
                 }
                 for (id, kind, status, title, cwd) in &list {
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.), Sense::click());
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 52.), Sense::click());
                     let asking = quick && *status == Status::NeedsYou;
                     if resp.hovered() {
                         ui.painter().rect_filled(rect, 8., color(mix(t.panel, t.foreground, 0.08)));
@@ -271,6 +403,16 @@ impl Desktop {
                         FontId::proportional(11.),
                         color(t.muted),
                     );
+                    if let Some(line) = summaries.get(id) {
+                        let shown: String = line.chars().take(60).collect();
+                        ui.painter().text(
+                            rect.left_top() + Vec2::new(26., 37.),
+                            egui::Align2::LEFT_TOP,
+                            shown,
+                            FontId::proportional(11.),
+                            color(t.foreground).gamma_multiply(0.75),
+                        );
+                    }
                     let label_x = if asking { 150. } else { 10. };
                     ui.painter().text(rect.right_center() - Vec2::new(label_x, 0.), egui::Align2::RIGHT_CENTER, status.label(), FontId::proportional(12.), c);
                     if asking {
@@ -289,7 +431,29 @@ impl Desktop {
                         jump = Some(*id);
                     }
                 }
+                if !self.readonly {
+                    ui.separator();
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("Start").size(11.).color(color(t.muted)));
+                        for kind in Kind::ALL {
+                            if ui.small_button(kind.name()).on_hover_text(format!("Run `{}` in a new pane here", kind.launch())).clicked() {
+                                spawn = Some(kind);
+                            }
+                        }
+                    });
+                    let label = if idle == 0 { "Send a prompt to idle agents…".to_string() } else { format!("Send a prompt to {idle} idle agent(s)…") };
+                    if ui.add_enabled(idle > 0, egui::Button::new(label)).clicked() {
+                        prompt_all = true;
+                    }
+                }
             });
+        if let Some(kind) = spawn {
+            self.spawn_agent(kind);
+            self.agents_open = false;
+        }
+        if prompt_all {
+            self.open_agent_prompt();
+        }
         if let Some((id, kind, yes)) = answer {
             self.answer_agent(id, kind, yes);
         }
@@ -415,6 +579,61 @@ mod tests {
         app.panes.get_mut(&2).unwrap().track.computed -= Duration::from_secs(5);
         app.agents_update();
         assert_eq!(app.agent_chip(2), Some((Kind::Claude, Status::Done)));
+    }
+
+    #[test]
+    fn spawn_types_the_command_into_the_new_pane_and_prompts_reach_only_idle_agents() {
+        let (mut app, rx) = app_with_screen("");
+        app.online = true;
+        app.window_focused = true;
+        app.spawn_agent(Kind::Codex);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(_))));
+        app.run_spawned(7);
+        assert!(
+            matches!(rx.try_recv(), Ok(Command::Input { pane: 7, data }) if data == b"codex\r")
+        );
+        app.run_spawned(8);
+        assert!(rx.try_recv().is_err(), "only the pane made for the spawn");
+        agent_pane(&mut app, 2, Some("claude"), "all done\r\n");
+        agent_pane(
+            &mut app,
+            3,
+            Some("claude"),
+            "Do you want to proceed?\r\n❯ 1. Yes\r\n",
+        );
+        app.agents_update();
+        for id in [2, 3] {
+            app.panes.get_mut(&id).unwrap().track.changed -= Duration::from_secs(10);
+            app.panes.get_mut(&id).unwrap().track.computed -= Duration::from_secs(5);
+        }
+        app.agents_update();
+        assert_eq!(app.prompt_targets(), vec![2]);
+        while rx.try_recv().is_ok() {}
+        assert_eq!(app.send_agent_prompt("  run the tests "), 1);
+        assert!(
+            matches!(rx.try_recv(), Ok(Command::Input { pane: 2, data }) if data == b"run the tests\r")
+        );
+        assert_eq!(app.send_agent_prompt("   "), 0);
+        app.readonly = true;
+        app.spawn_agent(Kind::Claude);
+        assert!(app.spawn_cmd.is_none());
+    }
+
+    #[test]
+    fn a_finished_agent_notification_carries_where_it_got_to() {
+        let (mut app, _rx) = app_with_screen("");
+        app.window_focused = true;
+        agent_pane(
+            &mut app,
+            2,
+            Some("claude"),
+            "\u{23fa} Refactored the parser, 12 tests pass\r\n",
+        );
+        app.agents_update();
+        assert_eq!(
+            app.panes[&2].track.summary.as_deref(),
+            Some("Refactored the parser, 12 tests pass")
+        );
     }
 
     #[test]

@@ -2,7 +2,9 @@
 
 Implemented features are documented in the README. This file names the gaps so a roadmap item cannot be mistaken for tested behavior.
 
-## Limits in 0.1
+A prioritized, higher-level roadmap lives in [ROADMAP.md](../ROADMAP.md).
+
+## Limits in 0.19
 
 - macOS/Linux only. WSL can run the Linux terminal build; there is no native Windows client.
 - Reboots, daemon crashes and service termination lose live PTYs. Layouts recreate new shells. No process-memory checkpointing or transparent shell restoration is implemented.
@@ -27,6 +29,8 @@ Implemented features are documented in the README. This file names the gaps so a
 3. Improve differential screen transport, controller heartbeat/takeover and reconnect diagnostics. Clients already warn when the daemon instance changes.
 4. Add mouse support, richer terminal compatibility and configurable font fallbacks before claiming a daily-driver replacement.
 5. Add integrated transfers, discovered ports and signed native packaging, each with failure and permission tests.
+
+See [ROADMAP.md](../ROADMAP.md) for a prioritized breakdown of additional features (pane trees, durable history, AI/agent depth, Windows client, collaboration, etc.).
 
 The goal is a strong remote workspace. “Best in the world” requires evidence from real users, compatibility testing and performance measurements; it is not a release flag.
 
