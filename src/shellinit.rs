@@ -20,7 +20,7 @@ if [[ -z "$__teryon_integrated" ]]; then
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
 fi
-# History, autosuggestions, syntax highlighting and fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories). Set TERYON_PLUS=0 before this line to turn them off.
+# History, autosuggestions, syntax highlighting, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) and fuzzy Tab. Set TERYON_PLUS=0 before this line to turn them off.
 if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   typeset -g __teryon_plus=1 __teryon_hint=
   typeset -ga __teryon_hls; __teryon_hls=()
@@ -103,12 +103,74 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     BUFFER="cd -- ${(q)out}"
     zle accept-line
   }
+  # Fuzzy Tab: collect what zsh's completion would offer, pick with teryon pick, insert the choice.
+  typeset -ga __tc_words; __tc_words=()
+  typeset -g __tc_word= __tc_files= __teryon_tab_prev=${${(z)"$(bindkey '^I')"}[2]:-expand-or-complete}
+  __teryon_collect_fn() {
+    __tc_words=(); __tc_files=; __tc_word=$IPREFIX$PREFIX
+    compadd() {
+      local a c=; local -a hit
+      for a in "$@"; do
+        [[ $a == -- ]] && break
+        [[ $a == -O || $a == -A || $a == -D ]] && return 1
+        [[ $a == -*[fWpP]* ]] && c=1
+      done
+      [[ -n $c ]] && { __tc_files=1; return 0; }
+      builtin compadd -O hit "$@"
+      __tc_words+=("${hit[@]}")
+      return $(( ${#hit} == 0 ))
+    }
+    _main_complete
+    unfunction compadd
+    return 1
+  }
+  zle -C __teryon_collect complete-word __teryon_collect_fn
+  __teryon_tab() {
+    local word=${LBUFFER##*[[:space:]]} bad=$'\'"\\$`'
+    if [[ -z "${LBUFFER//[[:space:]]/}" || ( -n "$RBUFFER" && "$RBUFFER" != [[:space:]]* ) || "$word" == *[$bad]* \
+          || "${TERYON_TAB:-1}" == 0 || -z "$functions[_main_complete]" || -n "$functions[_fzf_tab_complete]" ]]; then
+      zle "$__teryon_tab_prev"; return
+    fi
+    zle __teryon_collect
+    local w=$__tc_word dir= base
+    [[ "$LBUFFER" == *"$w" ]] || { zle "$__teryon_tab_prev"; return; }
+    local -a cands=("${(@u)__tc_words}")
+    if [[ -n "$__tc_files" ]]; then
+      setopt local_options extended_glob
+      dir=${w%"${w##*/}"}; base=${w##*/}
+      [[ "$base" == .* ]] && setopt local_options glob_dots
+      local -a ds fs flist
+      ds=(${~${dir:-./}}*(N-/:t)); fs=(${~${dir:-./}}*(N^-/:t))
+      flist=(${^ds}/ "${(@)fs}")
+      [[ -n "$dir" ]] && flist=("${(@)flist/#/$dir}")
+      cands+=("${flist[@]}")
+    fi
+    local -a pre=(${(M)cands:#${(b)w}*})
+    local pick
+    if (( ${#cands} == 0 )); then
+      zle "$__teryon_tab_prev"; return
+    elif (( ${#pre} == 1 )); then
+      pick=$pre[1]
+    else
+      pick=$(print -rl -- "${cands[@]}" | command teryon pick --query "$w" 2>/dev/null) || { zle reset-prompt; return 0; }
+      zle reset-prompt
+    fi
+    local tail=' '
+    [[ "$pick" == *[/=:] || -n "$RBUFFER" ]] && tail=
+    if [[ -n "$dir" && "$pick" == "$dir"* ]]; then
+      LBUFFER="${LBUFFER%"$w"}${dir}${(q)${pick#"$dir"}}$tail"
+    else
+      LBUFFER="${LBUFFER%"$w"}${(q)pick}$tail"
+    fi
+  }
+  zle -N __teryon_tab
   autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint
   zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
   zle -N __teryon_history_widget; zle -N __teryon_file_widget; zle -N __teryon_cd_widget
   bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget
+  [[ "$__teryon_tab_prev" == *fzf-tab* ]] || bindkey '^I' __teryon_tab
   bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
 fi
 "#;
