@@ -126,6 +126,18 @@ impl Desktop {
                             egui::CornerRadius::same((rect.height() / 2.) as u8),
                             fill,
                         );
+                        if on {
+                            // Zellij-style: a short accent bar under the active tab's label.
+                            let bar = Rect::from_center_size(
+                                Pos2::new(rect.center().x, rect.bottom() - 3.),
+                                Vec2::new((rect.width() - 28.).max(8.), 2.),
+                            );
+                            ui.painter().rect_filled(
+                                bar,
+                                egui::CornerRadius::same(1),
+                                color(t.accent),
+                            );
+                        }
                         let origin =
                             Pos2::new(rect.left() + 10., rect.center().y - galley.size().y / 2.);
                         ui.painter().galley(origin, galley.clone(), ink);
@@ -187,8 +199,8 @@ impl Desktop {
                         false,
                         false,
                         Color32::TRANSPARENT,
-                        active_bg,
-                        (active_bg, strip),
+                        color(t.accent),
+                        (idle_bg, color(t.accent)),
                     )
                     .0
                     .on_hover_text("New tab")
