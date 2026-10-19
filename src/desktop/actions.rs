@@ -44,6 +44,7 @@ pub(super) enum ActionKind {
     CloseTab,
     TabJump(usize),
     TabMove(isize),
+    TabStep(isize),
     Theme(String),
     NextTheme,
     PrevTheme,
@@ -108,6 +109,8 @@ impl ActionKind {
                 Self::CloseTab => "close_tab",
                 Self::TabMove(-1) => "tab_move_left",
                 Self::TabMove(1) => "tab_move_right",
+                Self::TabStep(1) => "tab_next",
+                Self::TabStep(-1) => "tab_prev",
                 Self::TabJump(n) => return Some(format!("tab_{}", n + 1)),
                 Self::NextTheme => "next_theme",
                 Self::PrevTheme => "prev_theme",
@@ -137,6 +140,7 @@ impl ActionKind {
                 Self::Layout(_)
                 | Self::Theme(_)
                 | Self::TabMove(_)
+                | Self::TabStep(_)
                 | Self::Open(..)
                 | Self::Snippet(_) => return None,
             }
@@ -185,6 +189,8 @@ impl ActionKind {
             "close_tab" => Self::CloseTab,
             "tab_move_left" => Self::TabMove(-1),
             "tab_move_right" => Self::TabMove(1),
+            "tab_next" => Self::TabStep(1),
+            "tab_prev" => Self::TabStep(-1),
             "next_theme" => Self::NextTheme,
             "prev_theme" => Self::PrevTheme,
             "random_theme" => Self::RandomTheme,
@@ -271,6 +277,8 @@ pub(super) fn actions(
         ("Close tab", ActionKind::CloseTab),
         ("Move tab left", ActionKind::TabMove(-1)),
         ("Move tab right", ActionKind::TabMove(1)),
+        ("Next tab", ActionKind::TabStep(1)),
+        ("Previous tab", ActionKind::TabStep(-1)),
         ("Increase font size", ActionKind::FontUp),
         ("Decrease font size", ActionKind::FontDown),
         ("Reset font size", ActionKind::FontReset),

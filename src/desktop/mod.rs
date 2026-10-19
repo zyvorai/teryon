@@ -1314,6 +1314,12 @@ impl Desktop {
             ActionKind::FindPrev => self.find_step(true),
             ActionKind::TabJump(n) => self.activate(n),
             ActionKind::TabMove(d) => self.move_tab(d),
+            ActionKind::TabStep(d) => {
+                let n = self.tabs.len() as isize;
+                if n > 0 {
+                    self.activate((self.active as isize + d).rem_euclid(n) as usize);
+                }
+            }
             ActionKind::NextTheme | ActionKind::PrevTheme | ActionKind::RandomTheme => {
                 let now = self.theme_id().unwrap_or_else(|| "mac27-dark".into());
                 let names = self.theme_names.clone();

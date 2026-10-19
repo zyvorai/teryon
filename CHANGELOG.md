@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.16.1
+
+- Desktop keys follow WezTerm: ⇧PageUp/⇧PageDown scroll, ⌘⇧[ / ⌘⇧] and Ctrl+Tab switch tabs (new `tab_next` / `tab_prev` actions), and the `'` key can be bound.
 
 - Desktop keyboard: ⌥ acts as Meta like WezTerm (⌥B/⌥F/⌥D/⌥. send ESC + key, not the composed character), Ctrl+Space sends NUL and Ctrl+/ sends ^_.
 
