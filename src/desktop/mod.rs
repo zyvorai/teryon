@@ -144,7 +144,11 @@ pub struct Desktop {
     unfocused_dim: f32,
     /// Per pane: the finished-command text last shown as a toast and when it appeared (seconds).
     wake_set: bool,
-    term_focused: bool,
+    /// Focus state at the start of the frame, before Tab or the arrows can move it (egui hands
+    /// focus to the next widget while the UI is built, and `keyboard` runs after that).
+    focus_at_start: Option<(bool, bool)>,
+    /// Tab or an arrow was pressed in the terminal: take focus back at the next frame.
+    restore_focus: bool,
     /// When the active tab last changed, for the short cross-fade.
     tab_fade_at: Option<Instant>,
     chip_toasts: HashMap<u64, (String, f64)>,
@@ -324,7 +328,8 @@ impl Desktop {
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
             wake_set: false,
-            term_focused: false,
+            focus_at_start: None,
+            restore_focus: false,
             tab_fade_at: None,
             chip_toasts: HashMap::new(),
             noise_tex: None,
@@ -719,15 +724,16 @@ impl Desktop {
     }
     }
     fn keyboard(&mut self, ctx: &egui::Context) {
-        let term_id = egui::Id::new(("teryon-terminal", self.focus));
-        let mut terminal_focus = ctx.memory(|m| m.focused()) == Some(term_id);
-        // egui walks focus on Tab and the arrows; the shell must keep those keys and the focus.
-        if !terminal_focus && self.term_focused && !ctx.wants_keyboard_input() {
-            ctx.memory_mut(|m| m.request_focus(term_id));
-            terminal_focus = true;
-        }
-        self.term_focused = terminal_focus;
+        let (terminal_focus, wants_focus) = self.focus_at_start.take().unwrap_or_else(|| {
+            let focused = ctx.memory(|m| m.focused());
+            (
+                focused == Some(egui::Id::new(("teryon-terminal", self.focus))),
+                focused.is_some(),
+            )
+        });
         if terminal_focus {
+            // Tab, Esc and the arrows belong to the shell, not to egui's focus walk.
+            let term_id = egui::Id::new(("teryon-terminal", self.focus));
             ctx.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     term_id,
@@ -740,7 +746,7 @@ impl Desktop {
                 );
             });
         }
-        if (ctx.wants_keyboard_input() && !terminal_focus)
+        if (wants_focus && !terminal_focus)
             || self.palette
             || self.draft_open
             || self.history.is_some()
@@ -750,6 +756,21 @@ impl Desktop {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
+        self.restore_focus |= terminal_focus
+            && events.iter().any(|e| {
+                matches!(
+                    e,
+                    egui::Event::Key {
+                        key: Key::Tab
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::ArrowLeft
+                            | Key::ArrowRight,
+                        pressed: true,
+                        ..
+                    }
+                )
+            });
         // With ⌥ held the Key event already sent ESC + key; drop the composed text that follows.
         let alt_meta = ctx.input(|i| i.modifiers.alt && !i.modifiers.command);
         for event in events {
@@ -890,6 +911,24 @@ impl Desktop {
             self.wake_set = true;
         }
         let previous_focus = self.focus;
+        {
+            // Terminal first: after Tab, an arrow or Esc, or when nothing has focus (unless an
+            // overlay owns the keyboard), so the next key reaches the shell.
+            let term = egui::Id::new(("teryon-terminal", self.focus));
+            let owned = self.palette
+                || self.draft_open
+                || self.history.is_some()
+                || self.confirm_close
+                || self.files_capture_keys();
+            if !owned
+                && (std::mem::take(&mut self.restore_focus)
+                    || ctx.memory(|m| m.focused()).is_none())
+            {
+                ctx.memory_mut(|m| m.request_focus(term));
+            }
+            let focused = ctx.memory(|m| m.focused());
+            self.focus_at_start = Some((focused == Some(term), focused.is_some()));
+        }
         self.pump_background();
         self.updates();
         if self.focus != previous_focus {
