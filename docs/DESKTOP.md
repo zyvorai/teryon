@@ -29,6 +29,13 @@ in the background you get a notification when one needs you or finishes (`[deskt
 it off). Because the daemon keeps the agent running, you can close the app, reconnect later and see "While you were
 away" with a row for each command that finished (its command line, ✓ or ✗ exit code, how long it took, and when) and for each agent waiting for you; click a row to open that pane at the command's output. ✦ Summarize asks the assistant for a short recap. The card shows the eight newest events and needs the shell integration for command rows.
 
+Start one from the palette: "Agent: start Claude in a new pane" types its command into a new pane in the focused
+pane's directory. "Agent: start Claude in a new Git worktree" does that on its own branch instead: it runs
+`git worktree add -b agent/claude-<time>` next to the repository (`<repo>-claude-<time>`) and starts the agent inside it,
+so the agent's edits stay out of your checkout. When the agent exits, the pane is back in the directory you started
+from, and the worktree and branch stay for you to review, merge or remove (`git worktree remove`). Outside a Git
+repository it stops with Git's error before starting anything. The script runs in `sh`, whatever your shell is.
+
 ## File browser
 
 **⌘B** opens a sidebar listing the focused pane's directory; it follows `cd`, and works the same on a remote host (it runs `ls` and `head` over your SSH connection, nothing extra on the host). Click a row to select it, double-click to open a folder or type a quoted path at the prompt, **Space** for Quick Look (the first 64 KB of a text file), ↑/↓ to move, Enter to open, Backspace to go up, Esc to return to the pane. Right-click offers Quick Look, Insert path, Copy path, cd here and Reveal in Finder (local only). Quick Look also shows PNG and JPEG images. Remote rows add **Download to Downloads** (a file or folder, streamed with `tar` over SSH, never replacing an existing item). **Rename…** and **Move to Trash…** each ask first; a rename never replaces an existing name, and nothing is deleted: items move to the Trash (local) or `~/.teryon-trash` on an SSH host, so they can be put back. Nothing is run for you: paths and `cd` lines are typed without Enter.
