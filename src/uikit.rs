@@ -312,6 +312,13 @@ pub fn open_in_editor(path: &std::path::Path) {
         .stderr(std::process::Stdio::null())
         .spawn();
 }
+/// Whether a program-supplied link (OSC 8) may be opened: web and mail links only. `file:`, app
+/// schemes and the like could launch things, and the text shown for a link is not its target.
+pub fn safe_link(url: &str) -> bool {
+    let scheme = url.split(':').next().unwrap_or("").to_ascii_lowercase();
+    url.len() <= 2048 && matches!(scheme.as_str(), "http" | "https" | "mailto")
+}
+
 pub fn open_url(url: &str) {
     let opener = if cfg!(target_os = "macos") {
         "open"
@@ -328,6 +335,26 @@ pub fn open_url(url: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_web_and_mail_links_may_be_opened() {
+        for ok in [
+            "https://a.example/x",
+            "HTTP://a.example",
+            "mailto:me@a.example",
+        ] {
+            assert!(super::safe_link(ok), "{ok}");
+        }
+        for bad in [
+            "file:///Applications/Calculator.app",
+            "javascript:alert(1)",
+            "ssh://host",
+            "-a Calculator",
+            "x-apple.systempreferences:",
+            "",
+        ] {
+            assert!(!super::safe_link(bad), "{bad}");
+        }
+    }
     use super::*;
     fn chars(s: &str) -> Vec<char> {
         s.chars().collect()

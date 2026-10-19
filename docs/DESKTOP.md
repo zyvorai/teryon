@@ -101,7 +101,9 @@ terminal's font.
   Shift-click extends. ⌘C copies; `copy_on_select = true` copies as soon as you finish selecting.
   Programs that track the mouse (Claude Code, vim) get your drags; hold ⇧ to select instead, or set
   `drag_selects = true` so a drag selects and only plain clicks reach the program.
-* **Links**: ⌘-click opens plain-text `http(s)://` URLs.
+* **Links**: ⌘-click opens plain-text `http(s)://` URLs and links programs mark with OSC 8 (`ls --hyperlink`,
+  `eza --hyperlink`, `rg --hyperlink-format`, `delta`). Hovering an OSC 8 link shows where it really goes. Only `http`, `https` and
+  `mailto` links open; `file:` and app links are ignored, because the text shown for a link is not its target.
 * **Scrollback**: scroll the wheel or trackpad (or ⇧⌘↑ / ⇧⌘↓, ⌘Home / ⌘End) in a normal-screen pane. The history
   comes from the daemon's retained text, so it is plain text without colors; typing returns to the live screen.
   Full-screen programs (vim, less) get the wheel as arrow keys.
@@ -252,8 +254,7 @@ rename, copy visible screen, offline draft, always on top.
 
 * Font ligatures and complex text shaping (the renderer lays glyphs out one by one).
 * Window background blur uses a private macOS call and may stop working in a future macOS release.
-* The kitty graphics and keyboard protocols, and OSC 8 hyperlinks (the terminal parser ignores them;
-  plain-text URLs still open with ⌘-click).
+* The kitty graphics and keyboard protocols (the terminal parser ignores them).
 * Shell-integration features such as jumping between prompts (TERYON does not inject into your shell).
 * Native macOS tabs (TERYON has its own tabs) and a global-hotkey dropdown window (a GUI toolkit cannot
   register global shortcuts).

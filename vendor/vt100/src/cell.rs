@@ -1,7 +1,7 @@
 use unicode_width::UnicodeWidthChar as _;
 
-// chosen to make the size of the cell struct 32 bytes
-const CONTENT_BYTES: usize = 22;
+// chosen to make the size of the cell struct 32 bytes (the hyperlink id in the attrs took 4 of the 22)
+const CONTENT_BYTES: usize = 18;
 
 const IS_WIDE: u8 = 0b1000_0000;
 const IS_WIDE_CONTINUATION: u8 = 0b0100_0000;
@@ -75,7 +75,9 @@ impl Cell {
 
     pub(crate) fn clear(&mut self, attrs: crate::attrs::Attrs) {
         self.len = 0;
+        // Erased cells keep the colors but not a hyperlink.
         self.attrs = attrs;
+        self.attrs.link = 0;
     }
 
     /// Returns the text contents of the cell.
@@ -124,6 +126,14 @@ impl Cell {
         } else {
             self.len &= !IS_WIDE_CONTINUATION;
         }
+    }
+
+    pub(crate) fn link(&self) -> u16 {
+        self.attrs.link
+    }
+
+    pub(crate) fn set_link(&mut self, id: u16) {
+        self.attrs.link = id;
     }
 
     pub(crate) fn attrs(&self) -> &crate::attrs::Attrs {

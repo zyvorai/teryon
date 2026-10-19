@@ -146,6 +146,17 @@ impl Grid {
             )
     }
 
+    /// Every row, on screen and in the scrollback.
+    pub fn all_rows(&self) -> impl Iterator<Item = &crate::row::Row> {
+        self.rows.iter().chain(self.scrollback.iter())
+    }
+
+    pub fn all_rows_mut(
+        &mut self,
+    ) -> impl Iterator<Item = &mut crate::row::Row> {
+        self.rows.iter_mut().chain(self.scrollback.iter_mut())
+    }
+
     pub fn drawing_rows(&self) -> impl Iterator<Item = &crate::row::Row> {
         self.rows.iter()
     }
