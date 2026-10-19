@@ -165,6 +165,7 @@ binding using `teryon config --keys`.
 | `maximized` | false | open windows filling the screen (below the menu bar) |
 | `fullscreen` | false | open windows in native full screen (macOS: Dock and menu bar hide; ⌘⌃F leaves it); it wins over `maximized` |
 | `corner_radius` | 0 | round a bare window's corners (points, 0 to 24) and draw a hairline edge with a faint top highlight |
+| `status_line` | true | muted line under the panes (PTYs held by the daemon, last relink, receive rate, platform, theme); hidden below 900 points wide |
 | `background_noise` | 0 | fine grain over the background, 0 to 100 (WezTerm's `noise = 10`) |
 | `text_gamma` | 0.55 | 0.3 (heavy) to 1.0 (thin) text weight; lower is closer to WezTerm's heavier look |
 | `cursor_color` | orange `#D97757` | `#RRGGBB` |

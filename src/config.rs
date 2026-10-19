@@ -244,6 +244,8 @@ pub struct DesktopConfig {
     pub window_opacity: f32,
     /// Brightness of unfocused panes, 0.2 (dim) to 1.0 (no dimming).
     pub unfocused_opacity: f32,
+    /// Show the muted status line (PTYs held, last relink, receive rate) under the panes.
+    pub status_line: bool,
     pub copy_on_select: bool,
     /// Notify when a command that took at least this many seconds finishes while the window is in
     /// the background (needs shell integration; 0 turns it off).
@@ -325,6 +327,7 @@ impl Default for DesktopConfig {
             maximized: false,
             fullscreen: false,
             corner_radius: 0.,
+            status_line: true,
             background_noise: 0.,
             tab_bar_bg: None,
             tab_active_bg: None,

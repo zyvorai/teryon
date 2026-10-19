@@ -35,6 +35,7 @@ mod hints;
 mod icons;
 mod menus;
 mod panes;
+mod relink;
 mod restore;
 mod snippets;
 mod style;
@@ -193,6 +194,7 @@ pub struct Desktop {
     cheatsheet: bool,
     tip_index: usize,
     offline_since: Option<Instant>,
+    link: relink::Link,
     theme_id_cache: Option<(String, Option<String>)>,
     /// Last macOS appearance seen, so a manual theme choice sticks until it changes.
     last_system_dark: Option<bool>,
@@ -359,6 +361,7 @@ impl Desktop {
             cheatsheet: false,
             tip_index: 0,
             offline_since: None,
+            link: relink::Link::default(),
             theme_id_cache: None,
             last_system_dark: None,
             extra: SessionExtra::default(),
@@ -581,6 +584,7 @@ impl Desktop {
             match update {
                 Update::Online => {
                     self.online = true;
+                    self.link.online();
                     self.last_size = (0, 0);
                     self.notice = "Attached to persistent remote shells".into();
                 }
@@ -595,6 +599,8 @@ impl Desktop {
                     }
                 }
                 Update::Latency(ms) => self.latency = Some(ms),
+                Update::Daemon(platform, uptime) => self.link.daemon(platform, uptime),
+                Update::Retry(attempt, wait) => self.link.retry(attempt, wait),
                 Update::Discarded => {}
                 Update::Created(id) => {
                     self.focus = id;
@@ -628,6 +634,9 @@ impl Desktop {
                         .map(|v| v.id)
                         .collect();
                     for view in views {
+                        if let Some(bytes) = &view.screen {
+                            self.link.received(bytes.len() as u64);
+                        }
                         let pane = self.panes.entry(view.id).or_insert_with(|| {
                             Pane::new(view.clone(), vt100::Parser::new(view.rows, view.cols, 0))
                         });
@@ -941,6 +950,7 @@ impl Desktop {
             self.chrome_drag(ctx);
             self.tab_strip(ctx);
         }
+        self.status_line(ctx);
         self.files_ui(ctx);
         self.ai_panel(ctx);
         self.agents_overview(ctx);
@@ -950,6 +960,7 @@ impl Desktop {
         }
         self.aicmd_ui(ctx);
         self.cmdhist_ui(ctx);
+        self.relink_ui(ctx);
         let content_rect = ctx.available_rect();
         egui::CentralPanel::default()
             .frame(
@@ -2047,11 +2058,7 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        let r = ui.interact(
-                            ui.max_rect(),
-                            term_id,
-                            egui::Sense::click_and_drag(),
-                        );
+                        let r = ui.interact(ui.max_rect(), term_id, egui::Sense::click_and_drag());
                         if grab {
                             r.request_focus();
                         }
@@ -2066,8 +2073,14 @@ mod tests {
         frame(&mut app, vec![], true);
         frame(&mut app, vec![], false);
         for (events, want) in [
-            (vec![press(Key::Tab, egui::Modifiers::NONE)], b"\t".as_slice()),
-            (vec![press(Key::Escape, egui::Modifiers::NONE)], b"\x1b".as_slice()),
+            (
+                vec![press(Key::Tab, egui::Modifiers::NONE)],
+                b"\t".as_slice(),
+            ),
+            (
+                vec![press(Key::Escape, egui::Modifiers::NONE)],
+                b"\x1b".as_slice(),
+            ),
             (
                 vec![press(Key::U, egui::Modifiers::CTRL)],
                 b"\x15".as_slice(),

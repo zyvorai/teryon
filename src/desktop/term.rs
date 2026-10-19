@@ -531,7 +531,7 @@ impl Desktop {
         } else {
             let label = left.add(
                 egui::Label::new(
-                    weighted(ui.ctx(), format!("{id}  {title}"), "semibold", 12.)
+                    weighted(ui.ctx(), format!("{id:02}  {title}"), "semibold", 12.)
                         .color(color(t.foreground)),
                 )
                 .sense(Sense::click()),

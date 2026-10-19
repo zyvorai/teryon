@@ -22,6 +22,7 @@ Eighteen themes are embedded in the executable, so changing machines does not re
 | `pearl` | Warm light background and dark readable text |
 | `aurora` | Blue-grey surfaces and icy cyan |
 | `ember` | Warm charcoal and peach |
+| `ion` | Void navy, ion-blue accent, amber for "needs you" |
 | `ocean` | Deep navy and bright blue |
 | `sakura` | Plum and pink |
 | `forest` | Dark green and sage |

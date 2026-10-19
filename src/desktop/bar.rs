@@ -302,15 +302,35 @@ impl Desktop {
                             self.close_tab();
                         }
                     } else if !compact {
-                        ui.label(
-                            weighted(
-                                ctx,
-                                format!("{} / {}", self.host, self.workspace),
-                                "semibold",
-                                12.,
-                            )
-                            .color(color(t.foreground)),
-                        );
+                        egui::Frame::new()
+                            .fill(color(t.accent).gamma_multiply(0.08))
+                            .stroke(Stroke::new(1_f32, color(t.accent).gamma_multiply(0.28)))
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .inner_margin(egui::Margin::symmetric(9, 2))
+                            .show(ui, |ui| {
+                                let dot = if self.online { t.success } else { t.warning };
+                                let (rect, _) =
+                                    ui.allocate_exact_size(Vec2::splat(10.), Sense::hover());
+                                ui.painter().circle_filled(
+                                    rect.center(),
+                                    6.,
+                                    color(dot).gamma_multiply(0.18),
+                                );
+                                ui.painter().circle_filled(rect.center(), 3.5, color(dot));
+                                ui.label(
+                                    RichText::new(self.host.as_str())
+                                        .monospace()
+                                        .size(12.)
+                                        .color(color(t.foreground)),
+                                );
+                                ui.label(RichText::new("/").size(12.).color(color(t.muted)));
+                                ui.label(
+                                    RichText::new(&self.workspace)
+                                        .monospace()
+                                        .size(12.)
+                                        .color(color(t.accent)),
+                                );
+                            });
                     }
                     if icon_button(ui, &t, Icon::Plus, "New tab").clicked() {
                         self.run_action(ActionKind::NewTab);
@@ -329,6 +349,15 @@ impl Desktop {
                                     ui.spacing_mut().item_spacing.x = 0.;
                                     if icon_button(ui, &t, Icon::List, "Commands  ⌘K").clicked() {
                                         self.palette = true;
+                                    }
+                                    if wide {
+                                        ui.label(
+                                            RichText::new("⌘K")
+                                                .monospace()
+                                                .size(10.5)
+                                                .color(color(t.muted)),
+                                        );
+                                        ui.add_space(4.);
                                     }
                                     if icon_button(ui, &t, Icon::Spark, "Ask AI  ⌘J").clicked() {
                                         self.run_action(ActionKind::Ai);
@@ -371,7 +400,9 @@ impl Desktop {
                             color(if self.online { t.success } else { t.warning }),
                         );
                         resp.on_hover_text(tip);
-                        if wide && self.online {
+                        if width >= 1100. {
+                            self.link_stats(ui);
+                        } else if wide && self.online {
                             if let Some(ms) = self.latency.filter(|ms| *ms > 150) {
                                 ui.label(
                                     RichText::new(format!("{ms} ms"))
@@ -386,6 +417,25 @@ impl Desktop {
                     });
                 });
             });
+    }
+    /// `LINK 12 ms` and `SHELLS ALIVE 3d 04h` as small two-line labels.
+    fn link_stats(&self, ui: &mut egui::Ui) {
+        let t = &self.theme;
+        let stat = |ui: &mut egui::Ui, name: &str, value: String| {
+            ui.label(
+                RichText::new(value)
+                    .monospace()
+                    .size(11.5)
+                    .color(color(t.foreground)),
+            );
+            ui.label(RichText::new(name).size(9.).color(color(t.muted)));
+        };
+        if let Some(up) = self.link.uptime() {
+            stat(ui, "SHELLS ALIVE", up);
+        }
+        if let Some(ms) = self.latency.filter(|_| self.online) {
+            stat(ui, "LINK", format!("{ms} ms"));
+        }
     }
     /// Numbered chips for the panes of the active workspace (one cycling chip when cramped).
     fn pane_chips(&mut self, ui: &mut egui::Ui, compact: bool) {
@@ -408,17 +458,25 @@ impl Desktop {
                 let at = ids.iter().position(|i| *i == id).map_or(1, |p| p + 1);
                 format!("{at}/{}", ids.len())
             } else {
-                id.to_string()
+                format!("{id:02}")
             };
             let (rect, resp) = ui.allocate_exact_size(
-                Vec2::new(if compact { 40. } else { 24. }, 20.),
+                Vec2::new(if compact { 40. } else { 30. }, 22.),
                 Sense::click(),
             );
+            if focused {
+                ui.painter().rect_stroke(
+                    rect,
+                    6.,
+                    Stroke::new(1_f32, color(t.accent).gamma_multiply(0.55)),
+                    egui::StrokeKind::Inside,
+                );
+            }
             ui.painter().rect_filled(
                 rect,
                 6.,
                 if focused {
-                    color(t.accent).gamma_multiply(0.35)
+                    color(t.accent).gamma_multiply(0.22)
                 } else if resp.hovered() {
                     color(mix(t.panel, t.foreground, 0.1))
                 } else {

@@ -36,7 +36,7 @@ pub struct Theme {
     /// ANSI colors 0-15: black, red, green, yellow, blue, magenta, cyan, white, then bright variants.
     pub ansi: [Color; 16],
 }
-pub const BUILTINS: [&str; 22] = [
+pub const BUILTINS: [&str; 23] = [
     "mac27-dark",
     "mac27-light",
     "apple-dark",
@@ -55,6 +55,7 @@ pub const BUILTINS: [&str; 22] = [
     "pearl",
     "aurora",
     "ember",
+    "ion",
     "ocean",
     "sakura",
     "forest",
@@ -308,6 +309,7 @@ impl Theme {
             "pearl" => include_str!("../themes/pearl.toml"),
             "aurora" => include_str!("../themes/aurora.toml"),
             "ember" => include_str!("../themes/ember.toml"),
+            "ion" => include_str!("../themes/ion.toml"),
             "ocean" => include_str!("../themes/ocean.toml"),
             "sakura" => include_str!("../themes/sakura.toml"),
             "forest" => include_str!("../themes/forest.toml"),

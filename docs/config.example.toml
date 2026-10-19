@@ -33,6 +33,11 @@ destination = "susant@mini.local"
 # fullscreen = true                # native full screen (Dock and menu bar hide)
 # corner_radius = 10               # round a bare window and add a soft edge
 # background_noise = 10            # fine grain over the background
+# status_line = true               # muted line under the panes: PTYs held, last relink, receive rate
+#
+# The "Ion" look: top-level theme = "ion" and, under [desktop], background_gradient = ["#05070D", "#081428"], gradient_angle = 160,
+# background_noise = 8, window_opacity = 0.92, window_blur = 40, corner_radius = 16,
+# cursor_color = "#D97757", cursor_blink = true, unfocused_opacity = 0.78
 # maximized = true                # open windows filling the screen
 # initial_cols = 124               # open windows this size (set both), instead of the last size
 # initial_rows = 42

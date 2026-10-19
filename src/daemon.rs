@@ -421,6 +421,7 @@ struct Workspace {
     last_seq: u64,
 }
 struct State {
+    started: std::time::Instant,
     instance: String,
     workspaces: HashMap<String, Workspace>,
 }
@@ -492,6 +493,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             sessions: state.workspaces.len(),
             panes: state.workspaces.values().map(|w| w.panes.len()).sum(),
             pid: std::process::id(),
+            uptime: state.started.elapsed().as_secs(),
         }),
         Request::Attach {
             workspace,
@@ -742,6 +744,7 @@ pub fn run() -> Result<()> {
     }
     let (listener, token) = ipc::Listener::bind()?;
     let state = Arc::new(Mutex::new(State {
+        started: std::time::Instant::now(),
         instance: util::nonce()?,
         workspaces: HashMap::new(),
     }));

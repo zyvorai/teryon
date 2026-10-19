@@ -134,10 +134,19 @@ impl Desktop {
         } else {
             String::new()
         };
-        let text = format!("{} · {}{more}", kind.name(), status.label());
+        let needs = *status == Status::NeedsYou;
+        let text = if needs {
+            format!("{} needs you{more}", kind.name())
+        } else {
+            format!("{} · {}{more}", kind.name(), status.label())
+        };
         let button = egui::Button::new(RichText::new(text).size(11.5).color(c))
-            .fill(c.gamma_multiply(0.16))
-            .stroke(Stroke::NONE)
+            .fill(c.gamma_multiply(if needs { 0.1 } else { 0.16 }))
+            .stroke(if needs {
+                Stroke::new(1_f32, c.gamma_multiply(0.45))
+            } else {
+                Stroke::NONE
+            })
             .corner_radius(egui::CornerRadius::same(9));
         if ui
             .add(button)

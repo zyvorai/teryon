@@ -163,6 +163,9 @@ pub enum Response {
         sessions: usize,
         panes: usize,
         pid: u32,
+        /// Seconds the daemon has been running; old daemons send none.
+        #[serde(default)]
+        uptime: u64,
     },
     Ack {
         seq: Option<u64>,

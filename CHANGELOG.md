@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- New `ion` theme (void navy, ion-blue accent, amber for "needs you"), with a matching header: host chip with a live dot, `01..` pane buttons, an amber "<agent> needs you" pill, `SHELLS ALIVE` / `LINK` stats, and a status line under the panes (`status_line = false` hides it).
+
+- Relink card: when the connection to the daemon drops while panes exist, a card explains the shells are still running, counts reconnect attempts and offers "Retry now" and "Open offline draft" (Esc hides it). Needs no daemon change beyond an optional `uptime` in `Info`.
+
 - Desktop responsiveness: the worker polls every 6 ms for 400 ms after typing or output (60 ms when idle) and wakes the UI the moment new screen state arrives, history/image reads run on their own read-only connection so they never delay keystrokes, switching tabs cross-fades, and the release build uses thin LTO.
 
 - New shells get a richer `LS_COLORS` (source, config, docs, images, video, audio, archives, lock files, Makefile/Dockerfile/README) and an `EZA_COLORS` for `eza -l` columns.

@@ -109,6 +109,9 @@ pub(crate) enum Command {
     /// Fetch an inline image's bytes for a pane (desktop only).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Image(u64, u64),
+    /// Skip the rest of the reconnect wait and try now.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Reconnect,
     Stop,
     /// Like `Stop`, but first remove this workspace and end its shells (a fresh desktop window).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
@@ -131,6 +134,12 @@ pub(crate) enum Update {
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Captured(String, u64, CapturePurpose),
     Latency(u64),
+    /// The daemon's platform and how long it has been running (seconds).
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Daemon(String, u64),
+    /// Reconnect attempt number and how long the worker waits before it (milliseconds).
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Retry(u32, u64),
     /// An inline image's bytes: pane, image id, file contents.
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Image(u64, u64, Vec<u8>),
@@ -150,6 +159,7 @@ pub(crate) fn worker(
 ) {
     let mut size = initial;
     let mut backoff = 250u64;
+    let mut attempt = 0u32;
     let mut previous_instance: Option<String> = None;
     loop {
         let connection = (|| -> Result<_> {
@@ -166,7 +176,15 @@ pub(crate) fn worker(
         match connection {
             Ok(mut rpc) => {
                 backoff = 250;
+                attempt = 0;
                 let _ = tx.send(Update::Online);
+                let mut info_at = Instant::now();
+                if let Ok(Response::Info {
+                    os, arch, uptime, ..
+                }) = rpc.call(Request::Info)
+                {
+                    let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime));
+                }
                 if previous_instance
                     .as_ref()
                     .is_some_and(|old| old != &rpc.instance)
@@ -260,6 +278,7 @@ pub(crate) fn worker(
                                         );
                                         continue;
                                     }
+                                    Command::Reconnect => continue,
                                     Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
@@ -278,6 +297,15 @@ pub(crate) fn worker(
                                 }
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        }
+                        if info_at.elapsed() >= Duration::from_secs(60) {
+                            info_at = Instant::now();
+                            if let Ok(Response::Info {
+                                os, arch, uptime, ..
+                            }) = rpc.call(Request::Info)
+                            {
+                                let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime));
+                            }
                         }
                         let polled = Instant::now();
                         let state = rpc.call(Request::Poll {
@@ -332,6 +360,9 @@ pub(crate) fn worker(
             }
         }
         // Discard stale actions throughout backoff, including buffered keystrokes.
+        attempt += 1;
+        let _ = tx.send(Update::Retry(attempt, backoff));
+        wake();
         let until = Instant::now() + Duration::from_millis(backoff);
         while Instant::now() < until {
             match rx.recv_timeout(Duration::from_millis(50)) {
@@ -341,6 +372,7 @@ pub(crate) fn worker(
                     return;
                 }
                 Ok(Command::Resize(r, c)) => size = (r, c),
+                Ok(Command::Reconnect) => break,
                 _ => {}
             }
         }
@@ -533,7 +565,7 @@ impl App {
             }
             Update::Message(s) => self.notice = s,
             Update::Latency(ms) => self.latency = Some(ms),
-            Update::Discarded | Update::Image(..) => {}
+            Update::Discarded | Update::Image(..) | Update::Daemon(..) | Update::Retry(..) => {}
             Update::Created(id) => self.focus = id,
             Update::Captured(text, _, purpose) => match purpose {
                 CapturePurpose::View(query) => {
