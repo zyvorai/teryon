@@ -15,7 +15,7 @@ if [[ -z "$__teryon_integrated" ]]; then
     printf '\e]7;file://%s%s\a' "${HOST}" "$p"
     printf '\e]133;A\a'
   }
-  __teryon_preexec() { __teryon_ran=1; __teryon_cmd=$1; __teryon_t0=$EPOCHREALTIME; printf '\e]133;C\a'; }
+  __teryon_preexec() { __teryon_ran=1; __teryon_cmd=$1; __teryon_t0=$EPOCHREALTIME; local c=${1//[[:cntrl:]]/ }; printf '\e]133;C;%s\a' "${c[1,500]}"; }
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
@@ -242,7 +242,8 @@ if [ -z "$__teryon_integrated" ]; then
     [ -n "$__teryon_ran" ] && return
     case "$BASH_COMMAND" in __teryon_*|*PROMPT_COMMAND*) return ;; esac
     __teryon_ran=1
-    printf '\e]133;C\a'
+    local c=${BASH_COMMAND//[[:cntrl:]]/ }
+    printf '\e]133;C;%s\a' "${c:0:500}"
   }
   PROMPT_COMMAND="__teryon_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
   trap '__teryon_preexec' DEBUG
@@ -263,7 +264,7 @@ if not set -q __teryon_integrated
   end
   function __teryon_preexec --on-event fish_preexec
     set -g __teryon_ran 1
-    printf '\e]133;C\a'
+    printf '\e]133;C;%s\a' (string replace -ra '[[:cntrl:]]' ' ' -- $argv[1] | string sub -l 500)
   end
 end
 "#;

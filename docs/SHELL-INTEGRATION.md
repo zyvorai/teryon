@@ -25,6 +25,8 @@ and is safe to re-run. The block does nothing on a machine without `teryon`. Ope
 |---|---|
 | Jump between prompts | ⌘↑ / ⌘↓ (page scrolling moves to ⇧⌘↑ / ⇧⌘↓). Without integration ⌘↑/⌘↓ scroll a page |
 | Copy the last command's output | ⇧⌘O, or "Copy last command output" in the palette |
+| Copy the last command line | "Copy last command" in the palette |
+| Run the last command again | "Re-run last command" in the palette |
 | Exit status and duration | A chip in the pane title bar: `✓ 0.4 s`, `✗ 1 · 12 s`, `running…` |
 | "Command finished" notification | When a command that ran longer than `notify_after_seconds` (default 10) ends while the window is in the background |
 | New panes start where you are | The focused pane's live working directory (OSC 7) is used for new panes |

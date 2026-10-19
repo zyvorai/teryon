@@ -1469,6 +1469,8 @@ impl Desktop {
             ActionKind::PromptPrev => self.jump_prompt(true),
             ActionKind::PromptNext => self.jump_prompt(false),
             ActionKind::CopyLastOutput => self.copy_last_output(),
+            ActionKind::CopyLastCommand => self.copy_last_command(),
+            ActionKind::RerunLastCommand => self.rerun_last_command(),
             ActionKind::History => self.send(Command::Capture(
                 self.focus,
                 CapturePurpose::View(String::new()),
@@ -3094,6 +3096,7 @@ mod tests {
             exit,
             ms,
             at: 100 + line,
+            cmd: None,
         }
     }
     #[test]
@@ -3158,6 +3161,35 @@ mod tests {
         // Last output = lines from the C mark up to the D mark of the last command.
         app.copy_last_output();
         assert_eq!(app.copy_text.as_deref(), Some("line 15\nline 16\nline 17"));
+    }
+    #[test]
+    fn the_last_command_can_be_copied_and_run_again() {
+        let (mut app, rx) = app_with_screen("");
+        app.copy_last_command();
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("shell integration")));
+        app.panes.get_mut(&1).unwrap().marks = vec![mark('C', 2, None, None)];
+        app.copy_last_command();
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("Update the shell integration")));
+        let mut with_cmd = mark('C', 5, None, None);
+        with_cmd.cmd = Some("make test".into());
+        app.panes.get_mut(&1).unwrap().marks.push(with_cmd);
+        app.copy_last_command();
+        assert_eq!(app.copy_text.as_deref(), Some("make test"));
+        while rx.try_recv().is_ok() {}
+        app.rerun_last_command();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::Input { pane: 1, data }) if data == b"make test\r"
+        ));
+        app.readonly = true;
+        app.rerun_last_command();
+        assert!(rx.try_recv().is_err(), "nothing is sent when read only");
     }
     #[test]
     fn copying_last_output_fetches_history_when_needed_and_explains_missing_integration() {

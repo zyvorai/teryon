@@ -15,7 +15,7 @@
 
 TERYON separates the life of your shell from the life of your connection. A per-user service on your Mac mini or Linux host owns the terminals; OpenSSH transports the interface. Disconnect, close the client, or put your laptop to sleep, then reconnect to the same live shells.
 
-**Status: 0.16.5 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
+**Status: 0.17.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
 
 ## Desktop app
 

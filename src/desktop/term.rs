@@ -327,6 +327,43 @@ impl Desktop {
         }
         Ok(lines.join("\n"))
     }
+    /// The command line of the last command the shell reported for the focused pane.
+    fn last_command(&mut self) -> Option<String> {
+        let found = self
+            .panes
+            .get(&self.focus)
+            .and_then(|p| p.marks.iter().rev().find(|m| m.kind == 'C'))
+            .map(|m| m.cmd.clone());
+        match found {
+            Some(Some(cmd)) => Some(cmd),
+            Some(None) => {
+                self.toast("Update the shell integration to record commands: `teryon shell-init zsh`");
+                None
+            }
+            None => {
+                self.toast("Needs shell integration: run `teryon shell-init zsh` (see docs/SHELL-INTEGRATION.md)");
+                None
+            }
+        }
+    }
+    /// Copy the last command line (needs shell integration).
+    pub(super) fn copy_last_command(&mut self) {
+        if let Some(cmd) = self.last_command() {
+            self.copy_text = Some(cmd);
+            self.toast("Copied last command");
+        }
+    }
+    /// Run the last command line again in the focused pane.
+    pub(super) fn rerun_last_command(&mut self) {
+        if self.readonly {
+            self.toast("Read only");
+            return;
+        }
+        if let Some(cmd) = self.last_command() {
+            let id = self.focus;
+            self.insert_command(id, &cmd, true);
+        }
+    }
     fn deliver_output(&mut self, text: Result<String, &'static str>) {
         match text {
             Ok(t) if !t.is_empty() => {

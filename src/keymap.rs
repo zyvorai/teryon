@@ -62,6 +62,8 @@ pub const ACTION_NAMES: &[&str] = &[
     "prompt_prev",
     "prompt_next",
     "copy_last_output",
+    "copy_last_command",
+    "rerun_last_command",
     "scroll_page_up",
     "scroll_page_down",
     "scroll_top",

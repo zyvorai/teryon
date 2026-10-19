@@ -3,13 +3,14 @@ use crate::protocol::Mark;
 use std::time::Instant;
 
 const MAX_MARKS: usize = 500;
+const MAX_COMMAND_CHARS: usize = 500;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum OscEvent {
     /// 133;A: the prompt is about to be drawn.
     Prompt,
-    /// 133;C: the command started producing output.
-    Output,
+    /// 133;C[;command]: the command started producing output (the shell may send its text).
+    Output(Option<String>),
     /// 133;D[;status]: the command finished.
     Done(Option<i32>),
     /// 7;file://host/path: the shell's working directory.
@@ -41,6 +42,22 @@ pub fn file_url_path(url: &str) -> Option<String> {
     (decoded.starts_with('/') && !decoded.contains('\0') && decoded.len() <= 4096)
         .then_some(decoded)
 }
+/// The command line a shell put after `133;C;`: ';' was split by the parser, control characters
+/// are dropped, and it is capped so a marker stays small.
+fn command_text(rest: &[&[u8]]) -> Option<String> {
+    let joined = rest
+        .iter()
+        .filter_map(|p| std::str::from_utf8(p).ok())
+        .collect::<Vec<_>>()
+        .join(";");
+    let text: String = joined
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(MAX_COMMAND_CHARS)
+        .collect();
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
 /// Interpret the parameters of an OSC sequence the terminal parser did not handle itself.
 pub fn parse_osc(params: &[&[u8]]) -> Option<OscEvent> {
     let first = std::str::from_utf8(params.first()?).ok()?;
@@ -49,7 +66,7 @@ pub fn parse_osc(params: &[&[u8]]) -> Option<OscEvent> {
             let kind = std::str::from_utf8(params.get(1)?).ok()?;
             match kind.chars().next()? {
                 'A' => Some(OscEvent::Prompt),
-                'C' => Some(OscEvent::Output),
+                'C' => Some(OscEvent::Output(command_text(&params[2.min(params.len())..]))),
                 'D' => {
                     let status = params
                         .get(2)
@@ -90,8 +107,9 @@ impl MarkLog {
                 exit: None,
                 ms: None,
                 at: unix,
+                cmd: None,
             }),
-            OscEvent::Output => {
+            OscEvent::Output(cmd) => {
                 self.ran_at = Some(now);
                 self.marks.push(Mark {
                     kind: 'C',
@@ -99,6 +117,7 @@ impl MarkLog {
                     exit: None,
                     ms: None,
                     at: unix,
+                    cmd,
                 });
             }
             OscEvent::Done(exit) => {
@@ -112,6 +131,7 @@ impl MarkLog {
                     exit,
                     ms,
                     at: unix,
+                    cmd: None,
                 });
             }
             OscEvent::Cwd(path) => self.cwd = Some(path),
@@ -133,7 +153,11 @@ mod tests {
     #[test]
     fn osc_sequences_parse() {
         assert_eq!(parse_osc(&osc("133;A")), Some(OscEvent::Prompt));
-        assert_eq!(parse_osc(&osc("133;C")), Some(OscEvent::Output));
+        assert_eq!(parse_osc(&osc("133;C")), Some(OscEvent::Output(None)));
+        assert_eq!(
+            parse_osc(&osc("133;C;ls -la; echo hi")),
+            Some(OscEvent::Output(Some("ls -la; echo hi".into())))
+        );
         assert_eq!(parse_osc(&osc("133;D;2")), Some(OscEvent::Done(Some(2))));
         assert_eq!(parse_osc(&osc("133;D")), Some(OscEvent::Done(None)));
         assert_eq!(parse_osc(&osc("133;B")), None);
@@ -161,7 +185,8 @@ mod tests {
         let mut log = MarkLog::default();
         let t0 = Instant::now();
         log.apply(OscEvent::Prompt, 10, 0, t0, 100);
-        log.apply(OscEvent::Output, 11, 0, t0, 101);
+        log.apply(OscEvent::Output(Some("make".into())), 11, 0, t0, 101);
+        assert_eq!(log.marks.last().unwrap().cmd.as_deref(), Some("make"));
         let later = t0 + std::time::Duration::from_millis(1500);
         log.apply(OscEvent::Done(Some(1)), 15, 0, later, 102);
         let d = log.marks.last().unwrap();

@@ -85,6 +85,9 @@ pub struct Mark {
     /// Unix time in seconds.
     #[serde(default)]
     pub at: u64,
+    /// The command line, on a `C` mark when the shell integration sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmd: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -290,6 +293,7 @@ mod tests {
                 exit: Some(1),
                 ms: Some(5),
                 at: 9,
+                cmd: None,
             }]),
             first_line: 2,
             top_line: 5,

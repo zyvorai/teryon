@@ -180,6 +180,7 @@ mod tests {
             exit: Some(exit),
             ms: Some(10),
             at,
+            cmd: None,
         }
     }
 

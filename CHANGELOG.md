@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.0
+
+- The shell integration sends each command line with its `133;C` mark (zsh, bash, fish), so the desktop app knows what ran. New palette actions: "Copy last command" and "Re-run last command". Re-source `teryon shell-init` in existing shells to get it.
+
 ## 0.16.5
 
 - A running desktop app follows edits to the top-level `theme` in `config.toml`; the theme switches on config reload.
