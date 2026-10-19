@@ -304,7 +304,7 @@ impl Desktop {
             Some(line) => self.goto_line(id, line),
         }
     }
-    fn goto_line(&mut self, id: u64, line: u64) {
+    pub(super) fn goto_line(&mut self, id: u64, line: u64) {
         let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
         match self.scrollback.get_mut(&id) {
             Some(sb) if !sb.loading => {
