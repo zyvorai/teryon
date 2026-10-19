@@ -666,6 +666,7 @@ impl Desktop {
                 }
                 Update::Offline(s) => {
                     self.online = false;
+                    self.link.failed(&s, &self.host);
                     self.notice = s;
                 }
                 Update::Message(s) => self.notice = s,

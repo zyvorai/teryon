@@ -399,10 +399,16 @@ pub(crate) fn worker(
                 if result.is_ok() {
                     return;
                 }
-                let _ = tx.send(Update::Offline(format!(
-                    "{} · uncertain input discarded",
-                    result.unwrap_err()
-                )));
+                // ssh's last words say why the link went (closed by the host, broken pipe, timeout).
+                let why = rpc.stderr_tail();
+                let _ = tx.send(Update::Offline(if why.is_empty() {
+                    format!("{} · uncertain input discarded", result.unwrap_err())
+                } else {
+                    format!(
+                        "{why} · {} · uncertain input discarded",
+                        result.unwrap_err()
+                    )
+                }));
             }
             Err(e) => {
                 if tx.send(Update::Offline(format!("{e:#}"))).is_err() {

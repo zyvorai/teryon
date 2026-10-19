@@ -1,7 +1,9 @@
 use crate::{daemon, ipc, protocol::*, util};
 use anyhow::{bail, Context, Result};
-use std::io::{BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct Target {
@@ -70,6 +72,8 @@ impl Target {
                 writer: Box::new(stream),
                 child: None,
                 instance: String::new(),
+                stderr: Arc::default(),
+                stderr_reader: None,
             }
         } else {
             let mut child = self
@@ -77,19 +81,41 @@ impl Target {
                 .arg(format!("exec {} relay", self.remote_executable()))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
+                .stderr(Stdio::piped())
                 .spawn()
                 .context("start OpenSSH")?;
             let reader = child.stdout.take().context("SSH stdout missing")?;
             let writer = child.stdin.take().context("SSH stdin missing")?;
+            // What ssh says about a failure ("Permission denied", "Connection refused") is the reason
+            // the connection is down, so keep its last lines instead of letting them scroll away.
+            let stderr: Arc<Mutex<Vec<String>>> = Arc::default();
+            let stderr_reader = child.stderr.take().map(|pipe| {
+                let lines = stderr.clone();
+                std::thread::spawn(move || {
+                    for line in BufReader::new(pipe).lines().map_while(|l| l.ok()) {
+                        let mut keep = lines.lock().unwrap();
+                        keep.push(line.chars().take(300).collect());
+                        if keep.len() > STDERR_KEPT {
+                            keep.remove(0);
+                        }
+                    }
+                })
+            });
             Rpc {
                 reader: BufReader::new(Box::new(reader)),
                 writer: Box::new(writer),
                 child: Some(child),
                 instance: String::new(),
+                stderr,
+                stderr_reader,
             }
         };
-        match rpc.call(Request::Hello { version: VERSION })? {
+        let hello = match rpc.call(Request::Hello { version: VERSION }) {
+            // A reply from the daemon (version mismatch) already says what is wrong.
+            Err(e) if !e.to_string().starts_with("server:") => return Err(rpc.explain(e)),
+            other => other?,
+        };
+        match hello {
             Response::Hello {
                 version: VERSION,
                 instance,
@@ -288,13 +314,49 @@ fn rsync_binary() -> &'static str {
     })
 }
 
+/// Lines of `ssh` stderr kept per connection.
+const STDERR_KEPT: usize = 6;
+
 pub struct Rpc {
     pub instance: String,
     reader: BufReader<Box<dyn Read + Send>>,
     writer: Box<dyn Write + Send>,
     child: Option<Child>,
+    stderr: Arc<Mutex<Vec<String>>>,
+    stderr_reader: Option<std::thread::JoinHandle<()>>,
 }
 impl Rpc {
+    /// What `ssh` last printed, once it has ended (it is stopped if it lingers), as one line.
+    pub fn stderr_tail(&mut self) -> String {
+        if let Some(child) = self.child.as_mut() {
+            let end = std::time::Instant::now() + Duration::from_millis(800);
+            while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < end {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+            }
+        }
+        if let Some(reader) = self.stderr_reader.take() {
+            let _ = reader.join();
+        }
+        let lines = self.stderr.lock().unwrap();
+        lines
+            .iter()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+    /// `error` with ssh's own explanation appended, when it gave one.
+    pub fn explain(&mut self, error: anyhow::Error) -> anyhow::Error {
+        let tail = self.stderr_tail();
+        if tail.is_empty() {
+            error
+        } else {
+            error.context(tail)
+        }
+    }
     pub fn call(&mut self, request: Request) -> Result<Response> {
         write_frame(&mut self.writer, &request)?;
         let response = read_frame(&mut self.reader)?.context("connection closed")?;

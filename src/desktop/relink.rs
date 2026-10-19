@@ -25,6 +25,8 @@ pub(super) struct Link {
     hidden: bool,
     /// Load, memory and thermal state of the daemon's machine, when it reports them.
     stats: Option<crate::hoststats::HostStats>,
+    /// Why the link is down, read from the last error, and that error's text.
+    diagnosis: Option<(crate::diagnose::Diagnosis, String)>,
     /// Screen bytes received, and a moving rate over about two seconds.
     rx_total: u64,
     rx_mark: Option<(Instant, u64)>,
@@ -54,7 +56,15 @@ impl Link {
         self.retry_at = Some(Instant::now() + Duration::from_millis(wait_ms));
         self.was_down = true;
     }
+    /// Record why the latest connection attempt failed.
+    pub(super) fn failed(&mut self, message: &str, host: &str) {
+        self.diagnosis = Some((
+            crate::diagnose::diagnose(message, host),
+            message.to_string(),
+        ));
+    }
     pub(super) fn online(&mut self) {
+        self.diagnosis = None;
         if self.was_down {
             self.relinked = Some(Instant::now());
         }
@@ -241,7 +251,10 @@ impl Desktop {
                         );
                         ui.add_space(14.);
                         ui.label(
-                            RichText::new(format!("RELINKING · ATTEMPT {}", self.link.attempt.max(1)))
+                            RichText::new(match &self.link.diagnosis {
+                                Some((d, _)) if !d.retryable => "ACTION NEEDED".to_string(),
+                                _ => format!("RELINKING · ATTEMPT {}", self.link.attempt.max(1)),
+                            })
                                 .monospace()
                                 .size(11.)
                                 .color(color(t.accent)),
@@ -260,6 +273,18 @@ impl Desktop {
                             .size(13.)
                             .color(color(t.muted)),
                         );
+                        if let Some((d, detail)) = &self.link.diagnosis {
+                            ui.add_space(10.);
+                            let c = if d.retryable { t.accent } else { t.warning };
+                            ui.label(
+                                weighted(ctx, d.headline, "semibold", 14.).color(color(c)),
+                            );
+                            ui.label(RichText::new(&d.action).size(12.5).color(color(t.foreground)));
+                            let shown: String = detail.chars().take(160).collect();
+                            ui.label(
+                                RichText::new(shown).monospace().size(10.5).color(color(t.muted)),
+                            );
+                        }
                         ui.add_space(12.);
                         for (id, pane) in &self.panes {
                             let state = match (pane.info.exited, self.agent_status_of(*id)) {
@@ -315,6 +340,21 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_failure_is_diagnosed_and_cleared_when_the_link_returns() {
+        let mut link = Link::default();
+        link.failed("user@mini: Permission denied (publickey).", "mini");
+        let (d, detail) = link.diagnosis.clone().unwrap();
+        assert_eq!(d.cause, crate::diagnose::Cause::Auth);
+        assert!(!d.retryable && detail.contains("publickey"));
+        link.failed(
+            "ssh: connect to host mini port 22: No route to host",
+            "mini",
+        );
+        assert!(link.diagnosis.as_ref().unwrap().0.retryable);
+        link.online();
+        assert!(link.diagnosis.is_none());
+    }
     #[test]
     fn card_waits_for_a_real_outage_and_for_shells() {
         let long = Some(Duration::from_secs(3));

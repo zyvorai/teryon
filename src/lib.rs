@@ -11,6 +11,7 @@ pub mod daemon;
 pub mod dashboard;
 #[cfg(feature = "desktop")]
 pub mod desktop;
+pub mod diagnose;
 pub mod files;
 pub mod fontscan;
 pub mod frecent;
