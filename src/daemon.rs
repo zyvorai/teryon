@@ -581,6 +581,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             rows,
             cols,
             cwd,
+            takeover,
         } => {
             if !valid_name(&workspace) {
                 bail!("workspace names use 1–64 ASCII letters, digits, '-' or '_'");
@@ -608,7 +609,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 );
             }
             let ws = state.workspaces.get(&workspace).unwrap();
-            if !readonly && ws.controller.as_ref().is_some_and(|id| id != &conn.id) {
+            if !readonly && !takeover && ws.controller.as_ref().is_some_and(|id| id != &conn.id) {
                 bail!(
                     "workspace already has a controller; use --readonly or detach the other client"
                 );
@@ -659,6 +660,10 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 Request::Poll { .. } | Request::Capture { .. } | Request::Image { .. }
             ) && (conn.readonly || ws.controller.as_ref() != Some(&conn.id))
             {
+                // A client that lost its seat to a takeover is told so, rather than "read-only".
+                if !conn.readonly && ws.controller.is_some() {
+                    bail!("taken over: another client now controls this workspace");
+                }
                 bail!("read-only connection cannot modify the workspace");
             }
             match action {

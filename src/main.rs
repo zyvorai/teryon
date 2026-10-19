@@ -655,6 +655,7 @@ fn attach(target: &Target, workspace: String, readonly: bool, cwd: Option<String
         rows: 24,
         cols: 100,
         cwd,
+        takeover: false,
     })?;
     Ok(rpc)
 }
@@ -1410,6 +1411,7 @@ fn run() -> Result<i32> {
                         rows: 24,
                         cols: 100,
                         cwd: Some(layout.panes[0].cwd.clone()),
+                        takeover: false,
                     })?;
                     apply_layout(&mut rpc, &layout, 1)?;
                     println!("Restored directories and titles as new shells; no old commands were rerun.");
