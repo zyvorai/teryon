@@ -146,6 +146,18 @@ output, pane title bars show `✓ 0.4 s` / `✗ 1 · 12 s` / `running…`, long 
 is in the background raise a notification (`notify_after_seconds`), and new panes start in the focused
 pane's directory. Without the integration everything else keeps working and ⌘↑/⌘↓ just scroll a page.
 
+* **Command gutter** (`command_gutter`, on by default): a thin bar beside each command and its output: red when
+  it failed, the accent color while it runs, faint green when it succeeded.
+* **Palette actions** for the last command: "Copy last command", "Re-run last command" and "Ask AI about last
+  command" (the command and its redacted output go to the assistant).
+* **Listening ports**: "Open listening port in browser" opens the first TCP port the focused pane's processes
+  listen on. On an SSH host it starts an `ssh -L` tunnel first (closed when the app quits).
+* **Agent overview** (⌘⇧A): lists the AI agents in this workspace. With `agent_quick_approve = true` a waiting
+  agent gets Approve / Deny buttons. `teryon agents --all` lists agents across every workspace and host.
+* **Host health** (window 1100 px or wider): load, memory and a heat warning for the machine the daemon runs on.
+* **Notifications**: besides the macOS notification, a `[notify]` section sends the same events to ntfy or a
+  webhook, from the app while it is in the background and from the daemon while no client is attached.
+
 ## Configuration
 
 Options live in the `[desktop]` table of `~/.config/teryon/config.toml` (see `docs/config.example.toml`).

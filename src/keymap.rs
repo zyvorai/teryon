@@ -64,6 +64,8 @@ pub const ACTION_NAMES: &[&str] = &[
     "copy_last_output",
     "copy_last_command",
     "rerun_last_command",
+    "ask_ai_last",
+    "open_port",
     "scroll_page_up",
     "scroll_page_down",
     "scroll_top",

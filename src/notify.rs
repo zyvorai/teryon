@@ -86,6 +86,14 @@ pub fn send(cfg: &NotifyConfig, note: Note) {
     });
 }
 
+/// Send `note` to the ntfy and webhook sinks only; the desktop app shows its own macOS notification.
+pub fn send_remote(cfg: &NotifyConfig, note: Note) {
+    if cfg.ntfy_url.is_none() && cfg.webhook_url.is_none() {
+        return;
+    }
+    send(&NotifyConfig { macos: false, ..cfg.clone() }, note);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

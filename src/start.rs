@@ -85,6 +85,8 @@ pub enum Action {
     Choose(Choice),
     /// Tab on a host: the caller lists its workspaces and calls `show_workspaces`.
     Workspaces(String),
+    /// Ctrl+W on a host: the caller sends it a wake-on-LAN packet.
+    Wake(String),
 }
 enum Mode {
     Hosts,
@@ -146,6 +148,12 @@ impl Picker {
         let rows = self.rows();
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                match (&self.mode, self.entry_at(self.selected)) {
+                    (Mode::Hosts, Some(e)) => Action::Wake(e.host.clone()),
+                    _ => Action::None,
+                }
+            }
             KeyCode::Esc => {
                 if self.in_workspaces().is_some() {
                     self.mode = Mode::Hosts;
@@ -305,7 +313,7 @@ fn draw(frame: &mut Frame, picker: &Picker, theme: &Theme) {
         list,
     );
     let hint = if picker.message.is_empty() {
-        " ↑↓ move · Enter connect · Tab workspaces · Esc quit".to_string()
+        " ↑↓ move · Enter connect · Tab workspaces · Ctrl+W wake · Esc quit".to_string()
     } else {
         format!(" {}", picker.message)
     };
@@ -316,11 +324,13 @@ fn draw(frame: &mut Frame, picker: &Picker, theme: &Theme) {
     );
 }
 
-/// Run the picker on the terminal. `workspaces` lists a host's workspaces when the user presses Tab.
+/// Run the picker on the terminal. `workspaces` lists a host's workspaces when the user presses Tab;
+/// `wake` sends a wake-on-LAN packet on Ctrl+W and returns the message to show.
 pub fn pick(
     entries: Vec<Entry>,
     theme: &Theme,
     workspaces: &mut dyn FnMut(&str) -> Result<Vec<String>>,
+    wake: &mut dyn FnMut(&str) -> Result<String>,
 ) -> Result<Option<Choice>> {
     let mut terminal = ratatui::init();
     struct Restore;
@@ -343,6 +353,12 @@ pub fn pick(
             Action::None => {}
             Action::Quit => return Ok(None),
             Action::Choose(choice) => return Ok(Some(choice)),
+            Action::Wake(host) => {
+                picker.message = match wake(&host) {
+                    Ok(m) => m,
+                    Err(e) => format!("{host}: {e:#}"),
+                };
+            }
             Action::Workspaces(host) => {
                 picker.message = format!("Asking {host} for its workspaces…");
                 terminal.draw(|f| draw(f, &picker, theme))?;
@@ -454,5 +470,15 @@ mod tests {
         assert_eq!(p.key(key(KeyCode::Esc)), Action::None);
         assert!(p.in_workspaces().is_none());
         assert_eq!(p.key(key(KeyCode::Esc)), Action::Quit);
+    }
+    #[test]
+    fn ctrl_w_wakes_the_selected_host_but_only_in_the_host_list() {
+        let mut p = Picker::new(sample());
+        typed(&mut p, "build");
+        let ctrl_w = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL);
+        assert_eq!(p.key(ctrl_w), Action::Wake("build-box".into()));
+        assert!(p.query == "build", "Ctrl+W does not type a letter");
+        p.show_workspaces("build-box".into(), vec!["a".into()]);
+        assert_eq!(p.key(ctrl_w), Action::None);
     }
 }

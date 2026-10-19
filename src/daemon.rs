@@ -127,6 +127,13 @@ struct Pane {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// Foreground command line, refreshed at most once a second.
     fg: Mutex<(std::time::Instant, Option<String>)>,
+    /// Listening ports of the pane's process tree, refreshed in the background every few seconds.
+    ports: Arc<Mutex<PortCache>>,
+}
+struct PortCache {
+    at: std::time::Instant,
+    ports: Vec<u16>,
+    busy: bool,
 }
 
 /// Friendly `ls`/`eza` colors for new shells: directories bold blue, executables bold green, symlinks
@@ -254,6 +261,11 @@ impl Pane {
             input,
             killer: Mutex::new(killer),
             fg: Mutex::new((std::time::Instant::now() - Duration::from_secs(10), None)),
+            ports: Arc::new(Mutex::new(PortCache {
+                at: std::time::Instant::now() - Duration::from_secs(60),
+                ports: Vec::new(),
+                busy: false,
+            })),
         });
         let read_state = state.clone();
         thread::spawn(move || {
@@ -305,8 +317,31 @@ impl Pane {
             first_line: top.saturating_sub(scrollback_lines() as u64),
             top_line: top,
             fg: self.foreground_command(st.exited.is_some()),
+            ports: self.listening_ports(st.exited.is_some()),
             images: changed.then(|| st.parser.callbacks().images.placements.clone()),
         }
+    }
+    /// Listening ports of this pane's processes. Returns the last answer at once; when it is older
+    /// than 5 seconds a background thread refreshes it (`lsof` can take a moment).
+    fn listening_ports(&self, exited: bool) -> Vec<u16> {
+        let Some(pid) = self.pid.filter(|_| !exited) else {
+            return Vec::new();
+        };
+        let mut cache = self.ports.lock().unwrap();
+        if !cache.busy && cache.at.elapsed() > Duration::from_secs(5) {
+            cache.busy = true;
+            let shared = self.ports.clone();
+            thread::spawn(move || {
+                let found = crate::ports::listening(pid);
+                let mut c = shared.lock().unwrap();
+                *c = PortCache {
+                    at: std::time::Instant::now(),
+                    ports: found,
+                    busy: false,
+                };
+            });
+        }
+        cache.ports.clone()
     }
     /// The command line of the foreground process group (cached for a second; `ps` is only run when asked again).
     fn foreground_command(&self, exited: bool) -> Option<String> {

@@ -15,7 +15,7 @@
 
 TERYON separates the life of your shell from the life of your connection. A per-user service on your Mac mini or Linux host owns the terminals; OpenSSH transports the interface. Disconnect, close the client, or put your laptop to sleep, then reconnect to the same live shells.
 
-**Status: 0.17.4 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
+**Status: 0.18.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
 
 ## Desktop app
 
@@ -115,7 +115,8 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | File transfers | Resumable rsync uploads/downloads with protected path arguments and no automatic deletion |
 | Ports | Loopback-only OpenSSH local forwarding; optional reconnect loop |
 | Deployment | SCP upload, remote executable verification, atomic same-filesystem binary replacement, remote doctor |
-| Operations | `dashboard` host overview, `import-ssh` aliases, shell completions, `exec --notify` desktop notifications |
+| Projects | `.teryon.toml` recipes: `teryon up` starts a workspace's panes, directories and commands |
+| Operations | `dashboard` host overview, `agents` across workspaces, `wake` (wake-on-LAN), `import-ssh` aliases, shell completions, `exec --notify` desktop notifications |
 | Diagnostics | Reachability, actual daemon OS/architecture, process ID and workspace/pane counts |
 | Local IPC | Private Unix socket preferred; authenticated ephemeral loopback TCP fallback in restricted environments |
 

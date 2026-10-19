@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0
+
+- `teryon agents [HOST...] [--all]` lists the AI agents in every workspace and whether each is working or waiting.
+- Palette: "Ask AI about last command" sends the last command and its redacted output to the assistant.
+- Host picker: Ctrl+W on a host sends it a wake-on-LAN packet.
+- The desktop app also sends agent and long-command notifications to the ntfy / webhook sinks while its window is in the background.
+- `.teryon.toml` recipes and `teryon up`: start a project's workspace (named panes, directories, commands); refuses a workspace that already exists.
+- Listening ports: the daemon reports each pane's TCP listeners; "Open listening port in browser" opens one, through an `ssh -L` tunnel on remote hosts.
+
 ## 0.17.4
 
 - Command gutter: a thin bar in the left padding beside each command and its output (red when it failed, the accent while it runs, faint green when it succeeded), in the live view and in scrollback. Needs shell integration; `[desktop] command_gutter = false` turns it off.

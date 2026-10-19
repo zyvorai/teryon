@@ -247,28 +247,14 @@ impl<B: Backend> Server<B> {
             }
             "list_agents" => {
                 let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
-                let panes = self.backend.panes(&host, &ws)?;
-                let mut lines = Vec::new();
-                for p in panes {
-                    let fg = p.fg.clone().unwrap_or_else(|| p.title.clone());
-                    let Some(kind) = crate::agents::detect(&fg) else {
-                        continue;
-                    };
-                    let status = if p.exited.is_some() {
-                        crate::agents::Status::Done
-                    } else {
-                        let (text, _) = self.backend.capture(&host, &ws, p.id)?;
-                        let rows: Vec<String> = text.lines().map(str::to_string).collect();
-                        // The server cannot see how recently the screen changed, so only the
-                        // screen text decides between waiting, working and idle.
-                        crate::agents::status(&rows, Duration::from_secs(60))
-                    };
-                    lines.push(format!("{}\t{}\t{}", p.id, kind.name(), status.label()));
-                }
-                Ok(if lines.is_empty() {
+                let rows = agent_rows(&mut self.backend, &host, &ws)?;
+                Ok(if rows.is_empty() {
                     "no agents".into()
                 } else {
-                    lines.join("\n")
+                    rows.iter()
+                        .map(|(id, kind, status)| format!("{id}\t{}\t{}", kind.name(), status.label()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 })
             }
             "list_panes" => {
@@ -423,6 +409,30 @@ pub fn serve<B: Backend>(
     Ok(())
 }
 
+/// The AI agents in one workspace with their state. The caller cannot see how recently a screen
+/// changed, so only the screen text decides between waiting, working and idle.
+pub fn agent_rows<B: Backend>(
+    backend: &mut B,
+    host: &str,
+    ws: &str,
+) -> Result<Vec<(u64, crate::agents::Kind, crate::agents::Status)>> {
+    let mut out = Vec::new();
+    for p in backend.panes(host, ws)? {
+        let fg = p.fg.clone().unwrap_or_else(|| p.title.clone());
+        let Some(kind) = crate::agents::detect(&fg) else {
+            continue;
+        };
+        let status = if p.exited.is_some() {
+            crate::agents::Status::Done
+        } else {
+            let (text, _) = backend.capture(host, ws, p.id)?;
+            let rows: Vec<String> = text.lines().map(str::to_string).collect();
+            crate::agents::status(&rows, Duration::from_secs(60))
+        };
+        out.push((p.id, kind, status));
+    }
+    Ok(out)
+}
 /// The real backend: one short connection per call (a controller connection only for writes).
 pub struct Real {
     pub remote_bin: Option<String>,

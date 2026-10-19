@@ -810,3 +810,30 @@ fn an_inline_image_reserves_its_rows_and_its_bytes_can_be_fetched() {
         Response::Error { .. }
     ));
 }
+#[test]
+fn a_recipe_starts_named_panes_that_run_their_commands_and_refuses_to_start_twice() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    let recipe = teryon::recipe::parse(
+        "[[pane]]\nname = \"one\"\ncwd = \"/tmp\"\ncommand = \"echo FIRST-$((20+22))\"\n\
+         [[pane]]\nname = \"two\"\ncommand = \"echo SECOND-$((30+12))\"\n",
+    )
+    .unwrap();
+    let base = std::path::Path::new("/tmp");
+    let ids = teryon::recipe::up(
+        &mut |r| Ok(c.call(r)),
+        &recipe,
+        "recipe-test",
+        base,
+        true,
+    )
+    .unwrap();
+    assert_eq!(ids, [1, 2]);
+    c.until(1, "FIRST-42");
+    c.until(2, "SECOND-42");
+    let titles: Vec<String> = c.snapshot().into_iter().map(|p| p.title).collect();
+    assert_eq!(titles, ["one", "two"]);
+    let err = teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-test", base, true)
+        .unwrap_err();
+    assert!(format!("{err:#}").contains("already exists"));
+}

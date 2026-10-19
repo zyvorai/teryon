@@ -11,12 +11,12 @@ Implemented features are documented in the README. This file names the gaps so a
 - Full changed-screen snapshots and request/response polling are simple but bandwidth/latency intensive. No benchmark proves this faster than Zellij, WezTerm, tmux or Mosh.
 - Two visible panes in a vertical split; no arbitrary pane tree, drag resizing, horizontal split, cross-window tab dragging or multi-monitor workspace layout.
 - No mouse-protocol forwarding, kitty graphics, sixel, hyperlinks, native inline images, complete modern terminal query support, or universal TUI compatibility. Validate your editor and shell. The TUI supports cell styling; desktop italic styling and complete font fallback remain limited.
-- Remote files are transferred through CLI commands. There is no integrated file browser, drag/drop transfer UI, continuous bidirectional editor sync, automatic port detection or inline browser preview.
+- Remote files are transferred through CLI commands. There is no continuous bidirectional editor sync or inline browser preview. Listening ports are detected with `lsof` and opened through a manual action, not forwarded automatically.
 - Output search covers the retained terminal buffer, not an unlimited historical command database. No semantic command blocks, completion engine of its own (the zsh Tab menu uses zsh's completion), per-command telemetry, robust secret redaction or permanent encrypted transcript store.
 - Offline drafts are memory-only. Closing the client loses unsent drafts. A saved draft can contain multiple commands; review it before submission.
-- Per-pane completion notices exist only while the client observes state. No push service, mobile notifications, background desktop notification integration or guaranteed offline completion delivery.
+- Notifications: the daemon can push agent and long-command events to ntfy or a webhook (`[notify]`), and the desktop app does the same from the background, but there is no delivery guarantee, no retry and no mobile app of our own. They need `curl`.
 - Device handoff means detach one controller and attach another. No invitation links, separate-user RBAC, hosted collaboration, screen broadcasting or organization administration.
-- No CPU/memory/thermal dashboard, Apple GPU scheduling, GPU workload control, sleep prevention or wake-on-LAN integration.
+- The top bar shows load, memory and a heat warning for the daemon's host, with an opt-in `caffeinate` keep-awake and `teryon wake`. There is no history graph, per-process view, Apple GPU scheduling or GPU workload control, and wake-on-LAN only works over Ethernet to a host that is asleep, not off.
 - SSH requires existing noninteractive key/agent authentication. Password onboarding and first-use host-key enrollment remain ordinary OpenSSH tasks.
 - Signed and notarized `.dmg`/`.pkg` are built by hand on a Mac with `scripts/release-macos.sh` and attached to the GitHub Release; CI does not build them. App Store submission and automatic updates are not included.
 

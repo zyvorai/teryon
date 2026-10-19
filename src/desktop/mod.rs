@@ -35,6 +35,7 @@ mod hints;
 mod icons;
 mod menus;
 mod panes;
+mod portfwd;
 mod relink;
 mod restore;
 mod snippets;
@@ -188,6 +189,10 @@ pub struct Desktop {
     config_mtime: Option<std::time::SystemTime>,
     /// Top-level `theme` of `config.toml` as last read; a change to it is applied live.
     config_theme: Option<String>,
+    /// `[notify]` sinks (ntfy, webhook) the app also uses when it notifies from the background.
+    notify_cfg: crate::config::NotifyConfig,
+    /// `ssh -L` tunnels started by "Open listening port", by port; ended when the app closes.
+    forwards: HashMap<u16, std::process::Child>,
     config_checked: Instant,
     /// Window commands queued by actions, sent with the egui context on the next frame.
     pending: Vec<egui::ViewportCommand>,
@@ -359,6 +364,8 @@ impl Desktop {
             keymap: Keymap::build(&Default::default()).0,
             config_mtime: None,
             config_theme: None,
+            notify_cfg: Default::default(),
+            forwards: HashMap::new(),
             config_checked: Instant::now(),
             pending: Vec::new(),
             fullscreen: false,
@@ -659,12 +666,23 @@ impl Desktop {
                                     let limit = u64::from(self.cfg.notify_after_seconds) * 1000;
                                     let long = d.ms.is_some_and(|ms| limit > 0 && ms >= limit);
                                     if pane.announced != 0 && long && !self.window_focused {
-                                        crate::util::notify(&format!(
+                                        let message = format!(
                                             "Pane {} finished a command in {} s (exit {})",
                                             view.id,
                                             d.ms.unwrap_or(0) / 1000,
                                             d.exit.map_or("?".to_string(), |c| c.to_string())
-                                        ));
+                                        );
+                                        crate::util::notify(&message);
+                                        crate::notify::send_remote(
+                                            &self.notify_cfg,
+                                            crate::notify::Note {
+                                                event: "command_done",
+                                                title: "TERYON".into(),
+                                                message,
+                                                workspace: self.workspace.clone(),
+                                                pane: view.id,
+                                            },
+                                        );
                                     }
                                     pane.announced = d.at;
                                 }
@@ -1471,6 +1489,11 @@ impl Desktop {
             ActionKind::CopyLastOutput => self.copy_last_output(),
             ActionKind::CopyLastCommand => self.copy_last_command(),
             ActionKind::RerunLastCommand => self.rerun_last_command(),
+            ActionKind::OpenPort => self.open_port(),
+            ActionKind::AskAiLast => {
+                let id = self.focus;
+                self.ai_ask_last(id);
+            }
             ActionKind::History => self.send(Command::Capture(
                 self.focus,
                 CapturePurpose::View(String::new()),
@@ -1708,7 +1731,8 @@ impl Desktop {
         match config::load_desktop_theme() {
             Ok((cfg, theme)) => {
                 self.apply_config(cfg);
-                let changed = self.config_theme.as_ref().is_some_and(|t| *t != theme);
+                self.notify_cfg = config::load().map(|c| c.notify).unwrap_or_default();
+                let changed = theme_changed(self.config_theme.as_deref(), &theme);
                 self.config_theme = Some(theme.clone());
                 if changed {
                     self.run_action(ActionKind::Theme(theme));
@@ -1894,6 +1918,10 @@ impl Desktop {
             });
     }
 }
+/// Whether a reloaded config names a different theme than the one last read (the first read is never a change).
+fn theme_changed(previous: Option<&str>, next: &str) -> bool {
+    previous.is_some_and(|p| p != next)
+}
 impl Drop for Desktop {
     fn drop(&mut self) {
         self.save_settings(true);
@@ -1906,6 +1934,10 @@ impl Drop for Desktop {
                     break;
                 }
             }
+        }
+        for (_, mut child) in self.forwards.drain() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
         let _ = self.tx.try_send(Command::Stop);
         for tab in &self.tabs {
@@ -1978,6 +2010,7 @@ pub fn run(
         Ok((cfg, theme)) => {
             app.apply_config(cfg);
             app.config_theme = Some(theme);
+            app.notify_cfg = config::load().map(|c| c.notify).unwrap_or_default();
         }
         Err(e) => app.toast(format!("Config error: {e:#}")),
     }
@@ -3198,6 +3231,12 @@ mod tests {
                 render(&mut app, &ctx, width);
             }
         }
+    }
+    #[test]
+    fn a_reload_switches_theme_only_when_the_config_names_another() {
+        assert!(!theme_changed(None, "nord"), "the first read is not a change");
+        assert!(!theme_changed(Some("nord"), "nord"));
+        assert!(theme_changed(Some("nord"), "dracula"));
     }
     #[test]
     fn the_last_command_can_be_copied_and_run_again() {

@@ -113,6 +113,9 @@ pub struct PaneView {
     /// Command line of the pane's foreground process (e.g. `claude` or `node /…/codex`); old daemons send none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fg: Option<String>,
+    /// TCP ports the pane's processes listen on; old daemons send none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<u16>,
     /// Inline images on the screen and in history, sent together with `screen`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<Placement>>,

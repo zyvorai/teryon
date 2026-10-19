@@ -223,6 +223,41 @@ impl Desktop {
         }
     }
 
+    /// Ask the assistant about the last command in `id` (what it was and what it printed), whether or not it failed.
+    pub(super) fn ai_ask_last(&mut self, id: u64) {
+        let Some(p) = self.panes.get(&id) else { return };
+        let Some(c) = p.marks.iter().rev().find(|m| m.kind == 'C') else {
+            self.toast("Needs shell integration: run `teryon shell-init zsh`");
+            return;
+        };
+        let cmd = c.cmd.clone().unwrap_or_else(|| "(command text not recorded)".into());
+        let code = p
+            .marks
+            .iter()
+            .rev()
+            .find(|m| m.kind == 'D' && m.line >= c.line)
+            .and_then(|m| m.exit);
+        let screen = p.parser.screen();
+        let (_, cols) = screen.size();
+        let rows: Vec<String> = screen.rows(0, cols).collect();
+        let used = rows
+            .iter()
+            .rposition(|r| !r.trim().is_empty())
+            .map_or(0, |i| i + 1);
+        let tail = rows[used.saturating_sub(40)..used].join("\n");
+        let prompt = format!(
+            "About the last command in pane {id}: `{}`{}. Host: {}, directory: {}. Explain what it did and what its output means; if something went wrong propose a fix with suggest_command.\n\n{}",
+            redact::untrusted(&cmd),
+            code.map_or(String::new(), |c| format!(" (exit status {c})")),
+            self.host,
+            p.info.cwd,
+            redact::untrusted(&tail)
+        );
+        self.ai.open = true;
+        self.ai.focus_input = true;
+        self.ai_send(&prompt);
+    }
+
     /// "Explain / fix this" for a failed command: opens the assistant with a redacted summary of the failure.
     pub(super) fn ai_explain(&mut self, id: u64) {
         let Some(p) = self.panes.get(&id) else { return };
@@ -342,5 +377,55 @@ mod tests {
             "{got}"
         );
         assert!(!got.contains(&secret) && got.contains("redacted:anthropic-key"));
+    }
+
+    #[test]
+    fn asking_about_the_last_command_names_it_and_redacts_the_output() {
+        use std::sync::{Arc, Mutex};
+        struct Spy(Arc<Mutex<Vec<String>>>);
+        impl Model for Spy {
+            fn stream(
+                &self,
+                _: &str,
+                _: &serde_json::Value,
+                m: &[serde_json::Value],
+                _: &mut dyn FnMut(Event),
+            ) -> Result<Turn, String> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(m.last().unwrap()["content"].to_string());
+                Ok(Turn::default())
+            }
+        }
+        struct NoRun;
+        impl crate::ai::tools::Runner for NoRun {
+            fn run(&self, _: &str, _: &[String], _: Duration) -> Result<String, String> {
+                Ok(String::new())
+            }
+        }
+        let secret = format!("sk-ant-{}", "aB3d".repeat(8));
+        let (mut app, _rx) = app_with_screen(&format!("ls\r\nfile with key {secret}\r\n"));
+        app.ai_ask_last(1);
+        assert!(
+            app.toast.as_ref().is_some_and(|(t, _)| t.contains("shell integration")),
+            "without marks it explains what is missing"
+        );
+        let mut c = Mark { kind: 'C', line: 1, ..Default::default() };
+        c.cmd = Some("ls -la".into());
+        let d = Mark { kind: 'D', line: 2, exit: Some(0), ..Default::default() };
+        app.panes.get_mut(&1).unwrap().marks = vec![c, d];
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        app.ai_attach(Box::new(Spy(seen.clone())), Arc::new(NoRun), vec![]);
+        app.ai_ask_last(1);
+        for _ in 0..200 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let got = seen.lock().unwrap().join("");
+        assert!(got.contains("ls -la") && got.contains("exit status 0"), "{got}");
+        assert!(!got.contains(&secret), "{got}");
     }
 }

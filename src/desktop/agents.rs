@@ -43,7 +43,7 @@ impl Desktop {
     pub(super) fn agents_update(&mut self) {
         let now = Instant::now();
         let notify = self.cfg.agent_notifications && !self.window_focused;
-        let mut messages: Vec<String> = Vec::new();
+        let mut messages: Vec<(&'static str, u64, String)> = Vec::new();
         for (id, pane) in self.panes.iter_mut() {
             let fg = pane
                 .info
@@ -87,15 +87,33 @@ impl Desktop {
                 let name = tr.kind.map_or("Agent", Kind::name);
                 if prev.is_some() && notify {
                     match next {
-                        Status::NeedsYou => messages.push(format!("{name} in pane {id} needs you")),
-                        Status::Done => messages.push(format!("{name} finished in pane {id}")),
+                        Status::NeedsYou => messages.push((
+                            "agent_needs_you",
+                            *id,
+                            format!("{name} in pane {id} needs you"),
+                        )),
+                        Status::Done => messages.push((
+                            "agent_done",
+                            *id,
+                            format!("{name} finished in pane {id}"),
+                        )),
                         _ => {}
                     }
                 }
             }
         }
-        for m in messages {
-            crate::util::notify(&m);
+        for (event, pane, message) in messages {
+            crate::util::notify(&message);
+            crate::notify::send_remote(
+                &self.notify_cfg,
+                crate::notify::Note {
+                    event,
+                    title: "TERYON".into(),
+                    message,
+                    workspace: self.workspace.clone(),
+                    pane,
+                },
+            );
         }
     }
 
@@ -317,6 +335,33 @@ mod tests {
         let list = app.agents_list();
         assert_eq!(list[0].0, 2);
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn a_background_app_also_pushes_to_the_webhook() {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (mut app, _rx) = app_with_screen("");
+        app.notify_cfg.webhook_url = Some(format!("http://{}/h", listener.local_addr().unwrap()));
+        app.window_focused = false;
+        agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
+        app.agents_update();
+        let mut parser = vt100::Parser::new(10, 60, 0);
+        parser.process("Do you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
+        let pane = app.panes.get_mut(&2).unwrap();
+        pane.parser = parser;
+        pane.track.computed -= Duration::from_secs(5);
+        app.agents_update();
+        let (mut s, _) = listener.accept().unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut buf = [0u8; 4096];
+        let mut got = String::new();
+        while !got.contains("needs you") {
+            let n = s.read(&mut buf).unwrap();
+            assert!(n > 0, "closed early: {got}");
+            got.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        assert!(got.contains("agent_needs_you"), "{got}");
     }
 
     #[test]

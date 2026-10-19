@@ -298,6 +298,18 @@ enum Commands {
     },
     /// Print a shell completion script (bash, zsh, fish, elvish, powershell).
     Completions { shell: clap_complete::Shell },
+    /// Start the workspace a project describes in `.teryon.toml`: its panes, directories and commands.
+    Up {
+        /// Host to start it on.
+        #[arg(default_value = "local")]
+        host: String,
+        /// The recipe file.
+        #[arg(long, default_value = ".teryon.toml")]
+        file: PathBuf,
+        /// Workspace name (default: the recipe's, else the directory's name).
+        #[arg(long)]
+        workspace: Option<String>,
+    },
     /// Wake a sleeping host with a wake-on-LAN packet (set `mac` on the host in the config).
     Wake {
         /// A configured host alias.
@@ -323,6 +335,14 @@ enum Commands {
         theme: Option<String>,
         #[arg(long)]
         no_splash: bool,
+    },
+    /// List the AI coding agents (Claude Code, Codex, ...) in every workspace and whether each is working or waiting for you.
+    Agents {
+        /// Hosts to look at (default: local).
+        hosts: Vec<String>,
+        /// Look at this machine and every configured host.
+        #[arg(long)]
+        all: bool,
     },
     /// Overview of every configured host: reachability, system, workspaces and panes.
     Dashboard {
@@ -511,7 +531,20 @@ fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {
             _ => bail!("unexpected response"),
         }
     };
-    let Some(choice) = teryon::start::pick(entries, &theme, &mut lister)? else {
+    let mut waker = |host: &str| -> Result<String> {
+        let cfg = config::load()?;
+        let h = cfg
+            .hosts
+            .get(host)
+            .ok_or_else(|| anyhow::anyhow!("not a configured host"))?;
+        let mac = h
+            .mac
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no `mac` set in [hosts.{host}]"))?;
+        teryon::wake::wake(mac, h.broadcast.as_deref())?;
+        Ok(format!("Sent a wake packet to {host}; give it a few seconds"))
+    };
+    let Some(choice) = teryon::start::pick(entries, &theme, &mut lister, &mut waker)? else {
         return Ok(0);
     };
     let desktop = want_desktop || cfg.start == config::StartMode::Desktop;
@@ -715,6 +748,39 @@ fn run() -> Result<i32> {
                 no_splash,
             )?
         }
+        Commands::Agents { hosts, all } => {
+            let mut names = hosts;
+            if all {
+                names.push("local".into());
+                names.extend(config::load()?.hosts.keys().cloned());
+            } else if names.is_empty() {
+                names.push("local".into());
+            }
+            names.dedup();
+            let mut backend = teryon::mcp::Real { remote_bin: bin.clone() };
+            let mut shown = 0;
+            for host in names {
+                use teryon::mcp::Backend;
+                let workspaces = match backend.workspaces(&host) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        eprintln!("{host}: unreachable ({e:#})");
+                        continue;
+                    }
+                };
+                for w in workspaces {
+                    for (id, kind, status) in
+                        teryon::mcp::agent_rows(&mut backend, &host, &w.name).unwrap_or_default()
+                    {
+                        println!("{host}\t{}\tpane {id}\t{}\t{}", w.name, kind.name(), status.label());
+                        shown += 1;
+                    }
+                }
+            }
+            if shown == 0 {
+                println!("No AI agents running.");
+            }
+        }
         Commands::Dashboard { local, watch } => {
             let cfg = config::load()?;
             loop {
@@ -759,6 +825,26 @@ fn run() -> Result<i32> {
         }
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut std::io::stdout())
+        }
+        Commands::Up {
+            host,
+            file,
+            workspace,
+        } => {
+            let text = std::fs::read_to_string(&file)
+                .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", file.display()))?;
+            let recipe = teryon::recipe::parse(&text)?;
+            let base = std::fs::canonicalize(&file)?
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default();
+            let name = teryon::recipe::workspace_name(&recipe, workspace.as_deref(), &base)?;
+            let mut rpc = target(host.clone(), bin)?.connect()?;
+            let ids = teryon::recipe::up(&mut |r| rpc.call(r), &recipe, &name, &base, host == "local")?;
+            println!(
+                "Started {} pane(s) in workspace {name}. Attach with: teryon connect {host} --workspace {name}",
+                ids.len()
+            );
         }
         Commands::Wake { host } => {
             let cfg = config::load()?;
