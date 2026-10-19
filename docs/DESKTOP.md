@@ -55,6 +55,10 @@ chrome = "none"          # no title bar, no tab strip, no empty-pane hints (rest
 initial_cols = 124       # open windows this many columns and rows, instead of the last size
 initial_rows = 42
 fresh_window = true      # every window starts a new shell and ends it when the window closes
+padding_x = 9.6          # per-side text padding in pixels (falls back to `padding`)
+padding_top = 0.0
+padding_bottom = 4.8
+scrollbar = "always"     # auto (only while scrolled back) | always
 ```
 
 With `fresh_window`, `teryon desktop` no longer reattaches to the shared `default` workspace: each window gets

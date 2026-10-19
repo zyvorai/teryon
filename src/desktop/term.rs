@@ -638,16 +638,20 @@ impl Desktop {
         let font = FontId::monospace(self.font_size);
         let cw = ui.fonts(|f| f.glyph_width(&font, 'M'));
         let ch = self.font_size * self.cfg.line_height;
-        let pad = self.cfg.padding;
-        let rows = ((rect.height() - 2. * pad) / ch).floor().clamp(2., 200.) as u16;
-        let cols = ((width - 2. * pad) / cw).floor().clamp(10., 500.) as u16;
+        let (pad_left, pad_top, pad_right, pad_bottom) = self.cfg.insets();
+        let rows = ((rect.height() - pad_top - pad_bottom) / ch)
+            .floor()
+            .clamp(2., 200.) as u16;
+        let cols = ((width - pad_left - pad_right) / cw)
+            .floor()
+            .clamp(10., 500.) as u16;
         self.view_rows.insert(id, rows);
         let cell_at = move |p: Pos2| -> (u16, u16) {
             (
-                ((p.y - rect.top() - pad) / ch)
+                ((p.y - rect.top() - pad_top) / ch)
                     .floor()
                     .clamp(0., f32::from(rows) - 1.) as u16,
-                ((p.x - rect.left() - pad) / cw)
+                ((p.x - rect.left() - pad_left) / cw)
                     .floor()
                     .clamp(0., f32::from(cols) - 1.) as u16,
             )
@@ -902,6 +906,13 @@ impl Desktop {
                 Stroke::new(1_f32, color(t.accent).gamma_multiply(0.5)),
             );
         }
+        let in_history = self
+            .scrollback
+            .get(&id)
+            .is_some_and(|s| !s.loading && (s.offset > 0 || s.copy.is_some()));
+        if !in_history && self.cfg.scrollbar == crate::config::Scrollbar::Always {
+            self.paint_live_scrollbar(&painter, rect, id, rows, &t);
+        }
         if let Some(sb) = self
             .scrollback
             .get(&id)
@@ -913,13 +924,13 @@ impl Desktop {
             let start = end.saturating_sub(usize::from(rows));
             for (i, line) in sb.lines[start..end].iter().enumerate() {
                 let row = start + i;
-                let y = rect.top() + pad + i as f32 * ch;
+                let y = rect.top() + pad_top + i as f32 * ch;
                 if let Some(cm) = &sb.copy {
                     for col in 0..usize::from(cols) {
                         if cm.selected(row, col) {
                             painter.rect_filled(
                                 Rect::from_min_size(
-                                    Pos2::new(rect.left() + pad + col as f32 * cw, y),
+                                    Pos2::new(rect.left() + pad_left + col as f32 * cw, y),
                                     Vec2::new(cw, ch),
                                 ),
                                 0.,
@@ -930,14 +941,14 @@ impl Desktop {
                 }
                 let text: String = line.chars().take(usize::from(cols)).collect();
                 painter.text(
-                    Pos2::new(rect.left() + pad, y),
+                    Pos2::new(rect.left() + pad_left, y),
                     egui::Align2::LEFT_TOP,
                     text,
                     font.clone(),
                     color(t.foreground),
                 );
                 if let Some(cm) = sb.copy.as_ref().filter(|c| c.row == row) {
-                    let x = rect.left() + pad + cm.col as f32 * cw;
+                    let x = rect.left() + pad_left + cm.col as f32 * cw;
                     painter.rect_filled(
                         Rect::from_min_size(Pos2::new(x, y), Vec2::new(cw, ch)),
                         0.,
@@ -1027,8 +1038,8 @@ impl Desktop {
                     std::mem::swap(&mut fg, &mut bg);
                 }
                 let pos = Pos2::new(
-                    rect.left() + pad + f32::from(col) * cw,
-                    rect.top() + pad + f32::from(row) * ch,
+                    rect.left() + pad_left + f32::from(col) * cw,
+                    rect.top() + pad_top + f32::from(row) * ch,
                 );
                 let cell_rect = Rect::from_min_size(
                     pos,
@@ -1095,8 +1106,8 @@ impl Desktop {
                     ui.ctx().request_repaint_after(Duration::from_millis(250));
                 }
                 let pos = Pos2::new(
-                    rect.left() + pad + f32::from(c) * cw,
-                    rect.top() + pad + f32::from(r) * ch,
+                    rect.left() + pad_left + f32::from(c) * cw,
+                    rect.top() + pad_top + f32::from(r) * ch,
                 );
                 let wide = screen.cell(r, c).is_some_and(|cell| cell.is_wide());
                 let cell_rect =
@@ -1146,8 +1157,8 @@ impl Desktop {
         }
         if let Some(h) = self.hints.as_ref().filter(|h| h.pane == id) {
             for item in h.items.iter().filter(|i| i.label.starts_with(&h.typed)) {
-                let x = rect.left() + pad + item.hint.start as f32 * cw;
-                let y = rect.top() + pad + f32::from(item.row) * ch;
+                let x = rect.left() + pad_left + item.hint.start as f32 * cw;
+                let y = rect.top() + pad_top + f32::from(item.row) * ch;
                 let span = Rect::from_min_size(
                     Pos2::new(x, y),
                     Vec2::new((item.hint.end - item.hint.start) as f32 * cw, ch),
@@ -1197,6 +1208,38 @@ impl Desktop {
             clicked: response.clicked(),
             action,
         })
+    }
+    /// The thumb at the bottom of the track for a pane showing its live screen: it is as tall as the
+    /// screen is of all retained lines, so a long history makes it short.
+    fn paint_live_scrollbar(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        id: u64,
+        rows: u16,
+        t: &Theme,
+    ) {
+        let Some(p) = self.panes.get(&id) else {
+            return;
+        };
+        if p.parser.screen().alternate_screen() {
+            return;
+        }
+        let history = p.info.top_line.saturating_sub(p.info.first_line) as f32;
+        let frac = f32::from(rows) / (history + f32::from(rows)).max(1.);
+        let track = Rect::from_min_max(
+            Pos2::new(rect.right() - 6., rect.top() + 4.),
+            Pos2::new(rect.right() - 3., rect.bottom() - 4.),
+        );
+        let height = (track.height() * frac).max(12.).min(track.height());
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(track.left(), track.bottom() - height),
+                track.right_bottom(),
+            ),
+            2.,
+            color(t.muted).gamma_multiply(0.45),
+        );
     }
     /// A faint mark and three shortcuts in a lone pane that has barely printed anything yet.
     fn empty_hint(&self, painter: &egui::Painter, rect: Rect, id: u64, t: &Theme) {

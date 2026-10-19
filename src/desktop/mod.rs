@@ -1601,16 +1601,18 @@ impl eframe::App for Desktop {
 impl Desktop {
     /// Window size (points) for a terminal `rows` high and `text_width` wide, plus all margins.
     fn cells_to_window(&self, text_width: f32, rows: u16) -> (f32, f32) {
-        let margin = 2. * (self.cfg.padding + self.cfg.pane_inset);
+        let (left, top, right, bottom) = self.cfg.insets();
+        let inset = 2. * self.cfg.pane_inset;
+        let (margin_x, margin_y) = (left + right + inset, top + bottom + inset);
         let bar = if self.cfg.chrome == crate::config::Chrome::Full {
             bar::BAR_HEIGHT
         } else {
             0.
         };
         (
-            text_width + margin,
+            text_width + margin_x,
             // The two points keep rounding from costing the last row.
-            f32::from(rows) * self.font_size * self.cfg.line_height + margin + bar + 2.,
+            f32::from(rows) * self.font_size * self.cfg.line_height + margin_y + bar + 2.,
         )
     }
     fn size_window_to_cells(&mut self, ctx: &egui::Context, cols: u16, rows: u16) {

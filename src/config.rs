@@ -132,6 +132,16 @@ pub enum CursorStyle {
     Bar,
     Underline,
 }
+/// When the desktop app draws a scrollbar along the right edge of a pane.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scrollbar {
+    /// Only while you are scrolled back through history.
+    #[default]
+    Auto,
+    /// Always, so its size shows how much history there is.
+    Always,
+}
 /// How much window decoration the desktop app draws.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -202,6 +212,10 @@ pub struct DesktopConfig {
     pub line_height: f32,
     /// Space around the terminal text, in pixels.
     pub padding: f32,
+    /// Overrides of `padding` for the left and right edges, the top and the bottom.
+    pub padding_x: Option<f32>,
+    pub padding_top: Option<f32>,
+    pub padding_bottom: Option<f32>,
     /// Space between the window edge and the panes, in pixels (0 = edge to edge).
     pub pane_inset: f32,
     pub cursor_style: CursorStyle,
@@ -232,6 +246,7 @@ pub struct DesktopConfig {
     /// Every `teryon desktop` window starts a new shell and ends it when the window closes, instead of
     /// reattaching to the shared `default` workspace (naming a workspace with `-w` still attaches to it).
     pub fresh_window: bool,
+    pub scrollbar: Scrollbar,
     /// Ask before closing the window (shells keep running either way).
     pub confirm_quit: bool,
     /// Key bindings: action name -> chord such as "cmd+shift+d"; "none" unbinds.
@@ -248,6 +263,9 @@ impl Default for DesktopConfig {
             font_size: 13.,
             line_height: 1.45,
             padding: 8.,
+            padding_x: None,
+            padding_top: None,
+            padding_bottom: None,
             pane_inset: 10.,
             cursor_style: CursorStyle::Block,
             cursor_blink: false,
@@ -265,6 +283,7 @@ impl Default for DesktopConfig {
             initial_cols: None,
             initial_rows: None,
             fresh_window: false,
+            scrollbar: Scrollbar::Auto,
             confirm_quit: false,
             keys: BTreeMap::new(),
             snippets: Vec::new(),
@@ -273,6 +292,16 @@ impl Default for DesktopConfig {
     }
 }
 impl DesktopConfig {
+    /// Text padding as `(left, top, right, bottom)` in pixels.
+    pub fn insets(&self) -> (f32, f32, f32, f32) {
+        let x = self.padding_x.unwrap_or(self.padding);
+        (
+            x,
+            self.padding_top.unwrap_or(self.padding),
+            x,
+            self.padding_bottom.unwrap_or(self.padding),
+        )
+    }
     /// Reject out-of-range values and bad key bindings, naming the offending option.
     pub fn validate(&self) -> Result<()> {
         let check = |name: &str, v: f32, lo: f32, hi: f32| -> Result<()> {
@@ -284,6 +313,15 @@ impl DesktopConfig {
         check("font_size", self.font_size, 6., 72.)?;
         check("line_height", self.line_height, 1., 2.5)?;
         check("padding", self.padding, 0., 48.)?;
+        for (name, v) in [
+            ("padding_x", self.padding_x),
+            ("padding_top", self.padding_top),
+            ("padding_bottom", self.padding_bottom),
+        ] {
+            if let Some(v) = v {
+                check(name, v, 0., 48.)?;
+            }
+        }
         check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
@@ -538,6 +576,24 @@ mod tests {
         assert!(parse_desktop("[desktop]\ninitial_cols = 124\n").is_err());
         assert!(parse_desktop("[desktop]\ninitial_cols = 5\ninitial_rows = 42\n").is_err());
         assert!(parse_desktop("[desktop]\nchrome = \"minimal\"\n").is_err());
+    }
+    #[test]
+    fn the_scrollbar_defaults_to_auto() {
+        assert_eq!(parse_desktop("").unwrap().scrollbar, Scrollbar::Auto);
+        let c = parse_desktop("[desktop]\nscrollbar = \"always\"\n").unwrap();
+        assert_eq!(c.scrollbar, Scrollbar::Always);
+        assert!(parse_desktop("[desktop]\nscrollbar = \"sometimes\"\n").is_err());
+    }
+    #[test]
+    fn padding_can_differ_per_side() {
+        assert_eq!(parse_desktop("").unwrap().insets(), (8., 8., 8., 8.));
+        let c =
+            parse_desktop("[desktop]\npadding = 10.0\npadding_top = 0.0\npadding_bottom = 5.0\n")
+                .unwrap();
+        assert_eq!(c.insets(), (10., 0., 10., 5.));
+        let c = parse_desktop("[desktop]\npadding_x = 12.0\n").unwrap();
+        assert_eq!(c.insets(), (12., 8., 12., 8.));
+        assert!(parse_desktop("[desktop]\npadding_top = 99.0\n").is_err());
     }
     #[test]
     fn fresh_windows_are_opt_in() {
