@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- New `ion` theme (void navy, ion-blue accent, amber for "needs you"), with a matching header: host chip with a live dot, `01..` pane buttons, an amber "<agent> needs you" pill, `SHELLS ALIVE` / `LINK` stats, and a status line under the panes (`status_line = false` hides it).
+- `ion` is the default theme for new installs; existing configs keep their theme. New `ion` theme (void navy, ion-blue accent, amber for "needs you"), with a matching header: host chip with a live dot, `01..` pane buttons, an amber "<agent> needs you" pill, `SHELLS ALIVE` / `LINK` stats, and a status line under the panes (`status_line = false` hides it).
 
 - Relink card: when the connection to the daemon drops while panes exist, a card explains the shells are still running, counts reconnect attempts and offers "Retry now" and "Open offline draft" (Esc hides it). Needs no daemon change beyond an optional `uptime` in `Info`.
 

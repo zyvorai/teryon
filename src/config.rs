@@ -487,7 +487,7 @@ fn yes() -> bool {
     true
 }
 fn default_theme() -> String {
-    "mac27-dark".into()
+    "ion".into()
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

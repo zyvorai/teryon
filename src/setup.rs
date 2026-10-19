@@ -108,7 +108,7 @@ impl Deps for Real {
         }
     }
     fn current_theme(&self) -> String {
-        config::load().map_or_else(|_| "mac27-dark".into(), |c| c.theme)
+        config::load().map_or_else(|_| "ion".into(), |c| c.theme)
     }
     fn set_theme(&mut self, name: &str) -> Result<()> {
         config::set_theme(name)

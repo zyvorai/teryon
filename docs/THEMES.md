@@ -4,7 +4,7 @@ Eighteen themes are embedded in the executable, so changing machines does not re
 
 | CLI name | Style |
 |---|---|
-| `mac27-dark` (default) | macOS-style: `#1e1e1e` canvas, `#2a2a2c` sidebar/toolbar, 8px rounded buttons, segmented tabs/layout, follows the macOS accent color (System Settings > Appearance) |
+| `mac27-dark` | macOS-style: `#1e1e1e` canvas, `#2a2a2c` sidebar/toolbar, 8px rounded buttons, segmented tabs/layout, follows the macOS accent color (System Settings > Appearance) |
 | `mac27-light` | White canvas, `#f2f2f7` chrome, same shapes; follows the macOS accent color |
 | `apple-dark` | netra/apple.com dark: black page, `#1d1d1f` panels, `#f5f5f7` text, blue `#0071e3` primary pill, graphite chrome |
 | `apple-light` | White page, `#f5f5f7` panels, text-safe blue/green/amber accents |
@@ -22,7 +22,7 @@ Eighteen themes are embedded in the executable, so changing machines does not re
 | `pearl` | Warm light background and dark readable text |
 | `aurora` | Blue-grey surfaces and icy cyan |
 | `ember` | Warm charcoal and peach |
-| `ion` | Void navy, ion-blue accent, amber for "needs you" |
+| `ion` (default) | Void navy, ion-blue accent, amber for "needs you" |
 | `ocean` | Deep navy and bright blue |
 | `sakura` | Plum and pink |
 | `forest` | Dark green and sage |

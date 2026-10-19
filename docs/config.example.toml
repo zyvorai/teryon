@@ -1,4 +1,4 @@
-theme = "mac27-dark"
+theme = "ion"
 # Show the TERYON banner when connecting (also: --no-splash, TERYON_NO_SPLASH=1).
 splash = true
 # Click to focus panes, wheel opens history. Replaces terminal text selection (hold Shift/Option to select).
