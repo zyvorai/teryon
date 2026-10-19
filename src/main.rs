@@ -662,6 +662,7 @@ fn attach(target: &Target, workspace: String, readonly: bool, cwd: Option<String
 fn panes(rpc: &mut Rpc) -> Result<Vec<PaneView>> {
     if let Response::State { panes } = rpc.call(Request::Poll {
         known: BTreeMap::new(),
+        diff: false,
     })? {
         Ok(panes)
     } else {
@@ -940,6 +941,7 @@ fn run() -> Result<i32> {
             loop {
                 let Response::State { panes } = rpc.call(Request::Poll {
                     known: known.clone(),
+                    diff: false,
                 })?
                 else {
                     bail!("unexpected response")

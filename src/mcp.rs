@@ -466,6 +466,7 @@ impl Backend for Real {
         let mut rpc = self.rpc(host, ws, true, None)?;
         match rpc.call(Request::Poll {
             known: BTreeMap::new(),
+            diff: false,
         })? {
             Response::State { panes } => Ok(panes),
             _ => bail!("unexpected response"),

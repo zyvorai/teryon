@@ -33,7 +33,7 @@ Requests cover hello, list, attach, poll, input, resize, new pane, rename, close
 
 Poll requests include previously observed pane revisions. Changed panes return a complete formatted terminal state; unchanged panes return metadata without screen bytes. This deliberately favors recovery simplicity over a sophisticated display-delta protocol. A reconnect resets the client's revision cache, so it obtains fresh full screens.
 
-This design is not optimized for 4K video-like terminal output or very high-latency links: request/response polling adds latency and full-screen snapshots use more bandwidth than mature incremental transports. It is a safe starting point for measuring and improving the transport.
+This design is not optimized for 4K video-like terminal output or very high-latency links: request/response polling adds latency and a client that asks (the desktop app over SSH) gets screen diffs instead of whole screens, but bytes still travel as JSON number arrays, which is far larger than a binary encoding. It is a safe starting point for measuring and improving the transport.
 
 ## Controller leases and input
 

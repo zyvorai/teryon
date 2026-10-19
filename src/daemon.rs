@@ -321,12 +321,29 @@ impl Pane {
         });
         Ok(pane)
     }
-    fn view(&self, known: Option<u64>) -> PaneView {
+    fn view(
+        &self,
+        known: Option<u64>,
+        mirror: Option<&mut Option<crate::screensync::ServerMirror>>,
+    ) -> PaneView {
         let st = self.state.lock().unwrap();
         let (rows, cols) = st.parser.screen().size();
         let changed = known != Some(st.revision);
         let top = st.parser.screen().scrolled_total();
         let log = &st.parser.callbacks().log;
+        let (screen, diff_from, digest) = match (changed, mirror) {
+            (false, _) => (None, None, None),
+            (true, None) => (Some(st.parser.screen().state_formatted()), None, None),
+            (true, Some(m)) => {
+                let e = crate::screensync::ServerMirror::encode(
+                    m,
+                    st.parser.screen(),
+                    st.revision,
+                    known,
+                );
+                (Some(e.bytes), e.diff_from, e.digest)
+            }
+        };
         PaneView {
             id: self.id,
             title: self.title.lock().unwrap().clone(),
@@ -335,7 +352,9 @@ impl Pane {
             rows,
             cols,
             revision: st.revision,
-            screen: changed.then(|| st.parser.screen().state_formatted()),
+            screen,
+            diff_from,
+            digest,
             exited: st.exited,
             marks: changed.then(|| log.marks.clone()),
             first_line: top.saturating_sub(scrollback_lines() as u64),
@@ -519,6 +538,8 @@ struct Connection {
     workspace: Option<String>,
     readonly: bool,
     hello: bool,
+    /// What this connection was last sent for each pane, to diff the next screen against.
+    mirrors: BTreeMap<u64, Option<crate::screensync::ServerMirror>>,
 }
 
 /// Host stats, sampled at most every 5 seconds however many clients ask.
@@ -603,6 +624,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             uptime: state.started.elapsed().as_secs(),
             stats: Some(host_stats()),
             undo: true,
+            diff: true,
         }),
         Request::Attach {
             workspace,
@@ -696,13 +718,19 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 bail!("read-only connection cannot modify the workspace");
             }
             match action {
-                Request::Poll { known } => Ok(Response::State {
-                    panes: ws
-                        .panes
-                        .values()
-                        .map(|p| p.view(known.get(&p.id.to_string()).copied()))
-                        .collect(),
-                }),
+                Request::Poll { known, diff } => {
+                    conn.mirrors.retain(|id, _| ws.panes.contains_key(id));
+                    Ok(Response::State {
+                        panes: ws
+                            .panes
+                            .values()
+                            .map(|p| {
+                                let mirror = diff.then(|| conn.mirrors.entry(p.id).or_default());
+                                p.view(known.get(&p.id.to_string()).copied(), mirror)
+                            })
+                            .collect(),
+                    })
+                }
                 Request::Input { pane, seq, data } => {
                     if data.len() > MAX_INPUT {
                         bail!("input exceeds 64 KiB");
@@ -844,6 +872,7 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
         workspace: None,
         readonly: false,
         hello: false,
+        mirrors: BTreeMap::new(),
     };
     let result = (|| -> Result<()> {
         while let Some(req) = read_frame::<Request>(&mut reader)? {

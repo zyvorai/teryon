@@ -31,6 +31,9 @@ pub enum Request {
     },
     Poll {
         known: BTreeMap<String, u64>,
+        /// The client can apply screen diffs (`PaneView::diff_from`); old daemons ignore this.
+        #[serde(default)]
+        diff: bool,
     },
     Input {
         pane: u64,
@@ -111,6 +114,12 @@ pub struct PaneView {
     pub revision: u64,
     /// Complete ANSI terminal state when changed. None means retain the old state.
     pub screen: Option<Vec<u8>>,
+    /// When set, `screen` is a diff to apply on top of this revision rather than a whole screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_from: Option<u64>,
+    /// Checksum of the screen the diff produces (see `screensync::digest`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<u64>,
     pub exited: Option<u32>,
     /// Shell-integration marks, sent together with `screen`; old daemons never send them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,6 +214,9 @@ pub enum Response {
         /// The daemon understands `SoftClose` and `Reopen`.
         #[serde(default)]
         undo: bool,
+        /// The daemon can send screen diffs to a client that asks for them.
+        #[serde(default)]
+        diff: bool,
     },
     Ack {
         seq: Option<u64>,
