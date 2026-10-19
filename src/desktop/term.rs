@@ -805,6 +805,8 @@ impl Desktop {
             .get(&id)
             .is_some_and(|s| !s.loading && (s.offset > 0 || s.copy.is_some()));
         let reporting = mode != MouseMode::None && !mods.shift && !scrolled;
+        let defer = self.cfg.drag_selects && mode != MouseMode::None;
+        let local = self.local_drag == Some(id);
         let pointer = ui.input(|i| i.pointer.hover_pos());
         let over = pointer.is_some_and(|p| rect.contains(p));
         let row_chars = |screen: &vt100::Screen, row: u16| -> Vec<char> {
@@ -847,7 +849,20 @@ impl Desktop {
                         egui::PointerButton::Secondary => 2,
                         _ => continue,
                     };
-                    if *pressed && rect.contains(*pos) && reporting {
+                    if *pressed && rect.contains(*pos) && reporting && b == 0 && defer {
+                        self.pending_press = Some((id, *pos));
+                    } else if !*pressed && b == 0 && self.pending_press.is_some_and(|(p, _)| p == id)
+                    {
+                        // Released without dragging: it was a click for the program after all.
+                        if let Some((_, at)) = self.pending_press.take() {
+                            out_bytes.extend(
+                                report(MouseKind::Press, Some(b), at).unwrap_or_default(),
+                            );
+                            out_bytes.extend(
+                                report(MouseKind::Release, Some(b), *pos).unwrap_or_default(),
+                            );
+                        }
+                    } else if *pressed && rect.contains(*pos) && reporting {
                         self.mouse_down = Some((id, b));
                         self.last_cell = Some(cell_at(*pos));
                         out_bytes
@@ -858,6 +873,23 @@ impl Desktop {
                             .extend(report(MouseKind::Release, Some(b), *pos).unwrap_or_default());
                     }
                 }
+                egui::Event::PointerMoved(pos)
+                    if self
+                        .pending_press
+                        .is_some_and(|(p, at)| p == id && at.distance(*pos) > 4.) =>
+                {
+                    // The held press became a drag: select locally and drop the click.
+                    if let Some((_, at)) = self.pending_press.take() {
+                        self.local_drag = Some(id);
+                        self.selection = Some(Selection {
+                            pane: id,
+                            a: cell_at(at),
+                            b: cell_at(*pos),
+                            block: mods.alt,
+                        });
+                    }
+                }
+                egui::Event::PointerMoved(_) if self.pending_press.is_some() => {}
                 egui::Event::PointerMoved(pos) if reporting => {
                     let cell = cell_at(*pos);
                     let held = self.mouse_down.filter(|(p, _)| *p == id).map(|(_, b)| b);
@@ -923,12 +955,12 @@ impl Desktop {
                 }
             }
         }
-        if reporting {
+        if reporting && !local {
             if response.clicked() || response.drag_started() {
                 response.request_focus();
             }
         } else if !scrolled {
-            if response.drag_started() {
+            if response.drag_started() && !local {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let cell = cell_at(pos);
                     self.selection = Some(Selection {
@@ -991,6 +1023,9 @@ impl Desktop {
             }
         } else if response.clicked() {
             response.request_focus();
+        }
+        if local && response.drag_stopped() {
+            self.local_drag = None;
         }
         if command_held && link.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

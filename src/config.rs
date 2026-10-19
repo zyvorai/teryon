@@ -337,6 +337,9 @@ pub struct DesktopConfig {
     /// Show the muted status line (PTYs held, last relink, receive rate) under the panes.
     pub status_line: bool,
     pub copy_on_select: bool,
+    /// In a pane whose program tracks the mouse, a drag selects text locally (and honors
+    /// `copy_on_select`); plain clicks and the wheel still reach the program.
+    pub drag_selects: bool,
     /// Notify when a command that took at least this many seconds finishes while the window is in
     /// the background (needs shell integration; 0 turns it off).
     pub notify_after_seconds: u32,
@@ -411,6 +414,7 @@ impl Default for DesktopConfig {
             window_opacity: 1.,
             unfocused_opacity: 0.82,
             copy_on_select: false,
+            drag_selects: false,
             notify_after_seconds: 10,
             agent_notifications: true,
             agent_quick_approve: false,

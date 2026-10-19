@@ -49,6 +49,7 @@ destination = "susant@mini.local"
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect
 # unfocused_opacity = 0.82         # brightness of unfocused panes
 # copy_on_select = false
+# drag_selects = false             # drag selects text even when a program (Claude Code, vim) tracks the mouse; clicks and the wheel still reach it
 # file_browser = false            # open the ⌘B file sidebar at start
 # command_gutter = true            # a thin bar beside each command: red failed, accent running, faint green ok (needs shell integration)
 # agent_quick_approve = false      # Approve / Deny buttons in the agents overview (they type into the agent)

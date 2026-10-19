@@ -99,6 +99,8 @@ terminal's font.
 
 * **Selection**: drag; double-click selects a word, triple-click a line, ⌥-drag a rectangle,
   Shift-click extends. ⌘C copies; `copy_on_select = true` copies as soon as you finish selecting.
+  Programs that track the mouse (Claude Code, vim) get your drags; hold ⇧ to select instead, or set
+  `drag_selects = true` so a drag selects and only plain clicks reach the program.
 * **Links**: ⌘-click opens plain-text `http(s)://` URLs.
 * **Scrollback**: scroll the wheel or trackpad (or ⇧⌘↑ / ⇧⌘↓, ⌘Home / ⌘End) in a normal-screen pane. The history
   comes from the daemon's retained text, so it is plain text without colors; typing returns to the live screen.
@@ -197,6 +199,7 @@ binding using `teryon config --keys`.
 | `tab_bar_bg`, `tab_active_bg`, `tab_active_fg`, `tab_inactive_bg`, `tab_inactive_fg` | from the theme | `#RRGGBB` colors of the tab strip |
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |
 | `copy_on_select` | false | Copy a selection when it is finished |
+| `drag_selects` | false | Drag selects locally even when the program tracks the mouse |
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
 | `notify_after_seconds` | 10 | Notify when a command this long finishes in the background (shell integration; 0 = off) |

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `drag_selects = true` makes a drag select (and honor `copy_on_select`) in panes whose program tracks the mouse, such as Claude Code; plain clicks and the wheel still reach the program. Shift-drag always selects.
+
 ## 0.19.0
 
 - Settings window (⌘,): sliders, switches and choices for the common `[desktop]` options, applied live and saved to `config.toml` with your comments kept, with search, per-option reset, and a "restart" tag on the few that need one. "Window look…" is a small panel with opacity, dimming, font size and line height.

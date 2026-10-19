@@ -183,6 +183,10 @@ pub struct Desktop {
     scrollback: BTreeMap<u64, Scrollback>,
     view_rows: BTreeMap<u64, u16>,
     mouse_down: Option<(u64, u8)>,
+    /// Left press held back while `drag_selects` waits to see whether it becomes a drag.
+    pending_press: Option<(u64, egui::Pos2)>,
+    /// Pane where a drag turned into a local selection although the program tracks the mouse.
+    local_drag: Option<u64>,
     last_cell: Option<(u16, u16)>,
     wheel_accum: f32,
     window_focused: bool,
@@ -374,6 +378,8 @@ impl Desktop {
             scrollback: BTreeMap::new(),
             view_rows: BTreeMap::new(),
             mouse_down: None,
+            pending_press: None,
+            local_drag: None,
             last_cell: None,
             wheel_accum: 0.,
             window_focused: true,
