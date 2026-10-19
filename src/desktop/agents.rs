@@ -219,11 +219,18 @@ impl Desktop {
 
     /// Start `kind` in a new pane next to the focused one (same directory).
     pub(super) fn spawn_agent(&mut self, kind: Kind) {
+        self.spawn_command(kind.launch().to_string());
+    }
+    /// Start `kind` on its own branch in its own Git worktree next to the repository.
+    pub(super) fn spawn_agent_worktree(&mut self, kind: Kind) {
+        self.spawn_command(agents::worktree_command(kind.launch()));
+    }
+    fn spawn_command(&mut self, command: String) {
         if self.readonly || !self.online {
             self.toast("Can't start an agent: no writable connection");
             return;
         }
-        self.spawn_cmd = Some(kind.launch().to_string());
+        self.spawn_cmd = Some(command);
         let cwd = self.focus_cwd();
         self.send(Command::New(cwd));
     }
@@ -614,6 +621,16 @@ mod tests {
             matches!(rx.try_recv(), Ok(Command::Input { pane: 2, data }) if data == b"run the tests\r")
         );
         assert_eq!(app.send_agent_prompt("   "), 0);
+        // In a worktree: the same flow, with the worktree script typed instead of the bare command.
+        app.spawn_agent_worktree(Kind::Claude);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(_))));
+        app.run_spawned(9);
+        let Ok(Command::Input { pane: 9, data }) = rx.try_recv() else {
+            panic!("the script is typed into the new pane")
+        };
+        let typed = String::from_utf8(data).unwrap();
+        assert!(typed.starts_with("sh -c 'set -e;") && typed.contains("git worktree add"));
+        assert!(typed.contains("exec claude'") && typed.ends_with('\r'));
         app.readonly = true;
         app.spawn_agent(Kind::Claude);
         assert!(app.spawn_cmd.is_none());

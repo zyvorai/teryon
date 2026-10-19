@@ -1813,6 +1813,7 @@ impl Desktop {
                 }
             }
             ActionKind::SpawnAgent(kind) => self.spawn_agent(kind),
+            ActionKind::SpawnAgentWorktree(kind) => self.spawn_agent_worktree(kind),
             ActionKind::PromptAgents => self.open_agent_prompt(),
             ActionKind::AiCommand => self.aicmd_toggle(),
             ActionKind::CommandHistory => self.cmdhist_toggle(),

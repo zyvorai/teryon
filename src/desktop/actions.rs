@@ -78,6 +78,7 @@ pub(super) enum ActionKind {
     Agents,
     TakeControl,
     SpawnAgent(crate::agents::Kind),
+    SpawnAgentWorktree(crate::agents::Kind),
     PromptAgents,
     AiCommand,
     CommandHistory,
@@ -166,6 +167,7 @@ impl ActionKind {
                 | Self::TabStep(_)
                 | Self::Open(..)
                 | Self::SpawnAgent(_)
+                | Self::SpawnAgentWorktree(_)
                 | Self::PromptAgents
                 | Self::TakeControl
                 | Self::Snippet(_) => return None,
@@ -370,6 +372,11 @@ pub(super) fn actions(
             title: format!("Agent: start {} in a new pane", kind.name()),
             hint: String::new(),
             kind: ActionKind::SpawnAgent(kind),
+        });
+        list.push(Action {
+            title: format!("Agent: start {} in a new Git worktree", kind.name()),
+            hint: "own branch, own directory".into(),
+            kind: ActionKind::SpawnAgentWorktree(kind),
         });
     }
     for mode in [

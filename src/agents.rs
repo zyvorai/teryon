@@ -45,6 +45,22 @@ impl Kind {
     }
 }
 
+/// A shell command line that gives an agent its own Git worktree and branch, then runs it there:
+/// `agent/<name>-<time>` checked out next to the repository as `<repo>-<name>-<time>`. It runs in a
+/// small `sh`, so it does not depend on the user's shell, and the pane is back in its original
+/// directory when the agent exits. Fails (visibly, before anything starts) outside a Git repository.
+pub fn worktree_command(launch: &str) -> String {
+    let tag: String = launch
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!(
+        "sh -c 'set -e; r=$(git rev-parse --show-toplevel); b=agent/{tag}-$(date +%m%d-%H%M%S); \
+         w=\"$r-${{b#agent/}}\"; git worktree add -q -b \"$b\" \"$w\"; cd \"$w\"; \
+         echo \"worktree $w on branch $b\"; exec {launch}'"
+    )
+}
+
 /// Interface text that is never the answer: hints, key legends and mode lines.
 const CHROME: [&str; 8] = [
     "esc to",
@@ -241,6 +257,68 @@ pub fn status(rows: &[String], quiet: Duration) -> Status {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_worktree_command_checks_out_a_new_branch_and_runs_the_agent_there() {
+        use std::process::Command;
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("my project");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        // The "agent" is `pwd`, so the output shows where it ran.
+        let script = worktree_command("pwd");
+        // It is typed into a shell, so a newline would act as Enter halfway through.
+        assert!(!script.contains('\n') && !script.contains('\r'));
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(
+            out.status.success(),
+            "{script}\n{text}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ran_in = text.lines().last().unwrap();
+        assert!(ran_in.contains("my project-pwd-"), "{ran_in}");
+        assert!(std::path::Path::new(ran_in).join(".git").exists());
+        assert!(text.contains("on branch agent/pwd-"), "{text}");
+        // The new branch exists and the original checkout is untouched.
+        let branches = Command::new("git")
+            .args(["branch", "--list", "agent/*"])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&branches.stdout).contains("agent/pwd-"));
+        assert!(!repo.join("my project-pwd-").exists());
+        // Outside a repository it stops before running anything.
+        let outside = tempfile::tempdir().unwrap();
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(worktree_command("echo SHOULD-NOT-RUN"))
+            .current_dir(outside.path())
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("SHOULD-NOT-RUN"));
+    }
     #[test]
     fn launch_commands_are_detected_as_their_own_agent() {
         for k in Kind::ALL {
