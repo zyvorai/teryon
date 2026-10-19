@@ -205,7 +205,8 @@ binding using `teryon config --keys`.
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
 | `notify_after_seconds` | 10 | Notify when a command this long finishes in the background (shell integration; 0 = off) |
-| `confirm_quit` | false | Ask before the window closes (shells keep running either way) |
+| `confirm_end_shells` | true | Ask before closing a tab or window that would end its running shells (`fresh_window` tabs and windows own theirs) |
+| `confirm_quit` | false | Ask before the window closes; a normal window only detaches, its shells keep running |
 | `triggers` | none | `[[desktop.triggers]]` with `pattern`, `action` (`highlight`, `notify`, `bell`, `toast`), optional `color`, `unfocused_only` |
 | `snippets` | none | `[[desktop.snippets]]` with `name`, `command`, optional `description` and `run` |
 
