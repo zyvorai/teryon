@@ -228,6 +228,12 @@ pub struct Desktop {
     pending_cells: Option<(u16, u16)>,
     /// Remove this window's own workspace (ending its shells) when the window closes.
     discard_workspace: bool,
+    /// Panes whose shell just exited cleanly, closed (or the tab ended) once the update is applied.
+    ended: Vec<u64>,
+    /// Set when the last shell of the window's workspace exited: the window closes and the workspace is discarded.
+    exit_window: bool,
+    /// The active tab's last shell exited, so closing the tab removes its workspace instead of detaching.
+    shell_ended: bool,
     triggers: Vec<CompiledTrigger>,
     trigger_seen: HashMap<u64, Instant>,
     upload_tx: mpsc::Sender<(bool, String)>,
@@ -409,6 +415,9 @@ impl Desktop {
             pending_float: false,
             pending_cells: None,
             discard_workspace: false,
+            ended: Vec::new(),
+            exit_window: false,
+            shell_ended: false,
             triggers: Vec::new(),
             trigger_seen: HashMap::new(),
             upload_tx,
@@ -585,7 +594,8 @@ impl Desktop {
         }
         let closing = self.active;
         // A tab made by ⌘T in a fresh-window setup owns its shell: closing it ends the shell.
-        let owned = self.cfg.fresh_window && self.tabs[closing].name.starts_with("win-");
+        let owned = (self.cfg.fresh_window && self.tabs[closing].name.starts_with("win-"))
+            || std::mem::take(&mut self.shell_ended);
         let _ = self.tx.try_send(if owned {
             Command::Discard
         } else {
@@ -752,6 +762,9 @@ impl Desktop {
                         }
                         if let (None, Some(code)) = (pane.info.exited, view.exited) {
                             self.notice = format!("Pane {} finished with exit {}", view.id, code);
+                            if code == 0 {
+                                self.ended.push(view.id);
+                            }
                             if !self.window_focused {
                                 crate::util::notify(&self.notice);
                             }
@@ -763,6 +776,9 @@ impl Desktop {
                     }
                     for id in changed {
                         self.scan_triggers(id);
+                    }
+                    for id in std::mem::take(&mut self.ended) {
+                        self.close_exited(id);
                     }
                     self.after_state();
                 }
@@ -1279,6 +1295,10 @@ impl Desktop {
         }
         self.snippet_ui(ctx);
         self.toast_ui(ctx);
+        if std::mem::take(&mut self.exit_window) {
+            self.quit_ok = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         if ctx.input(|i| i.viewport().close_requested()) && self.cfg.confirm_quit && !self.quit_ok {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.quit_dialog = true;
@@ -1398,10 +1418,29 @@ impl Desktop {
     }
 }
 impl Desktop {
+    /// A shell exited cleanly (`exit`, Ctrl-D): drop its pane, or end the tab or window when it was the last one.
+    fn close_exited(&mut self, id: u64) {
+        if self.readonly || !self.panes.get(&id).is_some_and(|p| p.info.exited.is_some()) {
+            return;
+        }
+        if self.panes.len() > 1 {
+            self.send(Command::Close(id));
+        } else if self.tabs.len() > 1 {
+            self.shell_ended = true;
+            self.close_tab();
+        } else {
+            self.discard_workspace = true;
+            self.exit_window = true;
+        }
+    }
     /// Close the focused pane. Its shell keeps running for a moment, so ⇧⌘Z (or the palette) brings it back.
     fn close_focused_pane(&mut self) {
         if self.readonly {
             self.toast("Read only");
+            return;
+        }
+        if self.panes.get(&self.focus).is_some_and(|p| p.info.exited.is_some()) {
+            self.close_exited(self.focus);
             return;
         }
         if self.panes.len() < 2 {
@@ -3071,6 +3110,27 @@ mod tests {
         // Typing in a pane while copy mode is off still reaches the shell.
         typed(&mut app, "q");
         assert!(matches!(&drain(&rx)[..], [Command::Input { pane: 1, data }] if data == b"q"));
+    }
+    #[test]
+    fn exited_shell_ends_its_pane_or_the_window() {
+        let (mut app, rx) = app_with_screen("bye");
+        app.panes.get_mut(&1).unwrap().info.exited = Some(0);
+        // The only pane: the window closes and the workspace is discarded.
+        app.close_exited(1);
+        assert!(app.exit_window && app.discard_workspace);
+        assert!(drain(&rx).is_empty());
+        // With a second pane, only the exited one is closed.
+        app.exit_window = false;
+        let mut other = app.panes.get(&1).unwrap().info.clone();
+        other.id = 2;
+        other.exited = None;
+        app.panes.insert(2, Pane::new(other, vt100::Parser::new(10, 60, 0)));
+        app.close_exited(1);
+        assert!(!app.exit_window);
+        assert!(matches!(&drain(&rx)[..], [Command::Close(1)]));
+        // A live pane is never closed this way.
+        app.close_exited(2);
+        assert!(drain(&rx).is_empty());
     }
     #[test]
     fn menu_choices_select_copy_and_run_actions() {

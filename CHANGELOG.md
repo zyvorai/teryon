@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Typing `exit` (or Ctrl-D) no longer leaves a dead pane: after a clean exit the pane closes, or the tab closes when it was the last pane, or the window closes when it was the only tab (the workspace is removed). A non-zero exit keeps the pane so you can read the output; the close-pane key then removes it.
 - `drag_selects = true` makes a drag select (and honor `copy_on_select`) in panes whose program tracks the mouse, such as Claude Code; plain clicks and the wheel still reach the program. Shift-drag always selects.
 
 ## 0.19.0
