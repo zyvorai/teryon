@@ -51,6 +51,9 @@ See `docs/AI.md`.
 ⌘⇧H (palette: "Search command history…") opens the same list as Ctrl-R in the shell, without leaving the window:
 Enter puts the command at the prompt, ⌥Enter runs it, Tab narrows to this directory. It needs the zsh integration
 (`teryon setup`) and a local workspace, because the history is kept on this Mac.
+The same filter words work here and in Ctrl-R: `is:failed`, `is:ok`, `exit:N`, `slow:SECONDS`, `dir:PART` and
+`branch:PART`, combined with ordinary text (`cargo is:failed dir:api`). Each command is recorded with the Git branch it ran
+on, read from `.git/HEAD` (commands recorded before that have none and never match a `branch:` filter).
 
 Commands that contain a recognizable secret (a token, a `--password` flag, a URL with credentials) are not recorded,
 so they are never suggested back or listed. History kept before that can be cleaned with `teryon hist scrub`; a

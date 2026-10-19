@@ -32,6 +32,16 @@ pub struct Item {
     pub detail: String,
     /// Whether the item belongs to the current directory (Tab narrows to these).
     pub local: bool,
+    /// What a history entry knows about its run, for the search filters.
+    pub meta: Option<Meta>,
+}
+/// How, where and when a history command ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Meta {
+    pub exit: i32,
+    pub ms: u64,
+    pub cwd: String,
+    pub branch: Option<String>,
 }
 impl Item {
     pub fn plain(text: &str) -> Self {
@@ -39,8 +49,80 @@ impl Item {
             text: text.into(),
             detail: String::new(),
             local: true,
+            meta: None,
         }
     }
+}
+
+/// The structured part of a history search: words like `is:failed` or `dir:api`, which narrow the
+/// list before the rest of the query is matched as fuzzy text.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Filters {
+    failed: bool,
+    ok: bool,
+    exit: Option<i32>,
+    dirs: Vec<String>,
+    branches: Vec<String>,
+    slow_ms: Option<u64>,
+}
+impl Filters {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+    fn matches(&self, meta: &Meta) -> bool {
+        (!self.failed || meta.exit != 0)
+            && (!self.ok || meta.exit == 0)
+            && self.exit.is_none_or(|e| e == meta.exit)
+            && self.slow_ms.is_none_or(|ms| meta.ms >= ms)
+            && self
+                .dirs
+                .iter()
+                .all(|d| meta.cwd.to_lowercase().contains(d))
+            && self.branches.iter().all(|b| {
+                meta.branch
+                    .as_deref()
+                    .is_some_and(|m| m.to_lowercase().contains(b))
+            })
+    }
+}
+/// Split a history query into its filters and the text left to match. A word that is not a
+/// recognized `name:value` stays part of the text, so `git commit -m "fix: x"` still searches.
+pub fn parse_query(query: &str) -> (Filters, String) {
+    let mut f = Filters::default();
+    let mut text: Vec<&str> = Vec::new();
+    for word in query.split_whitespace() {
+        let lower = word.to_lowercase();
+        let taken = match lower.split_once(':') {
+            Some(("is", "failed")) => {
+                f.failed = true;
+                true
+            }
+            Some(("is", "ok")) => {
+                f.ok = true;
+                true
+            }
+            Some(("exit", n)) => n.parse().map(|n| f.exit = Some(n)).is_ok(),
+            Some(("slow", n)) => n
+                .parse::<f64>()
+                .ok()
+                .filter(|s| *s >= 0. && s.is_finite())
+                .map(|s| f.slow_ms = Some((s * 1000.) as u64))
+                .is_some(),
+            Some(("dir", v)) if !v.is_empty() => {
+                f.dirs.push(v.to_string());
+                true
+            }
+            Some(("branch", v)) if !v.is_empty() => {
+                f.branches.push(v.to_string());
+                true
+            }
+            _ => false,
+        };
+        if !taken {
+            text.push(word);
+        }
+    }
+    (f, text.join(" "))
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -56,9 +138,17 @@ pub struct State {
     /// Whether Tab can narrow the list to this directory.
     scoped: bool,
     hits: Vec<usize>,
+    /// Every run of every command, searched instead of `items` when a filter is in the query (the
+    /// default list shows each distinct command once, its newest run).
+    all: Vec<Item>,
+    use_all: bool,
 }
 impl State {
     pub fn new(items: Vec<Item>, query: &str, scoped: bool) -> Self {
+        Self::with_all(items, Vec::new(), query, scoped)
+    }
+    /// Like `new`, with a longer list (one item per run) for searches that use filters.
+    pub fn with_all(items: Vec<Item>, all: Vec<Item>, query: &str, scoped: bool) -> Self {
         let mut s = Self {
             items,
             query: query.into(),
@@ -66,20 +156,49 @@ impl State {
             only_local: false,
             scoped,
             hits: Vec::new(),
+            all,
+            use_all: false,
         };
         s.refresh();
         s
     }
+    /// The list the current query searches.
+    fn list(&self) -> &[Item] {
+        if self.use_all {
+            &self.all
+        } else {
+            &self.items
+        }
+    }
+    /// The part of the query that is matched as text (what to highlight), without the filters.
+    pub fn text_query(&self) -> String {
+        if self.filterable() {
+            parse_query(&self.query).1
+        } else {
+            self.query.clone()
+        }
+    }
+    /// Only lists of history commands understand filter words.
+    fn filterable(&self) -> bool {
+        self.items.first().is_some_and(|i| i.meta.is_some())
+    }
     /// Indexes of the items that match, best first (listing order when the query is empty).
     fn refresh(&mut self) {
+        let (filters, text) = if self.filterable() {
+            parse_query(&self.query)
+        } else {
+            (Filters::default(), self.query.clone())
+        };
+        self.use_all = !filters.is_empty() && !self.all.is_empty();
         let mut scored: Vec<(i32, usize)> = self
-            .items
+            .list()
             .iter()
             .enumerate()
             .filter(|(_, it)| !self.only_local || it.local)
-            .filter_map(|(i, it)| uikit::fuzzy_score(&self.query, &it.text).map(|s| (s, i)))
+            .filter(|(_, it)| it.meta.as_ref().is_none_or(|m| filters.matches(m)))
+            .filter_map(|(i, it)| uikit::fuzzy_score(&text, &it.text).map(|s| (s, i)))
             .collect();
-        if !self.query.trim().is_empty() {
+        if !text.trim().is_empty() {
             scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         }
         self.hits = scored.into_iter().map(|(_, i)| i).collect();
@@ -107,16 +226,16 @@ impl State {
     pub fn selected_text(&self) -> Option<String> {
         self.hits
             .get(self.selected)
-            .map(|&i| self.items[i].text.clone())
+            .map(|&i| self.list()[i].text.clone())
     }
     pub fn hits(&self) -> &[usize] {
         &self.hits
     }
     pub fn item(&self, index: usize) -> &Item {
-        &self.items[index]
+        &self.list()[index]
     }
     pub fn total(&self) -> usize {
-        self.items.len()
+        self.list().len()
     }
     pub fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -128,7 +247,7 @@ impl State {
             KeyCode::Enter => {
                 return match self.hits.get(self.selected) {
                     Some(&i) => Outcome::Accept {
-                        text: self.items[i].text.clone(),
+                        text: self.list()[i].text.clone(),
                         run: alt,
                     },
                     None => Outcome::Cancel,
@@ -218,23 +337,42 @@ pub fn history_items(entries: &[history::Entry], cwd: &str, home: &str, now: u64
         .iter()
         .rev()
         .filter(|e| seen.insert(e.cmd.clone()))
-        .map(|e| {
-            let status = if e.exit == 0 {
-                "✓".to_string()
-            } else {
-                format!("✗{}", e.exit)
-            };
-            Item {
-                text: e.cmd.clone(),
-                detail: format!(
-                    "{status} {} {} {}",
-                    short_duration(e.ms),
-                    tilde(&e.cwd, home),
-                    ago(now, e.at)
-                ),
-                local: e.cwd == cwd,
-            }
-        })
+        .map(|e| history_item(e, cwd, home, now))
+        .collect()
+}
+fn history_item(e: &history::Entry, cwd: &str, home: &str, now: u64) -> Item {
+    let status = if e.exit == 0 {
+        "✓".to_string()
+    } else {
+        format!("✗{}", e.exit)
+    };
+    let branch = e
+        .branch
+        .as_deref()
+        .map_or(String::new(), |b| format!(" ⎇ {b}"));
+    Item {
+        text: e.cmd.clone(),
+        detail: format!(
+            "{status} {} {}{branch} {}",
+            short_duration(e.ms),
+            tilde(&e.cwd, home),
+            ago(now, e.at)
+        ),
+        local: e.cwd == cwd,
+        meta: Some(Meta {
+            exit: e.exit,
+            ms: e.ms,
+            cwd: e.cwd.clone(),
+            branch: e.branch.clone(),
+        }),
+    }
+}
+/// Every recorded run as its own item, newest first (no deduplication): what a filtered search reads.
+pub fn history_runs(entries: &[history::Entry], cwd: &str, home: &str, now: u64) -> Vec<Item> {
+    entries
+        .iter()
+        .rev()
+        .map(|e| history_item(e, cwd, home, now))
         .collect()
 }
 /// Files and directories under `root` (breadth first, so shallow ones come first).
@@ -293,6 +431,7 @@ pub fn git_files(root: &Path) -> Option<Vec<Item>> {
 /// Run the picker on the controlling terminal. Returns what was chosen, or `None` if cancelled.
 pub fn run(
     items: Vec<Item>,
+    all: Vec<Item>,
     query: &str,
     scoped: bool,
     label: &str,
@@ -319,7 +458,7 @@ pub fn run(
     }
     let _restore = Restore(tty.try_clone()?);
     let mut terminal = Terminal::new(CrosstermBackend::new(tty))?;
-    let mut state = State::new(items, query, scoped);
+    let mut state = State::with_all(items, all, query, scoped);
     loop {
         terminal.draw(|f| draw(f, &state, label))?;
         match event::read()? {
@@ -379,7 +518,7 @@ fn draw(frame: &mut ratatui::Frame, state: &State, label: &str) {
             let detail_w = detail.chars().count();
             let text_w = avail.saturating_sub(detail_w + 2);
             let shown = truncate(&item.text.replace('\n', "⏎"), text_w);
-            let hit = match_positions(&state.query, &shown);
+            let hit = match_positions(&state.text_query(), &shown);
             let base = if on {
                 Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else {
@@ -564,6 +703,7 @@ mod tests {
             exit,
             ms: 1500,
             at,
+            branch: None,
         };
         let list = vec![
             e("make", "/h/a", 0, 10),
@@ -596,5 +736,117 @@ mod tests {
             .any(|t| t.starts_with("target") || t.starts_with(".git")));
         let dirs: Vec<String> = walk(p, true).into_iter().map(|i| i.text).collect();
         assert_eq!(dirs, ["src", "src/deep"]);
+    }
+
+    fn run_entry(
+        cmd: &str,
+        cwd: &str,
+        exit: i32,
+        ms: u64,
+        branch: Option<&str>,
+        at: u64,
+    ) -> history::Entry {
+        history::Entry {
+            cmd: cmd.into(),
+            cwd: cwd.into(),
+            exit,
+            ms,
+            at,
+            branch: branch.map(str::to_string),
+        }
+    }
+    #[test]
+    fn filter_words_are_split_from_the_text_and_unknown_words_stay_text() {
+        let (f, text) = parse_query("cargo is:failed dir:API branch:Main slow:2.5 exit:101 test");
+        assert_eq!(text, "cargo test");
+        assert!(f.failed && !f.ok);
+        assert_eq!((f.exit, f.slow_ms), (Some(101), Some(2500)));
+        assert_eq!(
+            (f.dirs, f.branches),
+            (vec!["api".to_string()], vec!["main".to_string()])
+        );
+        // Things that only look like filters are searched as text.
+        for q in [
+            "git commit -m fix:x",
+            "exit:abc",
+            "slow:-1",
+            "dir:",
+            "is:weird",
+            "http://x",
+        ] {
+            let (f, text) = parse_query(q);
+            assert!(f.is_empty() && text == q, "{q}");
+        }
+        assert!(parse_query("").0.is_empty());
+    }
+    #[test]
+    fn a_filtered_search_reads_every_run_not_just_the_newest() {
+        let list = vec![
+            run_entry("make test", "/h/api", 2, 90_000, Some("main"), 10),
+            run_entry("make test", "/h/web", 0, 1_000, Some("fix-ui"), 20),
+            run_entry("ls", "/h/api", 0, 5, None, 30),
+            run_entry("make test", "/h/api", 0, 2_000, Some("main"), 40),
+        ];
+        let items = history_items(&list, "/h/api", "/h", 100);
+        let runs = history_runs(&list, "/h/api", "/h", 100);
+        assert_eq!((items.len(), runs.len()), (2, 4));
+        let texts = |s: &State| -> Vec<String> {
+            s.hits().iter().map(|&i| s.item(i).detail.clone()).collect()
+        };
+        // Without a filter the list is the usual one: each command once.
+        let s = State::with_all(items.clone(), runs.clone(), "", true);
+        assert_eq!(s.hits().len(), 2);
+        // The newest `make test` succeeded, but an older run failed: the filter finds it.
+        let s = State::with_all(items.clone(), runs.clone(), "is:failed", true);
+        assert_eq!(texts(&s).len(), 1);
+        assert!(
+            texts(&s)[0].starts_with("✗2 1m30s ~/api ⎇ main"),
+            "{:?}",
+            texts(&s)
+        );
+        assert_eq!(s.selected_text().as_deref(), Some("make test"));
+        assert_eq!(
+            State::with_all(items.clone(), runs.clone(), "is:ok make", true)
+                .hits()
+                .len(),
+            2
+        );
+        assert_eq!(
+            State::with_all(items.clone(), runs.clone(), "branch:fix", true)
+                .hits()
+                .len(),
+            1
+        );
+        assert_eq!(
+            State::with_all(items.clone(), runs.clone(), "dir:api slow:60", true)
+                .hits()
+                .len(),
+            1
+        );
+        assert_eq!(
+            State::with_all(items.clone(), runs.clone(), "exit:2 branch:main", true)
+                .hits()
+                .len(),
+            1
+        );
+        // Filters and text combine, and the text alone is what gets highlighted.
+        let s = State::with_all(items.clone(), runs.clone(), "ls is:ok", true);
+        assert_eq!((s.hits().len(), s.text_query()), (1, "ls".to_string()));
+        // A command with no recorded branch never matches a branch filter.
+        assert!(State::with_all(items, runs, "branch:main ls", true)
+            .hits()
+            .is_empty());
+    }
+    #[test]
+    fn lists_that_are_not_history_ignore_filter_words() {
+        let mut s = State::new(
+            vec![Item::plain("is:failed.txt"), Item::plain("a.txt")],
+            "is:failed",
+            false,
+        );
+        assert_eq!(s.hits().len(), 1, "searched as plain text");
+        assert_eq!(s.text_query(), "is:failed");
+        s.set_query("a");
+        assert_eq!(s.hits().len(), 2);
     }
 }

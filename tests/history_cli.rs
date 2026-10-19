@@ -102,3 +102,23 @@ fn commands_with_secrets_are_never_recorded_or_suggested_and_old_ones_can_be_scr
     );
     assert!(teryon(home.path(), &["hist", "scrub"]).starts_with("Removed 0 commands"));
 }
+
+#[test]
+fn the_git_branch_is_recorded_with_each_command() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("proj");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/topic\n").unwrap();
+    teryon(
+        home.path(),
+        &["hist", "add", "--cwd", repo.to_str().unwrap(), "--", "make"],
+    );
+    teryon(
+        home.path(),
+        &["hist", "add", "--cwd", "/nowhere", "--", "ls"],
+    );
+    let text = std::fs::read_to_string(home.path().join(".teryon/history.jsonl")).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].contains("\"branch\":\"topic\""), "{}", lines[0]);
+    assert!(!lines[1].contains("branch"), "{}", lines[1]);
+}

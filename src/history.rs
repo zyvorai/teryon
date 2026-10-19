@@ -22,6 +22,41 @@ pub struct Entry {
     pub exit: i32,
     pub ms: u64,
     pub at: u64,
+    /// The Git branch the command ran on (or a short commit id when detached), if `cwd` is in a repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+/// The branch checked out at `cwd`, read from `.git/HEAD` without starting a process (this runs after
+/// every command). Follows the `gitdir:` file that worktrees and submodules use.
+pub fn git_branch(cwd: &str) -> Option<String> {
+    let mut dir = std::path::Path::new(cwd);
+    let git = loop {
+        let candidate = dir.join(".git");
+        if candidate.exists() {
+            break candidate;
+        }
+        dir = dir.parent()?;
+    };
+    let git_dir = if git.is_file() {
+        let text = std::fs::read_to_string(&git).ok()?;
+        let target = text.trim().strip_prefix("gitdir:")?.trim();
+        let target = std::path::Path::new(target);
+        if target.is_absolute() {
+            target.to_path_buf()
+        } else {
+            dir.join(target)
+        }
+    } else {
+        git
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    match head.strip_prefix("ref: ") {
+        Some(r) => Some(r.strip_prefix("refs/heads/").unwrap_or(r).to_string()),
+        None => (head.len() >= 7 && head.chars().all(|c| c.is_ascii_hexdigit()))
+            .then(|| head[..7].to_string()),
+    }
 }
 
 pub fn path() -> Result<PathBuf> {
@@ -162,6 +197,7 @@ mod tests {
             exit: 0,
             ms: 5,
             at,
+            branch: None,
         }
     }
     #[test]
@@ -238,5 +274,52 @@ mod tests {
         assert_eq!(kept.len(), MAX_ENTRIES);
         assert_eq!(kept[0].cmd, "c5");
         assert_eq!(kept.last().unwrap().cmd, format!("c{}", MAX_ENTRIES + 4));
+    }
+
+    #[test]
+    fn the_branch_is_read_from_git_head_without_running_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("a/b");
+        std::fs::create_dir_all(&sub).unwrap();
+        assert_eq!(git_branch(sub.to_str().unwrap()), None, "not a repository");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/feature/x\n").unwrap();
+        assert_eq!(
+            git_branch(sub.to_str().unwrap()).as_deref(),
+            Some("feature/x")
+        );
+        // Detached: a short commit id.
+        std::fs::write(
+            root.join(".git/HEAD"),
+            "0123456789abcdef0123456789abcdef01234567\n",
+        )
+        .unwrap();
+        assert_eq!(
+            git_branch(root.to_str().unwrap()).as_deref(),
+            Some("0123456")
+        );
+        // A worktree has a `.git` file pointing at its own git directory.
+        let wt = root.join("wt");
+        let real = root.join(".git/worktrees/wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", real.display())).unwrap();
+        std::fs::write(real.join("HEAD"), "ref: refs/heads/agent/claude-1\n").unwrap();
+        assert_eq!(
+            git_branch(wt.to_str().unwrap()).as_deref(),
+            Some("agent/claude-1")
+        );
+        // Garbage in HEAD gives nothing rather than a wrong answer.
+        std::fs::write(real.join("HEAD"), "nonsense").unwrap();
+        assert_eq!(git_branch(wt.to_str().unwrap()), None);
+    }
+    #[test]
+    fn old_entries_without_a_branch_still_load() {
+        let old = r#"{"cmd":"ls","cwd":"/a","exit":0,"ms":3,"at":9}"#;
+        let list = parse(old);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].branch, None);
+        assert!(!serde_json::to_string(&list[0]).unwrap().contains("branch"));
     }
 }
