@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.4
+
+- Command gutter: a thin bar in the left padding beside each command and its output (red when it failed, the accent while it runs, faint green when it succeeded), in the live view and in scrollback. Needs shell integration; `[desktop] command_gutter = false` turns it off.
+
 ## 0.17.3
 
 - Host health in the top bar (window 1100 px or wider): load, memory in use, and a heat warning only when the CPU is throttled, for the machine the daemon runs on. Old daemons simply show none; the protocol version is unchanged.

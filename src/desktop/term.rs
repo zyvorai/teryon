@@ -41,6 +41,39 @@ pub(super) fn format_duration(ms: u64) -> String {
         format!("{}m {:02}s", ms / 60_000, (ms / 1000) % 60)
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BlockState {
+    Running,
+    Ok,
+    Failed,
+}
+/// Command blocks as `(first line, end line, state)` in absolute lines, from `C`/`D` marks: a block
+/// covers the command line and its output up to the next prompt. A block still running ends at
+/// `open_end`. Marks of a command whose end was lost are dropped.
+pub(super) fn block_spans(marks: &[Mark], open_end: u64) -> Vec<(u64, u64, BlockState)> {
+    let mut out = Vec::new();
+    let mut start: Option<u64> = None;
+    for m in marks {
+        match m.kind {
+            'C' => start = Some(m.line.saturating_sub(1)),
+            'D' => {
+                if let Some(s) = start.take().filter(|s| *s < m.line) {
+                    let state = match m.exit {
+                        Some(c) if c != 0 => BlockState::Failed,
+                        _ => BlockState::Ok,
+                    };
+                    out.push((s, m.line, state));
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start.filter(|s| *s < open_end) {
+        out.push((s, open_end, BlockState::Running));
+    }
+    out
+}
+
 /// The status chip for a pane's latest command: running, or finished with its status and time.
 pub(super) fn command_chip(marks: &[Mark]) -> Option<(String, bool)> {
     let last = marks
@@ -983,6 +1016,22 @@ impl Desktop {
                 (cw, ch, rows),
             );
         }
+        if !in_history
+            && self.cfg.command_gutter
+            && self
+                .panes
+                .get(&id)
+                .is_some_and(|p| !p.parser.screen().alternate_screen())
+        {
+            let top = self.panes.get(&id).map_or(0, |p| p.info.top_line);
+            self.paint_gutter(
+                &painter.with_clip_rect(rect),
+                rect,
+                id,
+                (pad_top, ch, rows),
+                top as f32,
+            );
+        }
         if !in_history && self.cfg.scrollbar == crate::config::Scrollbar::Always {
             self.paint_live_scrollbar(&painter, rect, id, rows, &t);
         }
@@ -1061,6 +1110,15 @@ impl Desktop {
                         );
                     }
                 }
+            }
+            if self.cfg.command_gutter {
+                self.paint_gutter(
+                    &painter,
+                    rect,
+                    id,
+                    (pad_top, ch, rows),
+                    sb.first_line as f32 + top_line,
+                );
             }
             let track = Rect::from_min_max(
                 Pos2::new(rect.right() - 6., rect.top() + 4.),
@@ -1424,6 +1482,45 @@ impl Desktop {
     }
     /// In a bare window there is no title bar to hold the status chip, so a finished command's
     /// status and time appear briefly in the pane's top-right corner and fade out.
+    /// A thin bar in the left padding beside each command block: red when it failed, the accent while
+    /// it runs, a faint green when it succeeded. `top_abs` is the absolute line at the view's top.
+    fn paint_gutter(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        id: u64,
+        (pad_top, ch, rows): (f32, f32, u16),
+        top_abs: f32,
+    ) {
+        let Some(pane) = self.panes.get(&id) else {
+            return;
+        };
+        let t = &self.theme;
+        let rows_f = f32::from(rows);
+        let open_end = (top_abs + rows_f).ceil() as u64;
+        for (start, end, state) in block_spans(&pane.marks, open_end) {
+            let (c, alpha) = match state {
+                BlockState::Failed => (color(t.ansi[1]), 0.85),
+                BlockState::Running => (color(t.accent), 0.85),
+                BlockState::Ok => (color(t.success), 0.35),
+            };
+            let from = (start as f32 - top_abs).clamp(0., rows_f);
+            let to = (end as f32 - top_abs).clamp(0., rows_f);
+            if to <= from {
+                continue;
+            }
+            let y0 = rect.top() + pad_top + from * ch + 1.;
+            let y1 = rect.top() + pad_top + to * ch - 1.;
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(rect.left() + 1., y0),
+                    Pos2::new(rect.left() + 3., y1.max(y0 + 1.)),
+                ),
+                1.,
+                c.gamma_multiply(alpha),
+            );
+        }
+    }
     fn paint_command_toast(
         &mut self,
         ui: &egui::Ui,

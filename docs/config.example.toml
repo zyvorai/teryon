@@ -50,6 +50,7 @@ destination = "susant@mini.local"
 # unfocused_opacity = 0.82         # brightness of unfocused panes
 # copy_on_select = false
 # file_browser = false            # open the ⌘B file sidebar at start
+# command_gutter = true            # a thin bar beside each command: red failed, accent running, faint green ok (needs shell integration)
 # agent_quick_approve = false      # Approve / Deny buttons in the agents overview (they type into the agent)
 # agent_notifications = true       # notify when Claude Code, Codex, etc. in a background pane needs you or finishes
 # notify_after_seconds = 10        # notify when a command this long finishes in the background (needs shell integration)

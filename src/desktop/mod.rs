@@ -3163,6 +3163,43 @@ mod tests {
         assert_eq!(app.copy_text.as_deref(), Some("line 15\nline 16\nline 17"));
     }
     #[test]
+    fn command_blocks_span_the_command_line_to_the_next_prompt() {
+        use super::term::{block_spans, BlockState::*};
+        let marks = vec![
+            mark('A', 9, None, None),
+            mark('C', 11, None, None),
+            mark('D', 15, Some(0), Some(5)),
+            mark('A', 15, None, None),
+            mark('C', 17, None, None),
+            mark('D', 20, Some(2), Some(5)),
+            mark('C', 22, None, None),
+        ];
+        assert_eq!(
+            block_spans(&marks, 30),
+            vec![(10, 15, Ok), (16, 20, Failed), (21, 30, Running)]
+        );
+        // A command whose end never arrived is dropped when a newer one starts.
+        let lost = vec![mark('C', 3, None, None), mark('C', 8, None, None), mark('D', 9, None, None)];
+        assert_eq!(block_spans(&lost, 12), vec![(7, 9, Ok)]);
+        assert!(block_spans(&[], 12).is_empty());
+    }
+    #[test]
+    fn panes_with_command_marks_render_with_the_gutter_on_and_off() {
+        let ctx = egui::Context::default();
+        let (mut app, _rx) = app_with_screen("$ make\r\nerror\r\n$ ");
+        app.panes.get_mut(&1).unwrap().marks = vec![
+            mark('C', 1, None, None),
+            mark('D', 2, Some(2), Some(5)),
+            mark('C', 3, None, None),
+        ];
+        for gutter in [true, false] {
+            app.cfg.command_gutter = gutter;
+            for width in [500., 1180.] {
+                render(&mut app, &ctx, width);
+            }
+        }
+    }
+    #[test]
     fn the_last_command_can_be_copied_and_run_again() {
         let (mut app, rx) = app_with_screen("");
         app.copy_last_command();

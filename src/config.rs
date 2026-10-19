@@ -339,6 +339,9 @@ pub struct DesktopConfig {
     /// Show Approve and Deny buttons in the agents overview for an agent that is waiting. Off by
     /// default: they type into the agent, so a mis-click answers a real prompt.
     pub agent_quick_approve: bool,
+    /// A thin bar beside each command block (needs shell integration): red when it failed, the
+    /// accent while it runs, faint green when it succeeded.
+    pub command_gutter: bool,
     /// Open the file browser sidebar when the app starts.
     pub file_browser: bool,
     /// Themes to switch to when macOS goes light or dark (either may be left out).
@@ -405,6 +408,7 @@ impl Default for DesktopConfig {
             notify_after_seconds: 10,
             agent_notifications: true,
             agent_quick_approve: false,
+            command_gutter: true,
             file_browser: false,
             theme_light: None,
             theme_dark: None,
