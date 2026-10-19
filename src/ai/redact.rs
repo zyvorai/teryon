@@ -23,6 +23,24 @@ fn rules() -> &'static [Rule] {
             r("google-key", r"\bAIza[0-9A-Za-z_\-]{30,}", 0),
             r("jwt", r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}", 0),
             r("bearer-token", r"(?i)\bBearer\s+([A-Za-z0-9._~+/\-]{16,}=*)", 1),
+            // https://user:password@host
+            r(
+                "url-credentials",
+                r"\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s/@:]+:([^\s/@]+)@",
+                1,
+            ),
+            // curl -H "Authorization: Basic dXNlcjpwYXNz"
+            r(
+                "basic-auth",
+                r"(?i)\bAuthorization:\s*Basic\s+([A-Za-z0-9+/]{8,}={0,2})",
+                1,
+            ),
+            // --password hunter2, --token=abc123, --api-key "abc123" (but not --password-file or --token --next)
+            r(
+                "flag-secret",
+                r#"(?i)(?:^|\s)--(?:password|passwd|pass|token|secret|api[_\-]?key|access[_\-]?token|auth[_\-]?token|client[_\-]?secret)(?:=|\s+)["']?([^\s"'\-][^\s"']{3,})"#,
+                1,
+            ),
             // NAME=value / NAME: value where NAME names a secret.
             r(
                 "secret-value",
@@ -123,6 +141,42 @@ mod tests {
         assert!(out.contains("Bearer [redacted:bearer-token]"));
         assert!(out.contains("DB_PASSWORD: [redacted:secret-value]"));
         assert!(!out.contains("hunter2") && !out.contains("s3cretpass"));
+    }
+
+    #[test]
+    fn command_line_secrets_are_hidden_but_look_alikes_are_not() {
+        for (line, hidden) in [
+            ("mysql --password hunter2xyz -u root", "hunter2xyz"),
+            ("deploy --token=abc123def456", "abc123def456"),
+            ("tool --api-key \"k3y-v4lue-here\" run", "k3y-v4lue-here"),
+            (
+                "git clone https://me:p4ssw0rd@example.com/repo.git",
+                "p4ssw0rd",
+            ),
+            (
+                "curl -H 'Authorization: Basic dXNlcjpwYXNzd29yZA==' x",
+                "dXNlcjpwYXNzd29yZA",
+            ),
+        ] {
+            let (out, n) = redact(line);
+            assert_eq!(n, 1, "{line}");
+            assert!(!out.contains(hidden), "{line} -> {out}");
+        }
+        // The flag and the rest of the command stay readable.
+        assert!(redact("mysql --password hunter2xyz -u root")
+            .0
+            .starts_with("mysql --password [redacted:flag-secret] -u root"));
+        for ok in [
+            "mysql --password-file /etc/pw -u root",
+            "tool --token --verbose",
+            "git clone ssh://git@github.com/me/repo.git",
+            "git clone https://github.com/me/repo.git",
+            "echo basic configuration is fine",
+            "curl http://localhost:8080/path",
+            "cmd --pass",
+        ] {
+            assert_eq!(redact(ok), (ok.to_string(), 0), "{ok}");
+        }
     }
 
     #[test]
