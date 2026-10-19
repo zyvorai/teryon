@@ -1012,9 +1012,12 @@ impl Desktop {
                         .panes
                         .get(&self.focus)
                         .is_some_and(|p| p.parser.screen().application_cursor());
-                    if let Some(data) =
-                        keys::encode(crossterm::event::KeyEvent::new(code, mods), app_cursor)
-                    {
+                    let kitty = self.panes.get(&self.focus).map_or(0, |p| p.info.kbd);
+                    if let Some(data) = keys::encode_with(
+                        crossterm::event::KeyEvent::new(code, mods),
+                        app_cursor,
+                        kitty,
+                    ) {
                         self.input(data);
                     }
                 }

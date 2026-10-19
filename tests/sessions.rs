@@ -998,3 +998,62 @@ fn a_takeover_moves_the_controller_seat_and_the_old_controller_keeps_watching() 
         Response::Error { .. }
     ));
 }
+
+/// Start `script` in a new pane of workspace `name` and return the client and the pane id.
+fn pane_running(d: &Daemon, name: &str, script: &str) -> (Client, u64) {
+    let mut c = d.client();
+    c.attach(name, false);
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec!["/bin/sh".into(), "-c".into(), script.into()],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    (c, pane)
+}
+fn kbd(c: &mut Client, pane: u64) -> u8 {
+    c.snapshot().into_iter().find(|p| p.id == pane).unwrap().kbd
+}
+
+#[test]
+fn kitty_keyboard_flags_are_answered_pushed_popped_and_reach_the_client() {
+    let d = Daemon::start();
+    // The program asks for the disambiguate flag, then asks what is in force and reads the answer
+    // from its own terminal input.
+    let (mut c, pane) = pane_running(
+        &d,
+        "kitty",
+        "stty -icanon -echo; printf '\\033[>1u\\033[?u'; dd bs=1 count=5 2>/dev/null | od -c; printf '\\rpushed\\n'; sleep 2; printf '\\033[<u'; printf '\\rpopped\\n'; sleep 6",
+    );
+    c.until(pane, "pushed");
+    let shown = c.capture(pane);
+    assert!(
+        shown.contains("033   [   ?   1   u"),
+        "reply to the query: {shown:?}"
+    );
+    assert_eq!(kbd(&mut c, pane), 1);
+    c.until(pane, "popped");
+    assert_eq!(kbd(&mut c, pane), 0);
+}
+
+#[test]
+fn kitty_flags_ask_only_for_what_is_supported_and_leave_with_the_alternate_screen() {
+    let d = Daemon::start();
+    // Flags this terminal does not honor are not reported back; a full-screen program that exits
+    // without popping does not leave its encoding behind.
+    let (mut c, pane) = pane_running(
+        &d,
+        "kitty2",
+        "printf '\\033[?1049h\\033[>31u'; printf 'inalt\\n'; sleep 2; printf '\\033[?1049l'; printf 'left\\n'; sleep 6",
+    );
+    c.until(pane, "inalt");
+    assert_eq!(
+        kbd(&mut c, pane),
+        1,
+        "only the disambiguate bit of 31 is kept"
+    );
+    c.until(pane, "left");
+    assert_eq!(kbd(&mut c, pane), 0);
+}

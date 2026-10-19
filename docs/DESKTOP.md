@@ -254,7 +254,11 @@ rename, copy visible screen, offline draft, always on top.
 
 * Font ligatures and complex text shaping (the renderer lays glyphs out one by one).
 * Window background blur uses a private macOS call and may stop working in a future macOS release.
-* The kitty graphics and keyboard protocols (the terminal parser ignores them).
+* The kitty graphics protocol, and the parts of the kitty keyboard protocol beyond "disambiguate escape codes"
+  (key release events, all keys as escapes, associated text). Programs can ask for the flag with `CSI > 1 u`;
+  Esc and Ctrl/Alt combinations then arrive as `CSI code ; mods u`. Other flags are accepted and not reported
+  back, so a program never expects something that is not sent. A program that dies without popping its flags
+  leaves them on, except full-screen (alternate screen) programs, whose flags go when the screen is left.
 * Shell-integration features such as jumping between prompts (TERYON does not inject into your shell).
 * Native macOS tabs (TERYON has its own tabs) and a global-hotkey dropdown window (a GUI toolkit cannot
   register global shortcuts).

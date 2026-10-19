@@ -132,6 +132,12 @@ pub struct PaneView {
     /// OSC 8 hyperlinks on the visible screen, sent together with `screen`; old daemons send none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub links: Option<Vec<LinkSpan>>,
+    /// Kitty keyboard protocol flags in force for the pane's current screen; old daemons send 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub kbd: u8,
+}
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 /// A run of cells on one screen row that a program marked as a hyperlink (`end` is exclusive).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

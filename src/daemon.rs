@@ -37,6 +37,8 @@ struct TerminalCallbacks {
     log: crate::marks::MarkLog,
     /// Inline images (iTerm2 `OSC 1337 File=`) shown in this pane.
     images: crate::inlineimg::ImageLog,
+    /// Kitty keyboard protocol flags the programs in this pane pushed.
+    kitty: crate::kittykeys::KittyKeys,
 }
 impl TerminalCallbacks {
     /// Reserve room for an inline image at the cursor and remember it.
@@ -91,6 +93,24 @@ impl vt100::Callbacks for TerminalCallbacks {
         c: char,
     ) {
         let n = params.first().and_then(|p| p.first()).copied().unwrap_or(0);
+        if c == 'u' {
+            // Kitty keyboard protocol: query, push, pop, set. (A bare `CSI u` restores the cursor.)
+            let alt = screen.alternate_screen();
+            let flags = u8::try_from(n).unwrap_or(0);
+            match i1 {
+                Some(b'?') => {
+                    let _ = self.input.try_send(self.kitty.report(alt).into_bytes());
+                }
+                Some(b'>') => self.kitty.push(alt, flags),
+                Some(b'<') => self.kitty.pop(alt, usize::from(n)),
+                Some(b'=') => {
+                    let mode = params.get(1).and_then(|p| p.first()).copied().unwrap_or(1);
+                    self.kitty.set(alt, flags, u8::try_from(mode).unwrap_or(1));
+                }
+                _ => {}
+            }
+            return;
+        }
         let response = match (c, i1, n) {
             ('n', None, 6) => {
                 let (r, c) = screen.cursor_position();
@@ -242,6 +262,7 @@ impl Pane {
                     input: input.clone(),
                     log: crate::marks::MarkLog::default(),
                     images: crate::inlineimg::ImageLog::default(),
+                    kitty: crate::kittykeys::KittyKeys::default(),
                 },
             ),
             revision: 1,
@@ -276,6 +297,9 @@ impl Pane {
                     Ok(n) => {
                         let mut st = read_state.lock().unwrap();
                         st.parser.process(&buf[..n]);
+                        if !st.parser.screen().alternate_screen() {
+                            st.parser.callbacks_mut().kitty.alt_screen_left();
+                        }
                         // Clearing the screen also removes the inline images drawn on it.
                         let (erases, top) = {
                             let screen = st.parser.screen();
@@ -319,6 +343,11 @@ impl Pane {
             fg: self.foreground_command(st.exited.is_some()),
             ports: self.listening_ports(st.exited.is_some()),
             images: changed.then(|| st.parser.callbacks().images.placements.clone()),
+            kbd: st
+                .parser
+                .callbacks()
+                .kitty
+                .flags(st.parser.screen().alternate_screen()),
             links: changed.then(|| {
                 st.parser
                     .screen()
