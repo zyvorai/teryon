@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 - Desktop: inline images (iTerm2 `OSC 1337`), a command status chip in bare windows, tabs with program icons, a spinner and ×, eased cursor blink, smooth scroll-back, theme cross-fade with new `carbon` and `tokyo-night-day` themes, `fullscreen`, `corner_radius` and `background_noise` options.
 
