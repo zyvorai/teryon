@@ -24,6 +24,7 @@ destination = "susant@mini.local"
 # chrome = "none"                  # full | none: "none" is only the terminal, no title bar or tab strip
 # initial_cols = 124               # open windows this size (set both), instead of the last size
 # initial_rows = 42
+# fresh_window = false             # true: each window gets its own new shell, ended when the window closes
 # cursor_style = "block"           # block | bar | underline
 # cursor_blink = false
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect

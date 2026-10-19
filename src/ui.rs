@@ -41,13 +41,19 @@ fn tip(elapsed: Duration) -> &'static str {
 }
 
 pub(crate) enum Command {
-    Input { pane: u64, data: Vec<u8> },
+    Input {
+        pane: u64,
+        data: Vec<u8>,
+    },
     Resize(u16, u16),
     New(Option<String>),
     Close(u64),
     Rename(u64, String),
     Capture(u64, CapturePurpose),
     Stop,
+    /// Like `Stop`, but first remove this workspace and end its shells (a fresh desktop window).
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Discard,
 }
 #[derive(Clone)]
 pub(crate) enum CapturePurpose {
@@ -66,6 +72,9 @@ pub(crate) enum Update {
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Captured(String, u64, CapturePurpose),
     Latency(u64),
+    /// The worker finished a `Discard` (or had nothing to discard) and is about to exit.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Discarded,
 }
 
 pub(crate) fn worker(
@@ -111,6 +120,14 @@ pub(crate) fn worker(
                             Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                                 return Ok(())
                             }
+                            Ok(Command::Discard) => {
+                                let _ = rpc.call(Request::Remove {
+                                    workspace: workspace.clone(),
+                                    force: true,
+                                });
+                                let _ = tx.send(Update::Discarded);
+                                return Ok(());
+                            }
                             Ok(command) => {
                                 let req = match command {
                                     Command::Input { pane, data } => {
@@ -143,7 +160,7 @@ pub(crate) fn worker(
                                         }
                                         continue;
                                     }
-                                    Command::Stop => unreachable!(),
+                                    Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
                                 match rpc.call(req) {
@@ -208,12 +225,20 @@ pub(crate) fn worker(
         while Instant::now() < until {
             match rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Ok(Command::Discard) => {
+                    let _ = tx.send(Update::Discarded);
+                    return;
+                }
                 Ok(Command::Resize(r, c)) => size = (r, c),
                 _ => {}
             }
         }
         while let Ok(cmd) = rx.try_recv() {
             if matches!(cmd, Command::Stop) {
+                return;
+            }
+            if matches!(cmd, Command::Discard) {
+                let _ = tx.send(Update::Discarded);
                 return;
             }
         }
@@ -397,6 +422,7 @@ impl App {
             }
             Update::Message(s) => self.notice = s,
             Update::Latency(ms) => self.latency = Some(ms),
+            Update::Discarded => {}
             Update::Created(id) => self.focus = id,
             Update::Captured(text, _, purpose) => match purpose {
                 CapturePurpose::View(query) => {

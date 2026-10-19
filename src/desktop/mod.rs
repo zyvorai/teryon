@@ -176,6 +176,8 @@ pub struct Desktop {
     pending_float: bool,
     /// Columns and rows to size the window to on the first frame (`initial_cols`/`initial_rows`).
     pending_cells: Option<(u16, u16)>,
+    /// Remove this window's own workspace (ending its shells) when the window closes.
+    discard_workspace: bool,
     triggers: Vec<CompiledTrigger>,
     trigger_seen: HashMap<u64, Instant>,
     upload_tx: mpsc::Sender<(bool, String)>,
@@ -328,6 +330,7 @@ impl Desktop {
             extra: SessionExtra::default(),
             pending_float: false,
             pending_cells: None,
+            discard_workspace: false,
             triggers: Vec::new(),
             trigger_seen: HashMap::new(),
             upload_tx,
@@ -546,6 +549,7 @@ impl Desktop {
                 }
                 Update::Message(s) => self.notice = s,
                 Update::Latency(ms) => self.latency = Some(ms),
+                Update::Discarded => {}
                 Update::Created(id) => {
                     self.focus = id;
                     if self.pending_float {
@@ -1636,6 +1640,16 @@ impl Desktop {
 impl Drop for Desktop {
     fn drop(&mut self) {
         self.save_settings(true);
+        if self.discard_workspace {
+            // Let the worker remove the workspace before the process exits.
+            let _ = self.tx.send(Command::Discard);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+                if matches!(self.rx.recv_timeout(left), Ok(Update::Discarded) | Err(_)) {
+                    break;
+                }
+            }
+        }
         let _ = self.tx.try_send(Command::Stop);
         for tab in &self.tabs {
             if let Some(s) = &tab.state {
@@ -1688,6 +1702,7 @@ pub fn run(
     cwd: Option<String>,
     theme: Theme,
     settings: DesktopSettings,
+    discard: bool,
 ) -> Result<()> {
     if !valid_name(&workspace) {
         bail!("invalid workspace name");
@@ -1706,6 +1721,7 @@ pub fn run(
         Err(e) => app.toast(format!("Config error: {e:#}")),
     }
     app.persist = true;
+    app.discard_workspace = discard && !readonly;
     if let Some(mode) = settings.layout.as_deref().and_then(LayoutMode::parse) {
         app.layout = mode;
     }

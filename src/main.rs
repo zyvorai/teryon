@@ -432,8 +432,21 @@ fn run_desktop(
     theme: Option<String>,
     bin: Option<String>,
 ) -> Result<()> {
-    teryon::recent::record(&host, &workspace);
     let cfg = config::load()?;
+    // A fresh window gets a workspace of its own, unless one was asked for by name.
+    let fresh = cfg.desktop.fresh_window && workspace == "default" && !readonly;
+    let workspace = if fresh {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        if let Ok(t) = target(host.clone(), bin.clone()) {
+            remove_orphan_windows(&t);
+        }
+        format!("win-{now}-{}", std::process::id())
+    } else {
+        teryon::recent::record(&host, &workspace);
+        workspace
+    };
     let settings = teryon::settings::DesktopSettings::load();
     let name = theme
         .or_else(|| settings.theme.clone())
@@ -446,7 +459,27 @@ fn run_desktop(
         cwd,
         theme,
         settings,
+        fresh,
     )
+}
+#[cfg(feature = "desktop")]
+/// Fresh-window workspaces left behind by a crash: named `win-*` and with nobody attached.
+fn remove_orphan_windows(target: &Target) {
+    let Ok(mut rpc) = target.connect() else {
+        return;
+    };
+    let Ok(Response::Workspaces { items }) = rpc.call(Request::List) else {
+        return;
+    };
+    for w in items
+        .into_iter()
+        .filter(|w| w.name.starts_with("win-") && !w.controlled)
+    {
+        let _ = rpc.call(Request::Remove {
+            workspace: w.name,
+            force: true,
+        });
+    }
 }
 /// Plain `teryon`: pick a host/workspace (recents, config, ~/.ssh/config) and connect.
 fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {

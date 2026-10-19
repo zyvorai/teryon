@@ -54,7 +54,13 @@ For a window that is only the terminal, like WezTerm with its tab bar and title 
 chrome = "none"          # no title bar, no tab strip, no empty-pane hints (restart to apply)
 initial_cols = 124       # open windows this many columns and rows, instead of the last size
 initial_rows = 42
+fresh_window = true      # every window starts a new shell and ends it when the window closes
 ```
+
+With `fresh_window`, `teryon desktop` no longer reattaches to the shared `default` workspace: each window gets
+its own `win-…` workspace, removed (and its shells ended) when you close the window. Workspaces left behind by a
+crash are cleaned up the next time a window starts. `teryon desktop -w NAME` still attaches to a workspace you name,
+and other tabs you open stay persistent. Leave it off if you rely on shells surviving a closed window.
 
 The window stays resizable. A thin strip along the top edge moves it, and double-clicking that strip maximizes.
 Tabs, panes, the palette (⌘K) and every shortcut still work; only their buttons are hidden.

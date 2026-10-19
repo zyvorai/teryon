@@ -229,6 +229,9 @@ pub struct DesktopConfig {
     /// Open windows this many columns by rows wide (both or neither), instead of the last size.
     pub initial_cols: Option<u16>,
     pub initial_rows: Option<u16>,
+    /// Every `teryon desktop` window starts a new shell and ends it when the window closes, instead of
+    /// reattaching to the shared `default` workspace (naming a workspace with `-w` still attaches to it).
+    pub fresh_window: bool,
     /// Ask before closing the window (shells keep running either way).
     pub confirm_quit: bool,
     /// Key bindings: action name -> chord such as "cmd+shift+d"; "none" unbinds.
@@ -261,6 +264,7 @@ impl Default for DesktopConfig {
             chrome: Chrome::Full,
             initial_cols: None,
             initial_rows: None,
+            fresh_window: false,
             confirm_quit: false,
             keys: BTreeMap::new(),
             snippets: Vec::new(),
@@ -534,6 +538,15 @@ mod tests {
         assert!(parse_desktop("[desktop]\ninitial_cols = 124\n").is_err());
         assert!(parse_desktop("[desktop]\ninitial_cols = 5\ninitial_rows = 42\n").is_err());
         assert!(parse_desktop("[desktop]\nchrome = \"minimal\"\n").is_err());
+    }
+    #[test]
+    fn fresh_windows_are_opt_in() {
+        assert!(!parse_desktop("").unwrap().fresh_window);
+        assert!(
+            parse_desktop("[desktop]\nfresh_window = true\n")
+                .unwrap()
+                .fresh_window
+        );
     }
     #[test]
     fn the_shell_section_defaults_to_everything_on_except_the_prompt() {
