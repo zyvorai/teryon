@@ -7,6 +7,7 @@ mouse = false
 start = "tui"
 
 [hosts.mini]
+# mac = "aa:bb:cc:dd:ee:ff"   # for `teryon wake mini` (wake-on-LAN, Ethernet only); optional broadcast = "192.168.1.255"
 destination = "susant@mini.local"
 # remote_bin = "/Users/susant/.local/bin/teryon"
 
@@ -105,3 +106,9 @@ destination = "susant@mini.local"
 # agents = true            # an AI agent needs you or finished
 # commands = true          # a command that ran at least after_seconds finished (needs shell integration)
 # after_seconds = 30
+
+# On the machine running the daemon: keep it from idle-sleeping (macOS caffeinate) while a command
+# has run for keep_awake_after_seconds or an AI agent is working.
+# [host]
+# keep_awake = false
+# keep_awake_after_seconds = 30

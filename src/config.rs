@@ -33,6 +33,37 @@ pub struct Config {
     /// Push notifications from the daemon while no client is attached (`[notify]`).
     #[serde(default)]
     pub notify: NotifyConfig,
+    /// What the daemon does on the machine it runs on (`[host]`).
+    #[serde(default)]
+    pub host: HostConfig,
+}
+/// `[host]`: behavior of the daemon's machine.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HostConfig {
+    /// Keep the Mac from idle-sleeping while a command or an AI agent is busy (`caffeinate`).
+    pub keep_awake: bool,
+    /// A command counts as busy once it has run this many seconds.
+    pub keep_awake_after_seconds: u32,
+}
+impl Default for HostConfig {
+    fn default() -> Self {
+        Self {
+            keep_awake: false,
+            keep_awake_after_seconds: 30,
+        }
+    }
+}
+impl HostConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.keep_awake_after_seconds == 0 || self.keep_awake_after_seconds > 86_400 {
+            bail!(
+                "host.keep_awake_after_seconds = {} is outside 1..86400",
+                self.keep_awake_after_seconds
+            );
+        }
+        Ok(())
+    }
 }
 /// `[notify]`: where the daemon sends "an agent needs you" and "a command finished" while a
 /// workspace has no client attached. Messages name the agent or program, never screen text.
@@ -551,6 +582,12 @@ fn default_theme() -> String {
 pub struct Host {
     pub destination: String,
     pub remote_bin: Option<String>,
+    /// Ethernet MAC address for `teryon wake` (wake-on-LAN), as `aa:bb:cc:dd:ee:ff`.
+    #[serde(default)]
+    pub mac: Option<String>,
+    /// Broadcast address for the magic packet; defaults to 255.255.255.255.
+    #[serde(default)]
+    pub broadcast: Option<String>,
 }
 pub fn path() -> Result<PathBuf> {
     Ok(util::home()?.join(".config/teryon/config.toml"))
@@ -575,6 +612,7 @@ pub fn load() -> Result<Config> {
             ai: AiConfig::default(),
             shell: ShellConfig::default(),
             notify: NotifyConfig::default(),
+            host: HostConfig::default(),
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -596,6 +634,7 @@ pub fn load_desktop_theme() -> Result<(DesktopConfig, String)> {
     cfg.desktop.validate()?;
     cfg.ai.validate()?;
     cfg.notify.validate()?;
+    cfg.host.validate()?;
     Ok((cfg.desktop, cfg.theme))
 }
 #[cfg(test)]
@@ -619,6 +658,19 @@ mod notify_tests {
             assert!(cfg.notify.validate().is_err(), "{bad}");
         }
         assert!(toml::from_str::<Config>("[notify]\nbogus = 1\n").is_err());
+    }
+    #[test]
+    fn host_section_and_wake_fields_parse() {
+        let cfg: Config = toml::from_str(
+            "[host]\nkeep_awake = true\n[hosts.mini]\ndestination = \"mini\"\nmac = \"aa:bb:cc:dd:ee:ff\"\n",
+        )
+        .unwrap();
+        assert!(cfg.host.keep_awake);
+        cfg.host.validate().unwrap();
+        assert_eq!(cfg.hosts["mini"].mac.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
+        assert!(!Config::default().host.keep_awake);
+        let bad: Config = toml::from_str("[host]\nkeep_awake_after_seconds = 0\n").unwrap();
+        assert!(bad.host.validate().is_err());
     }
 }
 /// Concrete `Host` aliases from OpenSSH config text; wildcards, negations and `Match` blocks are skipped.

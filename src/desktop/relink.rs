@@ -23,6 +23,8 @@ pub(super) struct Link {
     was_down: bool,
     /// The user dismissed the card for this outage.
     hidden: bool,
+    /// Load, memory and thermal state of the daemon's machine, when it reports them.
+    stats: Option<crate::hoststats::HostStats>,
     /// Screen bytes received, and a moving rate over about two seconds.
     rx_total: u64,
     rx_mark: Option<(Instant, u64)>,
@@ -30,13 +32,22 @@ pub(super) struct Link {
 }
 
 impl Link {
-    pub(super) fn daemon(&mut self, platform: String, uptime: u64) {
+    pub(super) fn daemon(
+        &mut self,
+        platform: String,
+        uptime: u64,
+        stats: Option<crate::hoststats::HostStats>,
+    ) {
         self.platform = platform;
+        self.stats = stats;
         self.started = Instant::now().checked_sub(Duration::from_secs(uptime));
     }
     /// How long the daemon has held the shells, once it has said so.
     pub(super) fn uptime(&self) -> Option<String> {
         self.started.map(|s| span(s.elapsed()))
+    }
+    pub(super) fn stats(&self) -> Option<&crate::hoststats::HostStats> {
+        self.stats.as_ref()
     }
     pub(super) fn retry(&mut self, attempt: u32, wait_ms: u64) {
         self.attempt = attempt;
@@ -330,7 +341,7 @@ mod tests {
         l.retry(1, 250);
         l.online();
         assert!(l.relinked.is_some());
-        l.daemon("arm64 · macos".into(), 90);
+        l.daemon("arm64 · macos".into(), 90, None);
         assert!(l.started.is_some());
     }
 }

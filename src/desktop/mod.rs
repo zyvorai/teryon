@@ -607,7 +607,7 @@ impl Desktop {
                     }
                 }
                 Update::Latency(ms) => self.latency = Some(ms),
-                Update::Daemon(platform, uptime) => self.link.daemon(platform, uptime),
+                Update::Daemon(platform, uptime, stats) => self.link.daemon(platform, uptime, stats),
                 Update::Retry(attempt, wait) => self.link.retry(attempt, wait),
                 Update::Discarded => {}
                 Update::Created(id) => {

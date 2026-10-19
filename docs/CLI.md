@@ -23,6 +23,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
 | `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
+| `wake HOST` | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
 | `completions SHELL` | Shell completion script (bash, zsh, fish, elvish, powershell) |
 | `about` | Banner, version and active theme |

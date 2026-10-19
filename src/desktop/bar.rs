@@ -436,6 +436,17 @@ impl Desktop {
         if let Some(ms) = self.latency.filter(|_| self.online) {
             stat(ui, "LINK", format!("{ms} ms"));
         }
+        if let Some(s) = self.link.stats().filter(|_| self.online) {
+            let (load, mem, heat) = health_labels(s);
+            stat(ui, "LOAD", load);
+            if let Some(m) = mem {
+                stat(ui, "MEM", m);
+            }
+            if let Some(h) = heat {
+                ui.label(RichText::new(h).size(11.5).color(color(t.warning)));
+                ui.label(RichText::new("HEAT").size(9.).color(color(t.muted)));
+            }
+        }
     }
     /// Numbered chips for the panes of the active workspace (one cycling chip when cramped).
     fn pane_chips(&mut self, ui: &mut egui::Ui, compact: bool) {
@@ -582,4 +593,36 @@ fn tab_label(panes: &BTreeMap<u64, Pane>, focus: u64, fallback: &str, now: f64) 
     };
     let name: String = name.chars().take(22).collect();
     format!("{icon}  {name}")
+}
+/// Text for the host health labels: load, memory, and a heat warning only when throttled.
+fn health_labels(s: &crate::hoststats::HostStats) -> (String, Option<String>, Option<String>) {
+    (
+        format!("{:.2}", s.load1),
+        s.mem_used_pct.map(|p| format!("{p}%")),
+        s.thermal
+            .clone()
+            .filter(|t| t.as_str() != "nominal"),
+    )
+}
+
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use crate::hoststats::HostStats;
+    #[test]
+    fn heat_shows_only_when_throttled() {
+        let mut s = HostStats {
+            load1: 1.5,
+            mem_used_pct: Some(46),
+            thermal: Some("nominal".into()),
+        };
+        assert_eq!(health_labels(&s), ("1.50".into(), Some("46%".into()), None));
+        s.thermal = Some("throttled 80%".into());
+        s.mem_used_pct = None;
+        assert_eq!(
+            health_labels(&s),
+            ("1.50".into(), None, Some("throttled 80%".into()))
+        );
+    }
 }

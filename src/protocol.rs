@@ -169,6 +169,9 @@ pub enum Response {
         /// Seconds the daemon has been running; old daemons send none.
         #[serde(default)]
         uptime: u64,
+        /// Load, memory and thermal state of the daemon's machine; old daemons send none.
+        #[serde(default)]
+        stats: Option<crate::hoststats::HostStats>,
     },
     Ack {
         seq: Option<u64>,
@@ -308,5 +311,13 @@ mod tests {
         // Unchanged polls carry no marks at all.
         let quiet = serde_json::to_string(&PaneView::default()).unwrap();
         assert!(!quiet.contains("marks"));
+    }
+    #[test]
+    fn an_old_daemons_info_without_stats_still_parses() {
+        let old = r#"{"type":"info","os":"macos","arch":"arm64","sessions":1,"panes":2,"pid":3,"uptime":4}"#;
+        match serde_json::from_str::<Response>(old).unwrap() {
+            Response::Info { stats, uptime, .. } => assert!(stats.is_none() && uptime == 4),
+            other => panic!("{other:?}"),
+        }
     }
 }

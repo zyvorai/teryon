@@ -298,6 +298,11 @@ enum Commands {
     },
     /// Print a shell completion script (bash, zsh, fish, elvish, powershell).
     Completions { shell: clap_complete::Shell },
+    /// Wake a sleeping host with a wake-on-LAN packet (set `mac` on the host in the config).
+    Wake {
+        /// A configured host alias.
+        host: String,
+    },
     /// Add `Host` aliases from ~/.ssh/config to the TERYON config (never edits SSH config or copies keys).
     ImportSsh {
         /// OpenSSH config to read.
@@ -754,6 +759,18 @@ fn run() -> Result<i32> {
         }
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut std::io::stdout())
+        }
+        Commands::Wake { host } => {
+            let cfg = config::load()?;
+            let h = cfg
+                .hosts
+                .get(&host)
+                .ok_or_else(|| anyhow::anyhow!("no host `{host}` in the config"))?;
+            let mac = h.mac.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("host `{host}` has no `mac = \"aa:bb:cc:dd:ee:ff\"` in the config")
+            })?;
+            teryon::wake::wake(mac, h.broadcast.as_deref())?;
+            println!("Sent a wake-on-LAN packet for {host}; give it a few seconds to boot");
         }
         Commands::ImportSsh { file, dry_run } => {
             let path = match file {

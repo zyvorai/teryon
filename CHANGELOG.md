@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.3
+
+- Host health in the top bar (window 1100 px or wider): load, memory in use, and a heat warning only when the CPU is throttled, for the machine the daemon runs on. Old daemons simply show none; the protocol version is unchanged.
+- `[host] keep_awake = true` makes the daemon hold `caffeinate` (macOS) while a command has run for `keep_awake_after_seconds` or an AI agent is working.
+- `teryon wake HOST` sends a wake-on-LAN packet using `mac` (and optional `broadcast`) from `[hosts.HOST]`.
+
 ## 0.17.2
 
 - Agents overview: with `[desktop] agent_quick_approve = true`, an agent waiting for approval gets Approve and Deny buttons (Enter or Esc, or `y`/`n` for aider). Off by default; never active when read only, and a stale click does not answer a later prompt.

@@ -136,7 +136,7 @@ pub(crate) enum Update {
     Latency(u64),
     /// The daemon's platform and how long it has been running (seconds).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
-    Daemon(String, u64),
+    Daemon(String, u64, Option<crate::hoststats::HostStats>),
     /// Reconnect attempt number and how long the worker waits before it (milliseconds).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Retry(u32, u64),
@@ -180,10 +180,14 @@ pub(crate) fn worker(
                 let _ = tx.send(Update::Online);
                 let mut info_at = Instant::now();
                 if let Ok(Response::Info {
-                    os, arch, uptime, ..
+                    os,
+                    arch,
+                    uptime,
+                    stats,
+                    ..
                 }) = rpc.call(Request::Info)
                 {
-                    let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime));
+                    let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
                 }
                 if previous_instance
                     .as_ref()
@@ -301,10 +305,14 @@ pub(crate) fn worker(
                         if info_at.elapsed() >= Duration::from_secs(60) {
                             info_at = Instant::now();
                             if let Ok(Response::Info {
-                                os, arch, uptime, ..
+                                os,
+                                arch,
+                                uptime,
+                                stats,
+                                ..
                             }) = rpc.call(Request::Info)
                             {
-                                let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime));
+                                let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
                             }
                         }
                         let polled = Instant::now();

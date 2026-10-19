@@ -35,6 +35,7 @@ impl Tracker {
             announced: None,
         }
     }
+    #[allow(clippy::too_many_arguments)]
     /// Feed one observation of a pane; returns what changed since the last one. `rows` is only
     /// called when an agent's screen has to be read.
     pub fn observe(
@@ -106,6 +107,26 @@ impl Tracker {
     }
 }
 
+impl Tracker {
+    /// Whether an AI agent in this pane is working right now.
+    pub fn agent_working(&self) -> bool {
+        self.status == Some(Status::Working)
+    }
+}
+/// Unix time the command still running in a pane started, from its marks (`C` with no later `D`).
+pub fn running_since(marks: &[Mark]) -> Option<u64> {
+    marks
+        .iter()
+        .rev()
+        .find(|m| matches!(m.kind, 'C' | 'D'))
+        .filter(|m| m.kind == 'C')
+        .map(|m| m.at)
+}
+/// Whether the machine should stay awake: a command has run for `after_secs`, or an agent works.
+pub fn busy(running: &[u64], agent_working: bool, now_unix: u64, after_secs: u64) -> bool {
+    agent_working || running.iter().any(|at| now_unix.saturating_sub(*at) >= after_secs)
+}
+
 /// How often the daemon looks at its panes.
 pub const TICK: Duration = Duration::from_secs(1);
 
@@ -142,6 +163,18 @@ mod tests {
             tr.observe(later, 3, "-zsh", false, Vec::new, &[], 1000),
             vec![Event::AgentDone(Kind::Claude)]
         );
+    }
+    #[test]
+    fn busy_means_a_long_running_command_or_a_working_agent() {
+        let running = [mark('A', 1, 5, None, None), mark('C', 2, 100, None, Some("make"))];
+        assert_eq!(running_since(&running), Some(100));
+        let done = [mark('C', 2, 100, None, None), mark('D', 4, 110, Some(10), None)];
+        assert_eq!(running_since(&done), None);
+        assert_eq!(running_since(&[]), None);
+        assert!(!busy(&[100], false, 120, 30), "20 s is not long enough");
+        assert!(busy(&[100], false, 130, 30));
+        assert!(busy(&[], true, 0, 30), "a working agent keeps it awake");
+        assert!(!busy(&[], false, 999, 30));
     }
     #[test]
     fn plain_shells_are_not_agents() {

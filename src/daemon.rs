@@ -432,6 +432,20 @@ struct Connection {
     hello: bool,
 }
 
+/// Host stats, sampled at most every 5 seconds however many clients ask.
+fn host_stats() -> crate::hoststats::HostStats {
+    static CACHE: Mutex<Option<(Instant, crate::hoststats::HostStats)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    if let Some((at, stats)) = cache.as_ref() {
+        if at.elapsed() < Duration::from_secs(5) {
+            return stats.clone();
+        }
+    }
+    let stats = crate::hoststats::sample();
+    *cache = Some((Instant::now(), stats.clone()));
+    stats
+}
+
 fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Response> {
     if let Request::Hello { version } = req {
         if version != VERSION {
@@ -494,6 +508,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             panes: state.workspaces.values().map(|w| w.panes.len()).sum(),
             pid: std::process::id(),
             uptime: state.started.elapsed().as_secs(),
+            stats: Some(host_stats()),
         }),
         Request::Attach {
             workspace,
@@ -736,22 +751,26 @@ fn watch_panes(state: &Mutex<State>) {
     use crate::watch::{Event, Tracker, TICK};
     let mut trackers: HashMap<(String, u64), Tracker> = HashMap::new();
     let mut cfg = crate::config::NotifyConfig::default();
+    let mut host_cfg = crate::config::HostConfig::default();
+    let mut awake = KeepAwake::default();
     let mut cfg_loaded: Option<Instant> = None;
     loop {
         thread::sleep(TICK);
         let now = Instant::now();
         if cfg_loaded.is_none_or(|t| now.duration_since(t) > Duration::from_secs(15)) {
             cfg_loaded = Some(now);
-            cfg = crate::config::load()
+            let loaded = crate::config::load()
                 .ok()
-                .filter(|c| c.notify.validate().is_ok())
-                .map(|c| c.notify)
-                .unwrap_or_default();
+                .filter(|c| c.notify.validate().is_ok() && c.host.validate().is_ok());
+            (cfg, host_cfg) = loaded.map(|c| (c.notify, c.host)).unwrap_or_default();
         }
-        if !cfg.active() {
+        if !cfg.active() && !host_cfg.keep_awake {
             trackers.clear();
+            awake.set(false);
             continue;
         }
+        let mut running: Vec<u64> = Vec::new();
+        let mut agent_working = false;
         let snapshot: Vec<(String, bool, Vec<Arc<Pane>>)> = {
             let st = state.lock().unwrap();
             st.workspaces
@@ -790,7 +809,9 @@ fn watch_panes(state: &Mutex<State>) {
                 };
                 let long_ms = u64::from(cfg.after_seconds) * 1000;
                 let events = tracker.observe(now, rev, &fg, exited, rows, &marks, long_ms);
-                if !detached {
+                agent_working |= tracker.agent_working();
+                running.extend(crate::watch::running_since(&marks));
+                if !detached || !cfg.active() {
                     continue;
                 }
                 for event in events {
@@ -827,6 +848,43 @@ fn watch_panes(state: &Mutex<State>) {
             }
         }
         trackers.retain(|k, _| alive.contains(k));
+        awake.set(
+            host_cfg.keep_awake
+                && crate::watch::busy(
+                    &running,
+                    agent_working,
+                    unix_now(),
+                    u64::from(host_cfg.keep_awake_after_seconds),
+                ),
+        );
+    }
+}
+
+/// Holds a `caffeinate` child (macOS) while the machine should not idle-sleep. It also exits on its
+/// own when the daemon does.
+#[derive(Default)]
+struct KeepAwake {
+    child: Option<std::process::Child>,
+}
+impl KeepAwake {
+    fn set(&mut self, on: bool) {
+        if on && self.child.is_none() {
+            #[cfg(target_os = "macos")]
+            {
+                self.child = std::process::Command::new("caffeinate")
+                    .args(["-i", "-w", &std::process::id().to_string()])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .ok();
+            }
+        } else if !on {
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
     }
 }
 
