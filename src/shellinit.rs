@@ -20,7 +20,7 @@ if [[ -z "$__teryon_integrated" ]]; then
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
 fi
-# History, autosuggestions, syntax highlighting, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) and fuzzy Tab. Set TERYON_PLUS=0 before this line to turn them off.
+# History, autosuggestions, syntax highlighting, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) fuzzy Tab and z/zi directory jump. Set TERYON_PLUS=0 before this line to turn them off.
 if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   typeset -g __teryon_plus=1 __teryon_hint=
   typeset -ga __teryon_hls; __teryon_hls=()
@@ -164,6 +164,26 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     fi
   }
   zle -N __teryon_tab
+  # Jump: every directory you enter is remembered; z picks the best match, zi lets you choose.
+  if [[ "${TERYON_JUMP:-1}" != 0 ]]; then
+    __teryon_chpwd() { command teryon jump add "$PWD" >/dev/null 2>&1 &! }
+    add-zsh-hook chpwd __teryon_chpwd
+    __teryon_chpwd
+    if (( ! $+functions[z] && ! $+aliases[z] )); then
+      z() {
+        if (( $# == 0 )); then builtin cd ~; return; fi
+        if (( $# == 1 )) && [[ -d "$1" || "$1" == - ]]; then builtin cd -- "$1"; return; fi
+        local d; d=$(command teryon jump query --cwd "$PWD" -- "$@") || { print -u2 "z: no directory matches: $*"; return 1; }
+        builtin cd -- "$d"
+      }
+    fi
+    if (( ! $+functions[zi] && ! $+aliases[zi] )); then
+      zi() {
+        local d; d=$(command teryon jump list --cwd "$PWD" -- "$@" | command teryon pick --query "$*") || return
+        [[ -n "$d" ]] && builtin cd -- "$d"
+      }
+    fi
+  fi
   autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint

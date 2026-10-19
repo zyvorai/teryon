@@ -44,6 +44,8 @@ fn pause() {
 fn workdir() -> tempfile::TempDir {
     let work = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(work.path().join("src/deep")).unwrap();
+    std::fs::create_dir_all(work.path().join("proj-a")).unwrap();
+    std::fs::create_dir_all(work.path().join("proj-b")).unwrap();
     for f in ["alpha.txt", "my file.txt", "src/main.rs", "src/lib.rs"] {
         std::fs::write(work.path().join(f), "").unwrap();
     }
@@ -115,4 +117,29 @@ fn tab_completes_a_single_match_inline_and_picks_fuzzily_inside_a_directory() {
     pause();
     s.send(b"\t");
     s.expect("Q my\\ file.txt");
+}
+#[test]
+fn z_jumps_to_the_most_used_match_and_zi_lets_you_choose() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let mut s = shell(home.path(), work.path(), false);
+    s.send(b"cd proj-b && cd .. && cd proj-a && cd .. && cd proj-a && cd ..\n");
+    pause();
+    pause();
+    s.send(b"z proj\n");
+    pause();
+    s.send(b"print -r -- AT_$(basename $PWD)\n");
+    s.expect("AT_proj-a");
+    s.send(b"z nosuchplace\n");
+    s.expect("z: no directory matches: nosuchplace");
+    s.send(b"cd ..; zi\n");
+    s.expect("pick \u{276f}");
+    s.send(b"proj-b");
+    pause();
+    s.send(b"\r");
+    pause();
+    s.send(b"print -r -- NOW_$(basename $PWD)\n");
+    s.expect("NOW_proj-b");
 }

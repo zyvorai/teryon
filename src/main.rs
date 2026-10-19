@@ -217,6 +217,9 @@ enum Commands {
         #[arg(long, default_value = "")]
         query: String,
     },
+    /// Frequently used directories behind `z` (used by the zsh functions).
+    #[command(hide = true, subcommand)]
+    Jump(JumpCommand),
     /// Guided first-run setup: tools, SSH hosts, reachability, theme.
     Setup {
         /// Accept every default without asking.
@@ -359,6 +362,25 @@ enum HistCommand {
         cwd: String,
         #[arg(last = true)]
         prefix: Vec<String>,
+    },
+}
+#[derive(Subcommand)]
+enum JumpCommand {
+    /// Record a visit to PATH.
+    Add { path: String },
+    /// Print the best directory for the keywords (exit 1 if none).
+    Query {
+        #[arg(long, default_value = "")]
+        cwd: String,
+        #[arg(last = true)]
+        keywords: Vec<String>,
+    },
+    /// Print every known directory, best first.
+    List {
+        #[arg(long, default_value = "")]
+        cwd: String,
+        #[arg(last = true)]
+        keywords: Vec<String>,
     },
 }
 #[derive(Subcommand)]
@@ -996,6 +1018,30 @@ fn run() -> Result<i32> {
                     }
                 }
                 None => std::process::exit(1),
+            }
+        }
+        Commands::Jump(cmd) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            match cmd {
+                JumpCommand::Add { path } => teryon::frecent::add(&path, now)?,
+                JumpCommand::Query { cwd, keywords } => {
+                    teryon::frecent::seed_if_missing();
+                    let hits =
+                        teryon::frecent::rank(&teryon::frecent::load(), &keywords, &cwd, now);
+                    match hits.first() {
+                        Some(best) => println!("{best}"),
+                        None => std::process::exit(1),
+                    }
+                }
+                JumpCommand::List { cwd, keywords } => {
+                    teryon::frecent::seed_if_missing();
+                    for hit in teryon::frecent::rank(&teryon::frecent::load(), &keywords, &cwd, now)
+                    {
+                        println!("{hit}");
+                    }
+                }
             }
         }
         Commands::Highlight { line } => {
