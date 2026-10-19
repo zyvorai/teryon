@@ -718,6 +718,19 @@ impl Desktop {
             terminal_focus = true;
         }
         self.term_focused = terminal_focus;
+        if terminal_focus {
+            ctx.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    term_id,
+                    egui::EventFilter {
+                        tab: true,
+                        escape: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                    },
+                );
+            });
+        }
         if (ctx.wants_keyboard_input() && !terminal_focus)
             || self.palette
             || self.draft_open
@@ -2001,6 +2014,75 @@ mod tests {
             app.keyboard(ctx);
         });
         assert!(rx.try_recv().is_err());
+    }
+    #[test]
+    fn terminal_focus_lock_sends_tab_esc_and_ctrl_u_to_the_pty() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let (_utx, urx) = mpsc::sync_channel(8);
+        let mut app = Desktop::new(
+            "mini".into(),
+            "test".into(),
+            false,
+            Theme::load("obsidian").unwrap(),
+            tx,
+            urx,
+        );
+        app.online = true;
+        let term_id = egui::Id::new(("teryon-terminal", 1u64));
+        let ctx = egui::Context::default();
+        let press = |key: Key, modifiers: egui::Modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        // The canvas must exist in used_ids each frame or egui's dead-man's-switch drops focus.
+        let frame = |app: &mut Desktop, events: Vec<egui::Event>, grab: bool| {
+            let mut still_focused = false;
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let r = ui.interact(
+                            ui.max_rect(),
+                            term_id,
+                            egui::Sense::click_and_drag(),
+                        );
+                        if grab {
+                            r.request_focus();
+                        }
+                    });
+                    still_focused = ctx.memory(|m| m.focused()) == Some(term_id);
+                    app.keyboard(ctx);
+                },
+            );
+            still_focused
+        };
+        // Frame 1: gain focus. Frame 2: keyboard() can apply the lock (had_focus_last_frame).
+        frame(&mut app, vec![], true);
+        frame(&mut app, vec![], false);
+        for (events, want) in [
+            (vec![press(Key::Tab, egui::Modifiers::NONE)], b"\t".as_slice()),
+            (vec![press(Key::Escape, egui::Modifiers::NONE)], b"\x1b".as_slice()),
+            (
+                vec![press(Key::U, egui::Modifiers::CTRL)],
+                b"\x15".as_slice(),
+            ),
+        ] {
+            assert!(
+                frame(&mut app, events, false),
+                "EventFilter must keep focus on the terminal canvas"
+            );
+            assert!(
+                matches!(rx.try_recv(), Ok(Command::Input { pane: 1, data }) if data == want),
+                "expected {:?}",
+                want
+            );
+        }
     }
     #[test]
     fn native_ui_renders_themes_sizes_and_disconnect_states() {

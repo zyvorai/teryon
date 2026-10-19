@@ -607,6 +607,20 @@ impl Desktop {
             egui::Id::new(("teryon-terminal", id)),
             Sense::click_and_drag(),
         );
+        // Keep Tab, Esc and arrows for the shell; egui's default focus walk would steal them.
+        if response.has_focus() {
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    response.id,
+                    egui::EventFilter {
+                        tab: true,
+                        escape: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                    },
+                );
+            });
+        }
         let menu_state = menus::MenuState {
             selection: self.selection.is_some_and(|s| s.pane == id),
             broadcast: self.broadcast,
