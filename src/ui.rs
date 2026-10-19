@@ -27,6 +27,62 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Idle gap between polls, and the much shorter one right after typing or output, so an echo
+/// appears within a few milliseconds instead of waiting out the idle gap.
+const POLL_IDLE: Duration = Duration::from_millis(60);
+const POLL_HOT: Duration = Duration::from_millis(6);
+/// How long polling stays fast after input or a screen change.
+const HOT_FOR: Duration = Duration::from_millis(400);
+
+/// How long the worker waits for a command before it polls again.
+pub(crate) fn poll_wait(now: Instant, hot_until: Instant) -> Duration {
+    if now < hot_until {
+        POLL_HOT
+    } else {
+        POLL_IDLE
+    }
+}
+
+/// Called by the worker right after new pane state is queued, so a GUI can draw it at once instead
+/// of waiting for its own timer.
+static WAKE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+pub(crate) fn set_wake(f: impl Fn() + Send + Sync + 'static) {
+    let _ = WAKE.set(Box::new(f));
+}
+fn wake() {
+    if let Some(f) = WAKE.get() {
+        f();
+    }
+}
+
+/// Run `job` on a fresh read-only connection to `workspace` in a background thread. Failures are
+/// dropped: the caller asked for optional data (history text, an image).
+fn side_call(
+    target: &Target,
+    workspace: &str,
+    size: (u16, u16),
+    tx: &SyncSender<Update>,
+    job: impl FnOnce(&mut crate::transport::Rpc, &SyncSender<Update>) -> Result<()> + Send + 'static,
+) {
+    let (target, workspace, tx) = (target.clone(), workspace.to_string(), tx.clone());
+    thread::spawn(move || {
+        let run = || -> Result<()> {
+            let mut rpc = target.connect()?;
+            rpc.call(Request::Attach {
+                workspace,
+                readonly: true,
+                rows: size.0,
+                cols: size.1,
+                cwd: None,
+            })?;
+            job(&mut rpc, &tx)
+        };
+        let _ = run();
+        wake();
+    });
+}
+
 /// One-line hints rotated in the footer while the session is idle.
 const TIPS: [&str; 6] = [
     "Ctrl+Space then z zooms a pane",
@@ -120,9 +176,11 @@ pub(crate) fn worker(
                 previous_instance = Some(rpc.instance.clone());
                 let mut known = BTreeMap::new();
                 let mut seq = 0;
+                let mut hot_until = Instant::now();
+                let mut last_sent = Instant::now();
                 let result = (|| -> Result<()> {
                     loop {
-                        match rx.recv_timeout(Duration::from_millis(60)) {
+                        match rx.recv_timeout(poll_wait(Instant::now(), hot_until)) {
                             Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                                 return Ok(())
                             }
@@ -137,6 +195,7 @@ pub(crate) fn worker(
                             Ok(command) => {
                                 let req = match command {
                                     Command::Input { pane, data } => {
+                                        hot_until = Instant::now() + HOT_FOR;
                                         seq += 1;
                                         Request::Input { pane, seq, data }
                                     }
@@ -157,26 +216,48 @@ pub(crate) fn worker(
                                     },
                                     Command::Close(pane) => Request::Close { pane },
                                     Command::Rename(pane, title) => Request::Rename { pane, title },
+                                    // Big reads run on their own read-only connection so typing and
+                                    // polling never wait behind a 15000-line capture.
                                     Command::Capture(pane, purpose) => {
-                                        if let Response::Captured { text, first_line } =
-                                            rpc.call(Request::Capture { pane })?
-                                        {
-                                            let _ = tx
-                                                .send(Update::Captured(text, first_line, purpose));
-                                        }
+                                        side_call(
+                                            &target,
+                                            &workspace,
+                                            size,
+                                            &tx,
+                                            move |rpc, tx| {
+                                                if let Response::Captured { text, first_line } =
+                                                    rpc.call(Request::Capture { pane })?
+                                                {
+                                                    let _ = tx.send(Update::Captured(
+                                                        text, first_line, purpose,
+                                                    ));
+                                                }
+                                                Ok(())
+                                            },
+                                        );
                                         continue;
                                     }
                                     Command::Image(pane, id) => {
                                         // An image that already scrolled away is not an error.
-                                        if let Ok(Response::ImageData { id, data }) =
-                                            rpc.call(Request::Image { pane, id })
-                                        {
-                                            if let Some(bytes) =
-                                                crate::inlineimg::decode_base64(&data)
-                                            {
-                                                let _ = tx.send(Update::Image(pane, id, bytes));
-                                            }
-                                        }
+                                        side_call(
+                                            &target,
+                                            &workspace,
+                                            size,
+                                            &tx,
+                                            move |rpc, tx| {
+                                                if let Ok(Response::ImageData { id, data }) =
+                                                    rpc.call(Request::Image { pane, id })
+                                                {
+                                                    if let Some(bytes) =
+                                                        crate::inlineimg::decode_base64(&data)
+                                                    {
+                                                        let _ =
+                                                            tx.send(Update::Image(pane, id, bytes));
+                                                    }
+                                                }
+                                                Ok(())
+                                            },
+                                        );
                                         continue;
                                     }
                                     Command::Stop | Command::Discard => unreachable!(),
@@ -205,7 +286,7 @@ pub(crate) fn worker(
                                 .map(|(id, revision)| (id.to_string(), *revision))
                                 .collect(),
                         })?;
-                        let _ = tx.try_send(Update::Latency(polled.elapsed().as_millis() as u64));
+                        let poll_ms = polled.elapsed().as_millis() as u64;
                         if let Response::State { panes } = state {
                             if !readonly {
                                 for pane in &panes {
@@ -218,9 +299,20 @@ pub(crate) fn worker(
                                     }
                                 }
                             }
+                            let changed =
+                                panes.iter().any(|p| known.get(&p.id) != Some(&p.revision));
                             known = panes.iter().map(|p| (p.id, p.revision)).collect();
-                            if tx.send(Update::State(panes)).is_err() {
-                                return Ok(());
+                            if changed {
+                                hot_until = Instant::now() + HOT_FOR;
+                            }
+                            // Unchanged polls are only forwarded now and then (latency, titles).
+                            if changed || last_sent.elapsed() >= POLL_IDLE {
+                                last_sent = Instant::now();
+                                let _ = tx.try_send(Update::Latency(poll_ms));
+                                if tx.send(Update::State(panes)).is_err() {
+                                    return Ok(());
+                                }
+                                wake();
                             }
                         }
                     }
@@ -1151,6 +1243,14 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn polling_is_fast_only_while_hot() {
+        let now = std::time::Instant::now();
+        let later = now + std::time::Duration::from_millis(100);
+        assert_eq!(super::poll_wait(now, later), super::POLL_HOT);
+        assert_eq!(super::poll_wait(later, now), super::POLL_IDLE);
+        assert!(super::POLL_HOT < super::POLL_IDLE);
+    }
     use super::*;
     #[test]
     fn layouts_tile_the_area_without_overlap() {

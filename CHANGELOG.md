@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop responsiveness: the worker polls every 6 ms for 400 ms after typing or output (60 ms when idle) and wakes the UI the moment new screen state arrives, history/image reads run on their own read-only connection so they never delay keystrokes, switching tabs cross-fades, and the release build uses thin LTO.
+
 - New shells get a richer `LS_COLORS` (source, config, docs, images, video, audio, archives, lock files, Makefile/Dockerfile/README) and an `EZA_COLORS` for `eza -l` columns.
 
 - Desktop: the cursor is orange (`#D97757`) and blinks by default; set `cursor_color` / `cursor_blink = false` to change it.

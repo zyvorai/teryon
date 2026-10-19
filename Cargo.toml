@@ -32,7 +32,8 @@ desktop = ["dep:eframe", "dep:image", "dep:raw-window-handle"]
 tempfile = "3"
 
 [profile.release]
-lto = false
+lto = "thin"
+codegen-units = 1
 strip = true
 
 [patch.crates-io]

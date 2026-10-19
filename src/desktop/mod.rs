@@ -142,6 +142,9 @@ pub struct Desktop {
     /// How much unfocused panes are dimmed (0 = not at all).
     unfocused_dim: f32,
     /// Per pane: the finished-command text last shown as a toast and when it appeared (seconds).
+    wake_set: bool,
+    /// When the active tab last changed, for the short cross-fade.
+    tab_fade_at: Option<Instant>,
     chip_toasts: HashMap<u64, (String, f64)>,
     /// Grain texture for `background_noise`.
     noise_tex: Option<egui::TextureHandle>,
@@ -317,6 +320,8 @@ impl Desktop {
             weights: Weights::default(),
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
+            wake_set: false,
+            tab_fade_at: None,
             chip_toasts: HashMap::new(),
             noise_tex: None,
             scroll_visual: HashMap::new(),
@@ -435,6 +440,7 @@ impl Desktop {
             self.swap_session(&mut incoming);
             self.tabs[self.active].state = Some(incoming);
             self.active = i;
+            self.tab_fade_at = Some(Instant::now());
             self.last_size = (0, 0);
             self.toasted = self.notice.clone();
             self.broadcast = false;
@@ -847,6 +853,12 @@ impl Desktop {
         }
     }
     fn frame(&mut self, ctx: &egui::Context) {
+        if !self.wake_set {
+            // The worker draws a frame the moment new pane state arrives.
+            let repaint = ctx.clone();
+            crate::ui::set_wake(move || repaint.request_repaint());
+            self.wake_set = true;
+        }
         let previous_focus = self.focus;
         self.pump_background();
         self.updates();
@@ -917,6 +929,7 @@ impl Desktop {
         }
         self.aicmd_ui(ctx);
         self.cmdhist_ui(ctx);
+        let content_rect = ctx.available_rect();
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1207,6 +1220,21 @@ impl Desktop {
                         self.confirm_close = false;
                     }
                 });
+        }
+        // A new tab's panes fade in over the old picture instead of cutting.
+        if let Some(at) = self.tab_fade_at {
+            let k = at.elapsed().as_secs_f32() / 0.14;
+            if k >= 1. {
+                self.tab_fade_at = None;
+            } else {
+                let veil = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("teryon-tab-fade"),
+                ));
+                let alpha = (1. - k) * (1. - k) * 0.55;
+                veil.rect_filled(content_rect, 0., color(t.background).gamma_multiply(alpha));
+                ctx.request_repaint();
+            }
         }
         self.keyboard(ctx);
         ctx.request_repaint_after(Duration::from_millis(33));
