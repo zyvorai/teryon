@@ -887,7 +887,7 @@ impl Desktop {
             .iter()
             .filter_map(|c| triggers::parse_hex(c))
             .collect();
-        if stops.len() >= 2 && bar_h <= 0. {
+        if stops.len() >= 2 {
             paint_gradient(&painter, rect, &stops, self.cfg.gradient_angle, opacity);
         } else {
             painter.rect_filled(
