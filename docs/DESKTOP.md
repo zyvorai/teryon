@@ -27,7 +27,7 @@ pane's foreground command and shows a chip: **working**, **needs you** (an appro
 **idle** or **done** (the shell is back). **⌘⇧A** lists every agent in the workspace, needing-you first. With the window
 in the background you get a notification when one needs you or finishes (`[desktop] agent_notifications = false` turns
 it off). Because the daemon keeps the agent running, you can close the app, reconnect later and see "While you were
-away" with what finished or failed; ✦ Summarize asks the assistant for a short recap.
+away" with a row for each command that finished (its command line, ✓ or ✗ exit code, how long it took, and when) and for each agent waiting for you; click a row to open that pane at the command's output. ✦ Summarize asks the assistant for a short recap. The card shows the eight newest events and needs the shell integration for command rows.
 
 ## File browser
 

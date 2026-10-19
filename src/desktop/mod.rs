@@ -109,6 +109,8 @@ struct SessionExtra {
     last_layout_save: Option<Instant>,
     /// "While you were away": the card text and the time you last looked; checked once per attach.
     away: Option<(Vec<String>, u64)>,
+    /// The same absence as separate events, each one a row you can open.
+    away_items: Vec<away::AwayItem>,
     away_checked: bool,
     away_touched: Option<Instant>,
 }
