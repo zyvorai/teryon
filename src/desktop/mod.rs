@@ -714,6 +714,8 @@ impl Desktop {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
+        // With ⌥ held the Key event already sent ESC + key; drop the composed text that follows.
+        let alt_meta = ctx.input(|i| i.modifiers.alt && !i.modifiers.command);
         for event in events {
             let consumed = if self.hints.is_some() {
                 self.hints_event(&event)
@@ -726,7 +728,11 @@ impl Desktop {
                 continue;
             }
             match event {
-                egui::Event::Text(text) => self.input(text.into_bytes()),
+                egui::Event::Text(text) => {
+                    if !alt_meta {
+                        self.input(text.into_bytes());
+                    }
+                }
                 egui::Event::Copy => {
                     if let Some(text) = self.selection.and_then(|s| self.selection_text(&s)) {
                         self.copy_text = Some(text);
@@ -792,7 +798,11 @@ impl Desktop {
                         Key::F10 => crossterm::event::KeyCode::F(10),
                         Key::F11 => crossterm::event::KeyCode::F(11),
                         Key::F12 => crossterm::event::KeyCode::F(12),
-                        k if modifiers.ctrl => {
+                        Key::Space if modifiers.ctrl => crossterm::event::KeyCode::Char(' '),
+                        Key::Slash if modifiers.ctrl => crossterm::event::KeyCode::Char('_'),
+                        // ⌥ is Meta like WezTerm's default: ⌥B / ⌥F / ⌥D / ⌥. send ESC + the key
+                        // instead of the composed character the Mac layout would type.
+                        k if modifiers.ctrl || modifiers.alt => {
                             let name = k.name();
                             let mut chars = name.chars();
                             let Some(c) = chars.next() else {
@@ -801,7 +811,14 @@ impl Desktop {
                             if chars.next().is_some() {
                                 continue;
                             }
-                            crossterm::event::KeyCode::Char(c.to_ascii_lowercase())
+                            if modifiers.shift && !modifiers.ctrl && !c.is_ascii_alphabetic() {
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char(if modifiers.shift && !modifiers.ctrl {
+                                c.to_ascii_uppercase()
+                            } else {
+                                c.to_ascii_lowercase()
+                            })
                         }
                         _ => continue,
                     };
@@ -2308,6 +2325,51 @@ mod tests {
             .toast
             .as_ref()
             .is_some_and(|(t, _)| t.contains("local workspace")));
+    }
+    #[test]
+    fn option_is_meta_and_ctrl_space_is_nul() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let (_utx, urx) = mpsc::sync_channel(4);
+        let mut app = Desktop::new(
+            "m".into(),
+            "a".into(),
+            false,
+            Theme::load("nord").unwrap(),
+            tx,
+            urx,
+        );
+        app.online = true;
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let alt = egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let ctrl = egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        let raw = egui::RawInput {
+            events: vec![
+                key(Key::B, alt),
+                egui::Event::Text("∫".into()),
+                key(Key::Space, ctrl),
+            ],
+            modifiers: alt,
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let _ = ctx.run(raw, |ctx| app.keyboard(ctx));
+        let mut sent = Vec::new();
+        while let Ok(Command::Input { data, .. }) = rx.try_recv() {
+            sent.push(data);
+        }
+        assert_eq!(sent, vec![b"\x1bb".to_vec(), vec![0]]);
     }
     #[test]
     fn bound_keys_run_their_actions() {
