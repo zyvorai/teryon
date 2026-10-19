@@ -114,6 +114,7 @@ impl Client {
     fn snapshot(&mut self) -> Vec<PaneView> {
         let Response::State { panes } = self.call(Request::Poll {
             known: BTreeMap::new(),
+            diff: false,
         }) else {
             panic!("no state")
         };
@@ -290,7 +291,7 @@ fn resize_unicode_color_and_incremental_snapshot() {
     parser.process(s[0].screen.as_ref().unwrap());
     assert!(parser.screen().contents().contains("λ界"));
     let known = s.iter().map(|p| (p.id.to_string(), p.revision)).collect();
-    let Response::State { panes } = c.call(Request::Poll { known }) else {
+    let Response::State { panes } = c.call(Request::Poll { known, diff: false }) else {
         panic!()
     };
     assert!(panes[0].screen.is_none());
@@ -1056,4 +1057,92 @@ fn kitty_flags_ask_only_for_what_is_supported_and_leave_with_the_alternate_scree
     );
     c.until(pane, "left");
     assert_eq!(kbd(&mut c, pane), 0);
+}
+
+#[test]
+fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
+    use teryon::screensync::{Applied, ClientMirrors};
+    let d = Daemon::start();
+    // A pane that keeps printing, so the screen changes many times while two viewers poll it.
+    let script = "i=0; while [ $i -lt 120 ]; do printf 'line %03d \\033[3%dmcolored text here\\033[0m and some more words\\n' $i $((i % 8)); i=$((i+1)); sleep 0.02; done; printf 'finished\\n'; sleep 8";
+    let (mut owner, pane) = pane_running(&d, "diffs", script);
+    let viewer = |diff: bool| {
+        let mut c = d.client();
+        c.attach("diffs", true);
+        (c, diff)
+    };
+    let (mut with_diff, _) = viewer(true);
+    let (mut whole, _) = viewer(false);
+    assert!(matches!(
+        with_diff.call(Request::Info),
+        Response::Info { diff: true, .. }
+    ));
+    let (mut known_d, mut known_w) = (BTreeMap::new(), BTreeMap::new());
+    let (mut bytes_d, mut bytes_w, mut diffs_seen) = (0usize, 0usize, 0usize);
+    let mut mirrors = ClientMirrors::default();
+    let mut rebuilt: Option<Vec<u8>> = None;
+    let mut full_w: Option<Vec<u8>> = None;
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        let Response::State { panes } = with_diff.call(Request::Poll {
+            known: known_d.clone(),
+            diff: true,
+        }) else {
+            panic!("no state")
+        };
+        for p in &panes {
+            known_d.insert(p.id.to_string(), p.revision);
+            if let Some(b) = &p.screen {
+                bytes_d += b.len();
+                diffs_seen += usize::from(p.diff_from.is_some());
+                match mirrors.apply(
+                    p.id,
+                    p.revision,
+                    (p.rows, p.cols),
+                    p.screen.as_deref(),
+                    p.diff_from,
+                    p.digest,
+                ) {
+                    Applied::Plain => rebuilt = Some(b.clone()),
+                    Applied::Rebuilt(full) => rebuilt = Some(full),
+                    Applied::Resync => panic!("a diff did not fit"),
+                }
+            }
+        }
+        let Response::State { panes } = whole.call(Request::Poll {
+            known: known_w.clone(),
+            diff: false,
+        }) else {
+            panic!("no state")
+        };
+        for p in &panes {
+            known_w.insert(p.id.to_string(), p.revision);
+            if let Some(b) = &p.screen {
+                bytes_w += b.len();
+                full_w = Some(b.clone());
+            }
+        }
+        if owner.capture(pane).contains("finished") && known_d == known_w {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    // One last poll each so both hold the final screen.
+    let text = |bytes: &[u8]| {
+        let mut p = vt100::Parser::new(24, 80, 0);
+        p.process(bytes);
+        p.screen().contents()
+    };
+    let (a, b) = (text(&rebuilt.unwrap()), text(&full_w.unwrap()));
+    assert!(
+        diffs_seen > 5,
+        "the viewer should have been sent diffs, saw {diffs_seen}"
+    );
+    eprintln!("scrolling pane: {bytes_d} bytes as diffs, {bytes_w} as whole screens");
+    assert!(a.contains("line") && b.contains("line"));
+    assert_eq!(a, b, "diffs rebuild exactly what whole snapshots show");
+    assert!(
+        bytes_d * 2 < bytes_w,
+        "diffs sent {bytes_d} bytes against {bytes_w} for whole screens"
+    );
 }

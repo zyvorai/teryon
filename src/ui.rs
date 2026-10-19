@@ -217,16 +217,21 @@ pub(crate) fn worker(
                 let _ = tx.send(Update::Online);
                 let mut info_at = Instant::now();
                 let mut undo_ok = false;
+                // Screen diffs save bandwidth on a real link; a local socket has none to save.
+                let mut diff_ok = false;
+                let mut mirrors = crate::screensync::ClientMirrors::default();
                 if let Ok(Response::Info {
                     os,
                     arch,
                     uptime,
                     stats,
                     undo,
+                    diff,
                     ..
                 }) = rpc.call(Request::Info)
                 {
                     undo_ok = undo;
+                    diff_ok = diff && !target.local();
                     let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
                 }
                 if previous_instance
@@ -420,9 +425,39 @@ pub(crate) fn worker(
                                 .iter()
                                 .map(|(id, revision)| (id.to_string(), *revision))
                                 .collect(),
+                            diff: diff_ok,
                         })?;
                         let poll_ms = polled.elapsed().as_millis() as u64;
-                        if let Response::State { panes } = state {
+                        if let Response::State { mut panes } = state {
+                            // Diffs are turned back into whole screens here, so everything past this
+                            // point (the UI, the change tracking) sees what it always saw.
+                            let mut resync = Vec::new();
+                            if diff_ok {
+                                mirrors.retain(|id| panes.iter().any(|p| p.id == id));
+                                for p in panes.iter_mut() {
+                                    match mirrors.apply(
+                                        p.id,
+                                        p.revision,
+                                        (p.rows, p.cols),
+                                        p.screen.as_deref(),
+                                        p.diff_from,
+                                        p.digest,
+                                    ) {
+                                        crate::screensync::Applied::Plain => {}
+                                        crate::screensync::Applied::Rebuilt(full) => {
+                                            p.screen = Some(full);
+                                            p.diff_from = None;
+                                            p.digest = None;
+                                        }
+                                        crate::screensync::Applied::Resync => {
+                                            p.screen = None;
+                                            p.diff_from = None;
+                                            p.digest = None;
+                                            resync.push(p.id);
+                                        }
+                                    }
+                                }
+                            }
                             if !readonly && !seat_lost {
                                 for pane in &panes {
                                     if (pane.rows, pane.cols) != size {
@@ -446,6 +481,10 @@ pub(crate) fn worker(
                             let changed =
                                 panes.iter().any(|p| known.get(&p.id) != Some(&p.revision));
                             known = panes.iter().map(|p| (p.id, p.revision)).collect();
+                            // A diff that did not fit: say we hold nothing, so the next poll is whole.
+                            for id in &resync {
+                                known.remove(id);
+                            }
                             if changed {
                                 hot_until = Instant::now() + HOT_FOR;
                             }
