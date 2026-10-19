@@ -39,6 +39,26 @@ away" with what finished or failed; ✦ Summarize asks the assistant for a short
 prompt (you still press Enter to run it). Click a red ✗ chip after a failed command to have the assistant explain it.
 See `docs/AI.md`.
 
+## Command history
+
+⌘⇧H (palette: "Search command history…") opens the same list as Ctrl-R in the shell, without leaving the window:
+Enter puts the command at the prompt, ⌥Enter runs it, Tab narrows to this directory. It needs the zsh integration
+(`teryon setup`) and a local workspace, because the history is kept on this Mac.
+
+## A bare window
+
+For a window that is only the terminal, like WezTerm with its tab bar and title bar off:
+
+```toml
+[desktop]
+chrome = "none"          # no title bar, no tab strip, no empty-pane hints (restart to apply)
+initial_cols = 124       # open windows this many columns and rows, instead of the last size
+initial_rows = 42
+```
+
+The window stays resizable. A thin strip along the top edge moves it, and double-clicking that strip maximizes.
+Tabs, panes, the palette (⌘K) and every shortcut still work; only their buttons are hidden.
+
 ## Icons
 
 Icons printed by `eza --icons`, `lsd`, oh-my-posh, starship and similar tools are Nerd Font glyphs. The desktop app

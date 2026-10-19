@@ -25,6 +25,7 @@ mod ai;
 mod aicmd;
 mod away;
 mod bar;
+mod cmdhist;
 mod dropzone;
 mod files;
 mod find;
@@ -173,6 +174,8 @@ pub struct Desktop {
     /// Floating pane, saved-layout state, triggers and uploads.
     extra: SessionExtra,
     pending_float: bool,
+    /// Columns and rows to size the window to on the first frame (`initial_cols`/`initial_rows`).
+    pending_cells: Option<(u16, u16)>,
     triggers: Vec<CompiledTrigger>,
     trigger_seen: HashMap<u64, Instant>,
     upload_tx: mpsc::Sender<(bool, String)>,
@@ -188,6 +191,7 @@ pub struct Desktop {
     files: files::Browser,
     agents_open: bool,
     aicmd: aicmd::Bar,
+    cmdhist: cmdhist::Bar,
     /// A failed-command chip was clicked: explain this pane's failure with the assistant.
     explain_req: Option<u64>,
     /// A choice from the right-click or dropdown menu, applied next frame.
@@ -323,6 +327,7 @@ impl Desktop {
             last_system_dark: None,
             extra: SessionExtra::default(),
             pending_float: false,
+            pending_cells: None,
             triggers: Vec::new(),
             trigger_seen: HashMap::new(),
             upload_tx,
@@ -336,6 +341,7 @@ impl Desktop {
             files: files::Browser::new(),
             agents_open: false,
             aicmd: aicmd::Bar::default(),
+            cmdhist: cmdhist::Bar::default(),
             explain_req: None,
             menu_pick: None,
             renaming: None,
@@ -817,7 +823,14 @@ impl Desktop {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.window_title = title;
         }
-        self.top_bar(ctx);
+        if let Some((cols, rows)) = self.pending_cells.take() {
+            self.size_window_to_cells(ctx, cols, rows);
+        }
+        if self.cfg.chrome == crate::config::Chrome::Full {
+            self.top_bar(ctx);
+        } else {
+            self.chrome_drag(ctx);
+        }
         self.files_ui(ctx);
         self.ai_panel(ctx);
         self.agents_overview(ctx);
@@ -826,6 +839,7 @@ impl Desktop {
             self.ai_explain(id);
         }
         self.aicmd_ui(ctx);
+        self.cmdhist_ui(ctx);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1277,6 +1291,7 @@ impl Desktop {
             ActionKind::Files => self.files_toggle(),
             ActionKind::Agents => self.agents_open = !self.agents_open,
             ActionKind::AiCommand => self.aicmd_toggle(),
+            ActionKind::CommandHistory => self.cmdhist_toggle(),
         }
     }
     fn palette_ui(&mut self, ctx: &egui::Context) {
@@ -1579,6 +1594,45 @@ impl eframe::App for Desktop {
         self.frame(ctx);
     }
 }
+impl Desktop {
+    /// Window size (points) for a terminal `rows` high and `text_width` wide, plus all margins.
+    fn cells_to_window(&self, text_width: f32, rows: u16) -> (f32, f32) {
+        let margin = 2. * (self.cfg.padding + self.cfg.pane_inset);
+        let bar = if self.cfg.chrome == crate::config::Chrome::Full {
+            bar::BAR_HEIGHT
+        } else {
+            0.
+        };
+        (
+            text_width + margin,
+            // The two points keep rounding from costing the last row.
+            f32::from(rows) * self.font_size * self.cfg.line_height + margin + bar + 2.,
+        )
+    }
+    fn size_window_to_cells(&mut self, ctx: &egui::Context, cols: u16, rows: u16) {
+        let font = FontId::monospace(self.font_size);
+        let cw = ctx.fonts(|f| f.glyph_width(&font, 'M'));
+        let (w, h) = self.cells_to_window(f32::from(cols) * cw, rows);
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(w, h)));
+    }
+    /// Without a title bar, a thin strip along the top edge moves the window (double-click maximizes).
+    fn chrome_drag(&mut self, ctx: &egui::Context) {
+        egui::Area::new(egui::Id::new("teryon-drag-strip"))
+            .fixed_pos(egui::Pos2::ZERO)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                let size = Vec2::new(ctx.screen_rect().width(), 6.);
+                let strip = ui.allocate_response(size, Sense::click_and_drag());
+                if strip.drag_started() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                if strip.double_clicked() {
+                    let max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+                }
+            });
+    }
+}
 impl Drop for Desktop {
     fn drop(&mut self) {
         self.save_settings(true);
@@ -1611,8 +1665,14 @@ fn chord_mods(m: &egui::Modifiers) -> Mods {
         }
     }
 }
-fn merged_titlebar(builder: egui::ViewportBuilder) -> egui::ViewportBuilder {
-    if cfg!(target_os = "macos") {
+fn merged_titlebar(
+    builder: egui::ViewportBuilder,
+    chrome: crate::config::Chrome,
+) -> egui::ViewportBuilder {
+    if chrome == crate::config::Chrome::None {
+        // A bare, still resizable window: no title bar, no buttons.
+        builder.with_decorations(false)
+    } else if cfg!(target_os = "macos") {
         builder
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
@@ -1653,10 +1713,15 @@ pub fn run(
     let transparent = app.cfg.window_opacity < 1.;
     let family = app.cfg.font_family.clone();
     app.applied_font = Some(family.clone());
-    let (width, height) = (
+    let (mut width, mut height) = (
         settings.width.unwrap_or(1180.),
         settings.height.unwrap_or(760.),
     );
+    if let (Some(cols), Some(rows)) = (app.cfg.initial_cols, app.cfg.initial_rows) {
+        // A first guess so the window opens close to its size; the first frame sets it exactly.
+        app.pending_cells = Some((cols, rows));
+        (width, height) = app.cells_to_window(f32::from(cols) * app.font_size * 0.6, rows);
+    }
     if settings.welcomed != Some(true) {
         app.toast("Press ⌘K for everything, ⌘/ for shortcuts");
     }
@@ -1664,7 +1729,7 @@ pub fn run(
     eframe::run_native(
         "TERYON — Your Mac mini. Wherever you work.",
         eframe::NativeOptions {
-            viewport: merged_titlebar(egui::ViewportBuilder::default())
+            viewport: merged_titlebar(egui::ViewportBuilder::default(), app.cfg.chrome)
                 .with_transparent(transparent)
                 .with_icon(egui::IconData {
                     rgba: include_bytes!("../../docs/brand/teryon-icon-128.rgba").to_vec(),
@@ -2063,6 +2128,25 @@ mod tests {
             .toast
             .as_ref()
             .is_some_and(|(t, _)| t.contains("bound to both")));
+    }
+    #[test]
+    fn command_history_search_is_local_only() {
+        let (tx, _rx) = mpsc::sync_channel(8);
+        let (_utx, urx) = mpsc::sync_channel(4);
+        let mut app = Desktop::new(
+            "mini".into(),
+            "default".into(),
+            false,
+            Theme::load("mac27-dark").unwrap(),
+            tx,
+            urx,
+        );
+        app.cmdhist_toggle();
+        assert!(!app.cmdhist.open);
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("local workspace")));
     }
     #[test]
     fn bound_keys_run_their_actions() {

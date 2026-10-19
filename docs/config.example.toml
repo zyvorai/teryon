@@ -21,6 +21,9 @@ destination = "susant@mini.local"
 # line_height = 1.45
 # padding = 8.0
 # pane_inset = 10.0                # space around the panes; 0 runs them edge to edge
+# chrome = "none"                  # full | none: "none" is only the terminal, no title bar or tab strip
+# initial_cols = 124               # open windows this size (set both), instead of the last size
+# initial_rows = 42
 # cursor_style = "block"           # block | bar | underline
 # cursor_blink = false
 # window_opacity = 1.0             # below 1.0 needs a restart to take effect
@@ -61,3 +64,14 @@ destination = "susant@mini.local"
 # model = "claude-sonnet-5-5"
 # max_tokens = 2048
 # auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes", "suggest_command"]   # read-only tools only
+
+# Zsh integration (teryon shell-init zsh): history, suggestions, highlighting, pickers, Tab, z, prompt.
+# [shell]
+# enabled = true
+# history = true
+# suggest = true
+# highlight = true
+# pickers = true     # Ctrl-R, Ctrl-T, Alt-C
+# tab = true
+# jump = true        # z and zi
+# prompt = false     # two-line prompt with git state

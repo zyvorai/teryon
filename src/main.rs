@@ -964,10 +964,13 @@ fn run() -> Result<i32> {
             println!("Daemon stopped");
         }
         Commands::ShellInit { shell } => {
-            print!(
-                "{}",
-                teryon::shellinit::script(&shell).context("unsupported shell")?
-            )
+            let script = teryon::shellinit::script(&shell).context("unsupported shell")?;
+            if shell == "zsh" {
+                // A broken config must not break shell start-up: fall back to the defaults.
+                let cfg = config::load().map(|c| c.shell).unwrap_or_default();
+                print!("{}", teryon::shellinit::preamble(&cfg));
+            }
+            print!("{script}")
         }
         Commands::Hist(HistCommand::Add { exit, ms, cwd, cmd }) => {
             let at = std::time::SystemTime::now()

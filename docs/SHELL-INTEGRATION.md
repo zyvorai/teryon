@@ -49,3 +49,48 @@ and is safe to re-run. The block does nothing on a machine without `teryon`. Ope
 * Full-screen programs share the cursor but not the history, so their output is not marked.
 * The "last output" and prompt jumps need the lines to still be in the retained history.
 * The terminal UI (`teryon connect`) does not show the chips or jump between prompts yet.
+
+## Zsh power features
+
+With the same `eval "$(teryon shell-init zsh)"` line, zsh also gets the everyday conveniences of the usual
+plugins, built in (no plugin manager, nothing else to install):
+
+| Feature | How it works |
+|---|---|
+| **History** | Every command is recorded in `~/.teryon/history.jsonl` (private, mode 0600) with its directory, exit status and duration. A command that starts with a space is never recorded. |
+| **Suggestions** | The newest matching command shows as gray ghost text; → or End or Ctrl-E accepts it, Alt-F takes one word. |
+| **Highlighting** | Commands (green, red when unknown), options, strings, variables, operators, comments and existing paths are coloured as you type. Aliases and functions count as known. |
+| **Ctrl-R** | Fuzzy history with exit status, duration, directory and age. Enter puts the command on the line, Alt-Enter runs it, Tab narrows to this directory. |
+| **Ctrl-T / Alt-C** | Fuzzy file picker (respects `.gitignore` inside a repository) and a directory picker that runs `cd`. On macOS, Alt-C needs Option to act as Meta in your terminal. |
+| **Tab** | One match completes in place. Several open the fuzzy picker, for files and for anything zsh's own completion offers (`compinit` is required). It falls back to plain zsh Tab inside quotes, mid-word or when you type ahead. |
+| **`z` / `zi`** | `z proj` jumps to the best matching directory (visits weighted by recency), `zi` picks from all of them. Directories are remembered in `~/.teryon/jump.jsonl`. An existing `z` function or alias is left alone. |
+| **Prompt** | Off by default. A two-line prompt with the directory, git branch and state, language, the last command's duration and its exit status. |
+
+`teryon-features` lists what is on and which feature is yielding to a plugin you already load
+(zsh-syntax-highlighting, zsh-autosuggestions and fzf-tab take over their own job).
+
+### Switches
+
+Everything above is on except the prompt. Change it in `~/.config/teryon/config.toml`:
+
+```toml
+[shell]
+enabled = true     # master switch
+history = true
+suggest = true
+highlight = true
+pickers = true     # Ctrl-R, Ctrl-T, Alt-C
+tab = true
+jump = true
+prompt = false     # two-line prompt with git state
+```
+
+A variable set in the environment before the `eval` line wins over the file: `TERYON_PLUS`, `TERYON_HISTORY`,
+`TERYON_SUGGEST`, `TERYON_HIGHLIGHT`, `TERYON_PICKERS`, `TERYON_TAB`, `TERYON_JUMP`, `TERYON_PROMPT` (`0` or `1`).
+
+### Limits
+
+History and the jump list are local to each machine; a remote host keeps its own if it runs `teryon` with the
+integration. The highlighter is a tokenizer, not a full zsh parser, so `$(...)` and `case` patterns get basic
+colouring and lines over 500 characters are left plain. The Tab menu shows no descriptions yet. bash and fish get the
+prompt marks only.

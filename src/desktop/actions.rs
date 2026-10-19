@@ -66,6 +66,7 @@ pub(super) enum ActionKind {
     Files,
     Agents,
     AiCommand,
+    CommandHistory,
 }
 
 impl ActionKind {
@@ -132,6 +133,7 @@ impl ActionKind {
                 Self::Files => "files",
                 Self::Agents => "agents",
                 Self::AiCommand => "ai_command",
+                Self::CommandHistory => "command_history",
                 Self::Layout(_)
                 | Self::Theme(_)
                 | Self::TabMove(_)
@@ -207,6 +209,7 @@ impl ActionKind {
             "files" => Self::Files,
             "agents" => Self::Agents,
             "ai_command" => Self::AiCommand,
+            "command_history" => Self::CommandHistory,
             _ => return None,
         })
     }
@@ -230,6 +233,7 @@ pub(super) fn actions(
         ("File browser", ActionKind::Files),
         ("Agents overview", ActionKind::Agents),
         ("AI command bar: describe a command…", ActionKind::AiCommand),
+        ("Search command history…", ActionKind::CommandHistory),
         ("Open workspace…", ActionKind::OpenWorkspace),
         ("Shortcut cheat sheet", ActionKind::CheatSheet),
         ("New pane", ActionKind::NewPane),

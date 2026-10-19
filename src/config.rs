@@ -27,6 +27,45 @@ pub struct Config {
     /// AI assistant options (`[ai]`).
     #[serde(default)]
     pub ai: AiConfig,
+    /// Zsh integration switches (`[shell]`).
+    #[serde(default)]
+    pub shell: ShellConfig,
+}
+/// `[shell]`: which parts of the zsh integration `teryon shell-init zsh` turns on. Every switch
+/// can still be overridden per shell with its `TERYON_*` environment variable.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ShellConfig {
+    /// Master switch for everything below (`TERYON_PLUS`).
+    pub enabled: bool,
+    /// Record commands with directory, exit status and duration (`TERYON_HISTORY`).
+    pub history: bool,
+    /// Ghost-text suggestions from history (`TERYON_SUGGEST`).
+    pub suggest: bool,
+    /// Colour the command line while typing (`TERYON_HIGHLIGHT`).
+    pub highlight: bool,
+    /// Ctrl-R history, Ctrl-T files and Alt-C directories (`TERYON_PICKERS`).
+    pub pickers: bool,
+    /// Fuzzy Tab completion (`TERYON_TAB`).
+    pub tab: bool,
+    /// The `z` and `zi` directory jump (`TERYON_JUMP`).
+    pub jump: bool,
+    /// The two-line prompt with git state; off unless you ask (`TERYON_PROMPT`).
+    pub prompt: bool,
+}
+impl Default for ShellConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            history: true,
+            suggest: true,
+            highlight: true,
+            pickers: true,
+            tab: true,
+            jump: true,
+            prompt: false,
+        }
+    }
 }
 /// `[ai]`: the Claude-powered assistant. The API key is never stored here (`ANTHROPIC_API_KEY` or the Keychain).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -92,6 +131,16 @@ pub enum CursorStyle {
     Block,
     Bar,
     Underline,
+}
+/// How much window decoration the desktop app draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Chrome {
+    /// The title bar with tabs and buttons.
+    #[default]
+    Full,
+    /// Nothing but the terminal, like a bare terminal window: no title bar, no tab strip.
+    None,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -175,6 +224,11 @@ pub struct DesktopConfig {
     /// Lines of history shown when scrolling back.
     pub scrollback_lines: usize,
     pub pane_titles: PaneTitles,
+    /// `"none"` draws only the terminal: no title bar and no tab strip (restart to apply).
+    pub chrome: Chrome,
+    /// Open windows this many columns by rows wide (both or neither), instead of the last size.
+    pub initial_cols: Option<u16>,
+    pub initial_rows: Option<u16>,
     /// Ask before closing the window (shells keep running either way).
     pub confirm_quit: bool,
     /// Key bindings: action name -> chord such as "cmd+shift+d"; "none" unbinds.
@@ -204,6 +258,9 @@ impl Default for DesktopConfig {
             theme_dark: None,
             scrollback_lines: 10_000,
             pane_titles: PaneTitles::Auto,
+            chrome: Chrome::Full,
+            initial_cols: None,
+            initial_rows: None,
             confirm_quit: false,
             keys: BTreeMap::new(),
             snippets: Vec::new(),
@@ -226,6 +283,14 @@ impl DesktopConfig {
         check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
+        match (self.initial_cols, self.initial_rows) {
+            (None, None) => {}
+            (Some(c), Some(r)) if (20..=500).contains(&c) && (5..=200).contains(&r) => {}
+            (Some(_), Some(_)) => {
+                bail!("desktop.initial_cols must be 20..500 and initial_rows 5..200")
+            }
+            _ => bail!("desktop.initial_cols and desktop.initial_rows go together"),
+        }
         if self.notify_after_seconds > 86_400 {
             bail!("desktop.notify_after_seconds must be at most 86400");
         }
@@ -326,6 +391,7 @@ pub fn load() -> Result<Config> {
             desktop: DesktopConfig::default(),
             start: StartMode::Tui,
             ai: AiConfig::default(),
+            shell: ShellConfig::default(),
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -455,6 +521,29 @@ pub fn init() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chrome_and_initial_size_are_validated_together() {
+        let ok =
+            parse_desktop("[desktop]\nchrome = \"none\"\ninitial_cols = 124\ninitial_rows = 42\n")
+                .unwrap();
+        assert_eq!(
+            (ok.chrome, ok.initial_cols, ok.initial_rows),
+            (Chrome::None, Some(124), Some(42))
+        );
+        assert_eq!(parse_desktop("").unwrap().chrome, Chrome::Full);
+        assert!(parse_desktop("[desktop]\ninitial_cols = 124\n").is_err());
+        assert!(parse_desktop("[desktop]\ninitial_cols = 5\ninitial_rows = 42\n").is_err());
+        assert!(parse_desktop("[desktop]\nchrome = \"minimal\"\n").is_err());
+    }
+    #[test]
+    fn the_shell_section_defaults_to_everything_on_except_the_prompt() {
+        let d: Config = toml::from_str("").unwrap();
+        assert!(d.shell.enabled && d.shell.tab && d.shell.jump && d.shell.history);
+        assert!(!d.shell.prompt);
+        let c: Config = toml::from_str("[shell]\nprompt = true\ntab = false\n").unwrap();
+        assert!(c.shell.prompt && !c.shell.tab && c.shell.suggest);
+        assert!(toml::from_str::<Config>("[shell]\nbogus = true\n").is_err());
+    }
     #[test]
     fn desktop_section_defaults_validates_and_rejects_unknown_keys() {
         assert_eq!(parse_desktop("").unwrap(), DesktopConfig::default());

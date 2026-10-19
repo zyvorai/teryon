@@ -29,7 +29,7 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     [[ -n "$__teryon_cmd" && -n "$__teryon_t0" ]] || return
     local -i ms=$(( (EPOCHREALTIME - __teryon_t0) * 1000 ))
     __teryon_last_ms=$ms
-    command teryon hist add --exit "$1" --ms "$ms" --cwd "$PWD" -- "$__teryon_cmd" >/dev/null 2>&1 &!
+    [[ "${TERYON_HISTORY:-1}" != 0 ]] && command teryon hist add --exit "$1" --ms "$ms" --cwd "$PWD" -- "$__teryon_cmd" >/dev/null 2>&1 &!
     __teryon_cmd= __teryon_t0=
   }
   __teryon_clear_hint() {
@@ -62,7 +62,12 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     __teryon_hls+=("$h")
     region_highlight+=("$h")
   }
-  __teryon_redraw() { __teryon_clear_hint; __teryon_highlight; __teryon_suggest; }
+  __teryon_redraw() {
+    __teryon_clear_hint
+    [[ "${TERYON_HIGHLIGHT:-1}" != 0 ]] && __teryon_highlight
+    [[ "${TERYON_SUGGEST:-1}" != 0 ]] && __teryon_suggest
+    return 0
+  }
   __teryon_accept_all() {
     if [[ -n "$__teryon_hint" && "$CURSOR" -eq "${#BUFFER}" ]]; then
       BUFFER=$__teryon_hint; CURSOR=${#BUFFER}; __teryon_clear_hint
@@ -196,12 +201,26 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     add-zsh-hook precmd __teryon_prompt_hook
     PROMPT='${__teryon_prompt}'
   fi
+  # `teryon-features` shows what is on, and what is yielding to a plugin you already load.
+  teryon-features() {
+    local name var note state def
+    for name var def in History HISTORY 1 Suggestions SUGGEST 1 Highlighting HIGHLIGHT 1 Pickers PICKERS 1 "Fuzzy Tab" TAB 1 "z and zi" JUMP 1 Prompt PROMPT 0; do
+      note=
+      state=on
+      if [[ "${(P)${:-TERYON_$var}:-$def}" == 0 || ( "$var" == PROMPT && "${TERYON_PROMPT:-0}" != 1 ) ]]; then state=off; fi
+      [[ $var == HIGHLIGHT && -n "$ZSH_HIGHLIGHT_VERSION" ]] && note="yielding to zsh-syntax-highlighting"
+      [[ $var == SUGGEST && -n "$ZSH_AUTOSUGGEST_STRATEGY" ]] && note="yielding to zsh-autosuggestions"
+      [[ $var == TAB && ( "$__teryon_tab_prev" == *fzf-tab* || -n "$functions[_fzf_tab_complete]" ) ]] && note="yielding to fzf-tab"
+      [[ $var == TAB && -z "$functions[_main_complete]" ]] && note="needs compinit"
+      printf '%-13s %-4s %s\n' "$name" "$state" "$note"
+    done
+  }
   autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint
   zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
   zle -N __teryon_history_widget; zle -N __teryon_file_widget; zle -N __teryon_cd_widget
-  bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget
+  [[ "${TERYON_PICKERS:-1}" != 0 ]] && bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget
   [[ "$__teryon_tab_prev" == *fzf-tab* ]] || bindkey '^I' __teryon_tab
   bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
 fi
@@ -248,6 +267,25 @@ if not set -q __teryon_integrated
   end
 end
 "#;
+
+/// Lines that make the `[shell]` config the default for each switch. A variable already set in the
+/// environment wins (`${VAR:=...}` only fills in an unset one).
+pub fn preamble(cfg: &crate::config::ShellConfig) -> String {
+    let flag = |b: bool| u8::from(b);
+    [
+        ("TERYON_PLUS", cfg.enabled),
+        ("TERYON_HISTORY", cfg.history),
+        ("TERYON_SUGGEST", cfg.suggest),
+        ("TERYON_HIGHLIGHT", cfg.highlight),
+        ("TERYON_PICKERS", cfg.pickers),
+        ("TERYON_TAB", cfg.tab),
+        ("TERYON_JUMP", cfg.jump),
+        ("TERYON_PROMPT", cfg.prompt),
+    ]
+    .iter()
+    .map(|(name, on)| format!(": \"${{{name}:={}}}\"\n", flag(*on)))
+    .collect()
+}
 
 pub const SHELLS: [&str; 3] = ["zsh", "bash", "fish"];
 
@@ -358,6 +396,36 @@ mod tests {
         ] {
             assert!(z.contains(needle), "zsh script lacks {needle}");
         }
+    }
+    #[test]
+    fn the_preamble_turns_config_into_defaults_that_the_environment_can_override() {
+        let cfg = crate::config::ShellConfig {
+            prompt: true,
+            tab: false,
+            ..Default::default()
+        };
+        let p = preamble(&cfg);
+        assert!(
+            p.contains(": \"${TERYON_PROMPT:=1}\"\n") && p.contains(": \"${TERYON_TAB:=0}\"\n")
+        );
+        assert!(p.contains(": \"${TERYON_PLUS:=1}\"\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("init.zsh");
+        std::fs::write(&path, format!("{p}{}", script("zsh").unwrap())).unwrap();
+        let Ok(status) = Command::new("zsh").arg("-n").arg(&path).status() else {
+            return;
+        };
+        assert!(status.success());
+        let out = Command::new("zsh")
+            .args([
+                "-fc",
+                "TERYON_PROMPT=0; source \"$1\"; print -r -- \"$TERYON_PROMPT $TERYON_TAB\"",
+            ])
+            .arg("x")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0 0");
     }
     #[test]
     fn detection_and_rc_files() {

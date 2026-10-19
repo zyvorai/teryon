@@ -85,6 +85,30 @@ impl State {
         self.hits = scored.into_iter().map(|(_, i)| i).collect();
         self.selected = 0;
     }
+    /// Replace the query (re-ranking only when it changed).
+    pub fn set_query(&mut self, query: &str) {
+        if self.query != query {
+            self.query = query.into();
+            self.refresh();
+        }
+    }
+    /// Move the selection by `delta` rows, staying inside the list.
+    pub fn move_by(&mut self, delta: isize) {
+        let last = self.hits.len().saturating_sub(1);
+        self.selected = self.selected.saturating_add_signed(delta).min(last);
+    }
+    /// Narrow to this directory, or widen again (only for lists that can be scoped).
+    pub fn toggle_scope(&mut self) {
+        if self.scoped {
+            self.only_local = !self.only_local;
+            self.refresh();
+        }
+    }
+    pub fn selected_text(&self) -> Option<String> {
+        self.hits
+            .get(self.selected)
+            .map(|&i| self.items[i].text.clone())
+    }
     pub fn hits(&self) -> &[usize] {
         &self.hits
     }
@@ -488,6 +512,34 @@ mod tests {
         let mut plain = State::new(vec![there, here], "", false);
         plain.key(press(KeyCode::Tab));
         assert_eq!(plain.hits().len(), 2);
+    }
+    #[test]
+    fn the_desktop_bar_drives_the_state_without_key_events() {
+        let mut s = State::new(
+            items(&["cargo build", "git commit", "cargo test"]),
+            "",
+            true,
+        );
+        s.set_query("cargo");
+        assert_eq!(s.hits().len(), 2);
+        let order = texts(&s);
+        s.move_by(5);
+        assert_eq!(
+            s.selected_text().as_deref(),
+            order.last().map(String::as_str)
+        );
+        s.move_by(-9);
+        assert_eq!(
+            s.selected_text().as_deref(),
+            order.first().map(String::as_str)
+        );
+        s.set_query("zzz");
+        assert_eq!(s.selected_text(), None);
+        let mut local = Item::plain("ls");
+        local.local = false;
+        let mut s = State::new(vec![local, Item::plain("make")], "", true);
+        s.toggle_scope();
+        assert_eq!(texts(&s), ["make"]);
     }
     #[test]
     fn match_positions_follow_the_score_rule() {

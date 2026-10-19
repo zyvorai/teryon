@@ -102,6 +102,7 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Native desktop | GPU canvas, pane navigation, command palette, theme chooser, font size control, copy visible screen |
 | Power tools | Quick select, vi-style copy mode, snippets, broadcast input, regex find, floating panes, drag-and-drop upload, triggers |
 | Shell-aware | Optional shell integration: prompt jumping, last-command output, exit-status chips, long-command notifications |
+| Zsh power features | Built into the shell integration: history suggestions, syntax highlighting, fuzzy Ctrl-R / Ctrl-T / Alt-C / Tab, `z` directory jump and an optional git prompt (`docs/SHELL-INTEGRATION.md`) |
 | Easy start | `teryon` picker, `teryon setup`, theme import from iTerm2/Alacritty/Ghostty/Kitty, saved layouts that come back after a reboot |
 | File-type colors | New shells get `CLICOLOR`/`LS_COLORS` (only if unset), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
 | Terminal UI | Responsive sidebar, pane borders, status bar, help overlay, prefix shortcuts |

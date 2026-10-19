@@ -1200,6 +1200,10 @@ impl Desktop {
     }
     /// A faint mark and three shortcuts in a lone pane that has barely printed anything yet.
     fn empty_hint(&self, painter: &egui::Painter, rect: Rect, id: u64, t: &Theme) {
+        // A bare terminal window shows nothing but the terminal.
+        if self.cfg.chrome == crate::config::Chrome::None {
+            return;
+        }
         if self.pane_rects.len() != 1 || rect.height() < 260. || rect.width() < 360. {
             return;
         }
