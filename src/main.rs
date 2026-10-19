@@ -851,8 +851,14 @@ fn run() -> Result<i32> {
                 .unwrap_or_default();
             let name = teryon::recipe::workspace_name(&recipe, workspace.as_deref(), &base)?;
             let mut rpc = target(host.clone(), bin)?.connect()?;
-            let ids =
-                teryon::recipe::up(&mut |r| rpc.call(r), &recipe, &name, &base, host == "local")?;
+            let ids = teryon::recipe::up_with(
+                &mut |r| rpc.call(r),
+                &recipe,
+                &name,
+                &base,
+                host == "local",
+                &mut |line| eprintln!("{line}…"),
+            )?;
             println!(
                 "Started {} pane(s) in workspace {name}. Attach with: teryon connect {host} --workspace {name}",
                 ids.len()
