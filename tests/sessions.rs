@@ -1171,3 +1171,97 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         "diffs sent {bytes_d} bytes against {bytes_w} for whole screens"
     );
 }
+
+#[test]
+fn a_recipe_pane_waits_for_the_one_it_depends_on_to_print_its_ready_text() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    let recipe = teryon::recipe::parse(
+        "[[pane]]\nname = \"app\"\nafter = \"db\"\ncommand = \"echo APP-STARTED\"\n\
+         [[pane]]\nname = \"db\"\nready_text = \"DB-IS-READY\"\nready_timeout = 20\n\
+         command = \"sleep 2; echo DB-IS-READY; sleep 30\"\n",
+    )
+    .unwrap();
+    let base = std::path::Path::new("/tmp");
+    let began = Instant::now();
+    let mut seen_while_waiting = None;
+    let ids = teryon::recipe::up_with(
+        &mut |r| Ok(c.call(r)),
+        &recipe,
+        "recipe-wait",
+        base,
+        true,
+        &mut |line| {
+            // Called when the wait begins: the app must not have been started yet.
+            assert!(line.contains("`db`"), "{line}");
+            let mut obs = d.client();
+            obs.attach("recipe-wait", true);
+            seen_while_waiting = Some(obs.capture(1));
+        },
+    )
+    .unwrap();
+    assert_eq!(ids, [1, 2]);
+    assert!(
+        began.elapsed() >= Duration::from_millis(1800),
+        "{:?}",
+        began.elapsed()
+    );
+    assert!(
+        !seen_while_waiting
+            .expect("it had to wait")
+            .contains("APP-STARTED"),
+        "the app started before the database was ready"
+    );
+    c.until(1, "APP-STARTED");
+    c.until(2, "DB-IS-READY");
+}
+
+#[test]
+fn a_recipe_pane_that_never_gets_ready_stops_what_waits_for_it() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    let recipe = teryon::recipe::parse(
+        "[[pane]]\nname = \"db\"\nready_text = \"NEVER-PRINTED\"\nready_timeout = 1\n\
+         command = \"echo STARTING-DB; sleep 30\"\n\
+         [[pane]]\nname = \"app\"\nafter = \"db\"\ncommand = \"echo APP-STARTED\"\n",
+    )
+    .unwrap();
+    let base = std::path::Path::new("/tmp");
+    let err = teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-stuck", base, true)
+        .unwrap_err();
+    let text = format!("{err:#}");
+    assert!(text.contains("`db` was not ready after 1 s"), "{text}");
+    assert!(text.contains("`app` was not started"), "{text}");
+    // What had been started keeps running; the dependent never ran.
+    c.until(1, "STARTING-DB");
+    assert!(!c.capture(2).contains("APP-STARTED"));
+}
+
+#[test]
+fn a_recipe_pane_can_be_ready_when_it_listens_on_a_port() {
+    use std::process::Command;
+    if Command::new("python3").arg("--version").output().is_err()
+        || Command::new("lsof").arg("-v").output().is_err()
+    {
+        return;
+    }
+    // A port that is free right now.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let d = Daemon::start();
+    let mut c = d.client();
+    let serve = format!(
+        "python3 -c \\\"import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(('127.0.0.1',{port})); s.listen(); time.sleep(40)\\\""
+    );
+    let recipe = teryon::recipe::parse(&format!(
+        "[[pane]]\nname = \"web\"\nready_port = {port}\nready_timeout = 30\ncommand = \"sleep 1; {serve}\"\n\
+         [[pane]]\nname = \"check\"\nafter = \"web\"\ncommand = \"echo CHECK-RAN\"\n"
+    ))
+    .unwrap();
+    let base = std::path::Path::new("/tmp");
+    teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-port", base, true).unwrap();
+    c.until(2, "CHECK-RAN");
+}

@@ -23,7 +23,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
 | `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
-| `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`); refuses a workspace that already exists |
+| `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout`, see below); refuses a workspace that already exists |
 | `wake HOST` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
 | `agents [HOST...] [--all]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
@@ -42,6 +42,32 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 Transfers accept `--limit-kbps N` to limit bandwidth in KiB/s. Repeat the same command after interruption to reuse retained partial data.
 
 Global `--remote-bin /absolute/path` overrides the remote executable path. `TERYON_SSH_CONFIG=/path/to/ssh_config` supplies an alternate OpenSSH configuration to connections, deployment, transfers, and forwards.
+
+## Project recipes: starting things in order
+
+`teryon up` normally starts every pane at once. To start one after another is ready, name the pane to wait for with
+`after`, and say how to tell it is ready on that pane:
+
+```toml
+[[pane]]
+name = "db"
+command = "docker compose up db"
+ready_text = "ready to accept connections"   # text its output prints, or
+# ready_port = 5432                           # a TCP port its processes listen on (both may be set)
+ready_timeout = 90                            # seconds, default 60, at most 600
+
+[[pane]]
+name = "app"
+after = "db"                                  # typed only once `db` is ready
+command = "cargo run"
+```
+
+All panes are created straight away; only the commands wait. A pane that never becomes ready within its timeout
+stops `up` with an error naming what it waited for, and the panes already started keep running. `after` must name one
+other pane, and panes may not wait on each other in a circle. A line that is just the command as typed never counts
+as ready text, but `ready_text` should still be something the command prints rather than something inside it.
+`ready_port` is read from the pane's process tree, which the daemon refreshes every few seconds, so it can lag by
+that much. Restarting services that die is not part of this.
 
 ## Command palette
 
