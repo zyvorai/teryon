@@ -186,6 +186,8 @@ pub struct Desktop {
     applied_font: Option<Option<String>>,
     keymap: Keymap,
     config_mtime: Option<std::time::SystemTime>,
+    /// Top-level `theme` of `config.toml` as last read; a change to it is applied live.
+    config_theme: Option<String>,
     config_checked: Instant,
     /// Window commands queued by actions, sent with the egui context on the next frame.
     pending: Vec<egui::ViewportCommand>,
@@ -356,6 +358,7 @@ impl Desktop {
             applied_font: None,
             keymap: Keymap::build(&Default::default()).0,
             config_mtime: None,
+            config_theme: None,
             config_checked: Instant::now(),
             pending: Vec::new(),
             fullscreen: false,
@@ -1700,9 +1703,14 @@ impl Desktop {
         }
     }
     fn reload_config(&mut self) {
-        match config::load_desktop() {
-            Ok(cfg) => {
+        match config::load_desktop_theme() {
+            Ok((cfg, theme)) => {
                 self.apply_config(cfg);
+                let changed = self.config_theme.as_ref().is_some_and(|t| *t != theme);
+                self.config_theme = Some(theme.clone());
+                if changed {
+                    self.run_action(ActionKind::Theme(theme));
+                }
                 self.toast("Config reloaded");
             }
             Err(e) => self.toast(format!(
@@ -1964,8 +1972,11 @@ pub fn run(
     let mut app = Desktop::new(host, workspace, readonly, theme, tx, urx);
     app.target = Some(target_for_tabs);
     app.config_mtime = Desktop::config_stamp();
-    match config::load_desktop() {
-        Ok(cfg) => app.apply_config(cfg),
+    match config::load_desktop_theme() {
+        Ok((cfg, theme)) => {
+            app.apply_config(cfg);
+            app.config_theme = Some(theme);
+        }
         Err(e) => app.toast(format!("Config error: {e:#}")),
     }
     app.persist = true;

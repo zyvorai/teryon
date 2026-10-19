@@ -530,10 +530,14 @@ pub fn parse_desktop(text: &str) -> Result<DesktopConfig> {
 }
 /// The validated `[desktop]` options from the user's config file (defaults when there is none).
 pub fn load_desktop() -> Result<DesktopConfig> {
+    load_desktop_theme().map(|(cfg, _)| cfg)
+}
+/// `load_desktop` plus the top-level `theme`, so a running app can follow edits to it.
+pub fn load_desktop_theme() -> Result<(DesktopConfig, String)> {
     let cfg = load()?;
     cfg.desktop.validate()?;
     cfg.ai.validate()?;
-    Ok(cfg.desktop)
+    Ok((cfg.desktop, cfg.theme))
 }
 /// Concrete `Host` aliases from OpenSSH config text; wildcards, negations and `Match` blocks are skipped.
 pub fn ssh_hosts(content: &str) -> Vec<String> {

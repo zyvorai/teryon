@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.5
+
+- A running desktop app follows edits to the top-level `theme` in `config.toml`; the theme switches on config reload.
+
 ## 0.16.4
 
 - Tab and the arrow keys reach the shell in a fresh window: focus is decided at the start of the frame and the terminal takes it when nothing has it (Tab used to move egui's focus first and was dropped).
