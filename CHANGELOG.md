@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Connection recovery inspector: the relink card now says why the link is down and what to do (Wi-Fi or DNS, host asleep, SSH not answering, key refused, changed host key, teryon missing or a different version, or a link that dropped), with ssh's own message underneath. Causes that need you show "ACTION NEEDED" instead of counting attempts. This works because ssh's stderr is now captured rather than lost; `teryon doctor HOST` errors include it too.
 - Agents: the overview (⌘⇧A) shows a one-line summary of where each agent got to and can start Claude, Codex, Gemini, aider, Cursor or OpenCode in a new pane (also in the palette as "Agent: start …"). "Agent: send a prompt to all idle agents…" types one prompt into every agent sitting at its prompt, skipping working agents and ones waiting for approval. "Finished" notifications now include that last line.
 - Remote link: reconnect waits are spread by up to ±20% so tabs do not retry in lockstep, and a link that comes back after the machine slept (20 s without a poll) is replaced at once instead of waiting for ssh keepalives to fail.
 - Typing `exit` (or Ctrl-D) no longer leaves a dead pane: after a clean exit the pane closes, or the tab closes when it was the last pane, or the window closes when it was the only tab (the workspace is removed). A non-zero exit keeps the pane so you can read the output; the close-pane key then removes it.
