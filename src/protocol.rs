@@ -114,6 +114,10 @@ pub struct PaneView {
     pub revision: u64,
     /// Complete ANSI terminal state when changed. None means retain the old state.
     pub screen: Option<Vec<u8>>,
+    /// The same bytes as `screen`, as base64 text (about a third of the size of a JSON number array).
+    /// Sent instead of `screen` to clients that asked for diffs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_b64: Option<String>,
     /// When set, `screen` is a diff to apply on top of this revision rather than a whole screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff_from: Option<u64>,

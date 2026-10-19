@@ -435,6 +435,17 @@ pub(crate) fn worker(
                             if diff_ok {
                                 mirrors.retain(|id| panes.iter().any(|p| p.id == id));
                                 for p in panes.iter_mut() {
+                                    // The compact text form back to bytes. Text that does not decode
+                                    // becomes a diff based on no revision, which forces a resync.
+                                    if let Some(text) = p.screen_b64.take() {
+                                        match crate::inlineimg::decode_base64(&text) {
+                                            Some(bytes) => p.screen = Some(bytes),
+                                            None => {
+                                                p.diff_from = Some(u64::MAX);
+                                                p.screen = Some(Vec::new());
+                                            }
+                                        }
+                                    }
                                     match mirrors.apply(
                                         p.id,
                                         p.revision,

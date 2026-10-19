@@ -331,17 +331,20 @@ impl Pane {
         let changed = known != Some(st.revision);
         let top = st.parser.screen().scrolled_total();
         let log = &st.parser.callbacks().log;
-        let (screen, diff_from, digest) = match (changed, mirror) {
-            (false, _) => (None, None, None),
-            (true, None) => (Some(st.parser.screen().state_formatted()), None, None),
+        let (mut screen, mut screen_b64, mut diff_from, mut digest) = (None, None, None, None);
+        match (changed, mirror) {
+            (false, _) => {}
+            (true, None) => screen = Some(st.parser.screen().state_formatted()),
             (true, Some(m)) => {
+                // A client that asks for diffs also reads the compact text form.
                 let e = crate::screensync::ServerMirror::encode(
                     m,
                     st.parser.screen(),
                     st.revision,
                     known,
                 );
-                (Some(e.bytes), e.diff_from, e.digest)
+                screen_b64 = Some(crate::ui::base64(&e.bytes));
+                (diff_from, digest) = (e.diff_from, e.digest);
             }
         };
         PaneView {
@@ -353,6 +356,7 @@ impl Pane {
             cols,
             revision: st.revision,
             screen,
+            screen_b64,
             diff_from,
             digest,
             exited: st.exited,
