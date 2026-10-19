@@ -63,6 +63,11 @@ struct Pane {
     scanned: bool,
     /// AI agent detection and status for this pane.
     track: agents::Track,
+    /// Inline images: where they sit, which ids were asked for, their bytes and decoded textures.
+    placements: Vec<crate::protocol::Placement>,
+    image_asked: std::collections::HashSet<u64>,
+    image_raw: HashMap<u64, Vec<u8>>,
+    image_tex: HashMap<u64, egui::TextureHandle>,
 }
 impl Pane {
     fn new(info: PaneView, parser: vt100::Parser) -> Self {
@@ -74,6 +79,10 @@ impl Pane {
             spans: Vec::new(),
             scanned: false,
             track: agents::Track::default(),
+            placements: Vec::new(),
+            image_asked: Default::default(),
+            image_raw: HashMap::new(),
+            image_tex: HashMap::new(),
         }
     }
 }
@@ -132,6 +141,17 @@ pub struct Desktop {
     pane_rects: BTreeMap<u64, Rect>,
     /// How much unfocused panes are dimmed (0 = not at all).
     unfocused_dim: f32,
+    /// Per pane: the finished-command text last shown as a toast and when it appeared (seconds).
+    chip_toasts: HashMap<u64, (String, f64)>,
+    /// Grain texture for `background_noise`.
+    noise_tex: Option<egui::TextureHandle>,
+    /// Per pane: the scrolled-back position on screen, in lines, easing toward the real offset.
+    scroll_visual: HashMap<u64, f32>,
+    /// A running theme cross-fade: from, to, start time; and the theme currently on screen.
+    theme_fade: Option<(Theme, Theme, f64)>,
+    theme_shown: Theme,
+    /// Enter native full screen on the first frame (`fullscreen` option).
+    pending_fullscreen: bool,
     /// What the find bar (or the `search` command) looks for, and how.
     find_query: Option<FindQuery>,
     find_regex: bool,
@@ -297,6 +317,12 @@ impl Desktop {
             weights: Weights::default(),
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
+            chip_toasts: HashMap::new(),
+            noise_tex: None,
+            scroll_visual: HashMap::new(),
+            theme_fade: None,
+            theme_shown: theme.clone(),
+            pending_fullscreen: false,
             find_query: None,
             find_regex: false,
             find_case: false,
@@ -505,7 +531,7 @@ impl Desktop {
             self.notice = "Offline: no input sent. Drafts remain local.".into();
             return;
         }
-        if self.readonly && !matches!(c, Command::Capture(..)) {
+        if self.readonly && !matches!(c, Command::Capture(..) | Command::Image(..)) {
             self.notice = "Read-only attachment".into();
             return;
         }
@@ -555,6 +581,11 @@ impl Desktop {
                     self.notice = s;
                 }
                 Update::Message(s) => self.notice = s,
+                Update::Image(pane, id, bytes) => {
+                    if let Some(p) = self.panes.get_mut(&pane) {
+                        p.image_raw.insert(id, bytes);
+                    }
+                }
                 Update::Latency(ms) => self.latency = Some(ms),
                 Update::Discarded => {}
                 Update::Created(id) => {
@@ -614,6 +645,19 @@ impl Desktop {
                                 }
                             }
                             pane.marks = m.clone();
+                        }
+                        if let Some(list) = &view.images {
+                            let live: std::collections::HashSet<u64> =
+                                list.iter().map(|p| p.id).collect();
+                            pane.image_asked.retain(|id| live.contains(id));
+                            pane.image_raw.retain(|id, _| live.contains(id));
+                            pane.image_tex.retain(|id, _| live.contains(id));
+                            pane.placements = list.clone();
+                            for p in list {
+                                if pane.image_asked.insert(p.id) {
+                                    let _ = self.tx.try_send(Command::Image(view.id, p.id));
+                                }
+                            }
                         }
                         if let (None, Some(code)) = (pane.info.exited, view.exited) {
                             self.notice = format!("Pane {} finished with exit {}", view.id, code);
@@ -814,6 +858,10 @@ impl Desktop {
             self.applied_font = Some(self.cfg.font_family.clone());
         }
         self.follow_system_theme(ctx);
+        self.fade_theme(ctx);
+        if std::mem::take(&mut self.pending_fullscreen) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        }
         self.window_focused = ctx.input(|i| i.focused);
         if self.online {
             self.offline_since = None;
@@ -1612,6 +1660,7 @@ impl eframe::App for Desktop {
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.frame(ctx);
+        self.window_edge(ctx);
     }
 }
 impl Desktop {
@@ -1638,6 +1687,62 @@ impl Desktop {
         let cw = ctx.fonts(|f| f.glyph_width(&font, 'M'));
         let (w, h) = self.cells_to_window(f32::from(cols) * cw, rows);
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(w, h)));
+    }
+    /// Cross-fade between themes over a quarter second whenever the theme changes.
+    fn fade_theme(&mut self, ctx: &egui::Context) {
+        const SECONDS: f64 = 0.25;
+        let now = ctx.input(|i| i.time);
+        let changed = match &self.theme_fade {
+            None => self.theme.name != self.theme_shown.name,
+            Some((_, to, _)) => self.theme.name != to.name,
+        };
+        if changed {
+            self.theme_fade = Some((self.theme_shown.clone(), self.theme.clone(), now));
+        }
+        let Some((from, to, started)) = self.theme_fade.clone() else {
+            return;
+        };
+        let k = ((now - started) / SECONDS).clamp(0., 1.) as f32;
+        let eased = k * k * (3. - 2. * k);
+        if k >= 1. {
+            self.theme = to.clone();
+            self.theme_shown = to;
+            self.theme_fade = None;
+        } else {
+            self.theme = from.blend(&to, eased);
+            self.theme_shown = self.theme.clone();
+            ctx.request_repaint();
+        }
+    }
+    /// A hairline around a rounded bare window, with a faint highlight along the top.
+    fn window_edge(&self, ctx: &egui::Context) {
+        if self.cfg.corner_radius <= 0. || self.cfg.chrome != crate::config::Chrome::None {
+            return;
+        }
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        if fullscreen {
+            return;
+        }
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Tooltip,
+            egui::Id::new("teryon-window-edge"),
+        ));
+        let rect = ctx.screen_rect().shrink(0.5);
+        let radius = self.cfg.corner_radius as u8;
+        painter.rect_stroke(
+            rect,
+            egui::CornerRadius::same(radius),
+            Stroke::new(1_f32, color(self.theme.border).gamma_multiply(0.7)),
+            egui::StrokeKind::Inside,
+        );
+        let r = self.cfg.corner_radius;
+        painter.line_segment(
+            [
+                Pos2::new(rect.left() + r, rect.top() + 1.),
+                Pos2::new(rect.right() - r, rect.top() + 1.),
+            ],
+            Stroke::new(1_f32, Color32::from_white_alpha(14)),
+        );
     }
     /// Without a title bar, a thin strip along the top edge moves the window (double-click maximizes).
     fn chrome_drag(&mut self, ctx: &egui::Context) {
@@ -1702,8 +1807,9 @@ fn chord_mods(m: &egui::Modifiers) -> Mods {
 fn merged_titlebar(
     builder: egui::ViewportBuilder,
     chrome: crate::config::Chrome,
+    native_fullscreen: bool,
 ) -> egui::ViewportBuilder {
-    if chrome == crate::config::Chrome::None {
+    if chrome == crate::config::Chrome::None && !(native_fullscreen && cfg!(target_os = "macos")) {
         // A bare, still resizable window: no title bar, no buttons.
         builder.with_decorations(false)
     } else if cfg!(target_os = "macos") {
@@ -1746,7 +1852,8 @@ pub fn run(
         app.layout = mode;
     }
     app.font_size = settings.font_size.unwrap_or(app.cfg.font_size);
-    let transparent = app.cfg.window_opacity < 1.;
+    let transparent = app.cfg.window_opacity < 1.
+        || (app.cfg.corner_radius > 0. && app.cfg.chrome == crate::config::Chrome::None);
     let family = app.cfg.font_family.clone();
     app.applied_font = Some(family.clone());
     let (mut width, mut height) = (
@@ -1766,27 +1873,35 @@ pub fn run(
         app.toast("Press ⌘K for everything, ⌘/ for shortcuts");
     }
     app.saved = settings;
-    let maximized = app.cfg.maximized;
+    app.pending_fullscreen = app.cfg.fullscreen;
+    let (maximized, fullscreen) = (app.cfg.maximized, app.cfg.fullscreen);
     eframe::egui_glow::set_font_gamma(app.cfg.text_gamma);
     eframe::run_native(
         "TERYON — Your Mac mini. Wherever you work.",
         eframe::NativeOptions {
-            viewport: merged_titlebar(egui::ViewportBuilder::default(), app.cfg.chrome)
-                .with_transparent(transparent)
-                .with_maximized(maximized)
-                .with_icon(egui::IconData {
-                    rgba: include_bytes!("../../docs/brand/teryon-icon-128.rgba").to_vec(),
-                    width: 128,
-                    height: 128,
-                })
-                .with_inner_size([width, height])
-                .with_min_inner_size([400., 360.]),
+            viewport: merged_titlebar(
+                egui::ViewportBuilder::default(),
+                app.cfg.chrome,
+                app.cfg.fullscreen,
+            )
+            .with_transparent(transparent)
+            .with_maximized(maximized && !fullscreen)
+            .with_icon(egui::IconData {
+                rgba: include_bytes!("../../docs/brand/teryon-icon-128.rgba").to_vec(),
+                width: 128,
+                height: 128,
+            })
+            .with_inner_size([width, height])
+            .with_min_inner_size([400., 360.]),
             ..Default::default()
         },
         Box::new(move |cc| {
             install_fonts(&cc.egui_ctx, family.as_deref());
             if app.cfg.window_blur > 0 && transparent {
                 blur::apply(cc, app.cfg.window_blur);
+            }
+            if app.cfg.corner_radius > 0. && app.cfg.chrome == crate::config::Chrome::None {
+                blur::round_corners(cc, app.cfg.corner_radius);
             }
             Ok(Box::new(app))
         }),

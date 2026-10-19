@@ -35,10 +35,40 @@ struct TerminalCallbacks {
     input: std::sync::mpsc::SyncSender<Vec<u8>>,
     /// Shell-integration marks and the shell's live working directory (OSC 133 / OSC 7).
     log: crate::marks::MarkLog,
+    /// Inline images (iTerm2 `OSC 1337 File=`) shown in this pane.
+    images: crate::inlineimg::ImageLog,
+}
+impl TerminalCallbacks {
+    /// Reserve room for an inline image at the cursor and remember it.
+    fn place_image(&mut self, screen: &mut vt100::Screen, request: crate::inlineimg::Request) {
+        // Full-screen programs draw their own pictures; only the shell's scrolling view holds images.
+        if screen.alternate_screen() {
+            return;
+        }
+        let Some(size) = crate::inlineimg::pixel_size(&request.bytes) else {
+            return;
+        };
+        let (screen_rows, screen_cols) = screen.size();
+        let (cols, rows) = crate::inlineimg::span(&request, size, screen_cols, screen_rows);
+        let (row, col) = screen.cursor_position();
+        let top = screen.scrolled_total();
+        self.images
+            .add(request.bytes, top + u64::from(row), col, cols, rows);
+        screen.advance_rows(rows.saturating_sub(1));
+        self.images.trim(
+            screen
+                .scrolled_total()
+                .saturating_sub(scrollback_lines() as u64),
+        );
+    }
 }
 impl vt100::Callbacks for TerminalCallbacks {
     fn unhandled_osc(&mut self, screen: &mut vt100::Screen, params: &[&[u8]]) {
         use crate::marks::OscEvent;
+        if let Some(request) = crate::inlineimg::parse(params) {
+            self.place_image(screen, request);
+            return;
+        }
         let Some(event) = crate::marks::parse_osc(params) else {
             return;
         };
@@ -67,6 +97,11 @@ impl vt100::Callbacks for TerminalCallbacks {
                 Some(format!("\x1b[{};{}R", r + 1, c + 1))
             }
             ('n', None, 5) => Some("\x1b[0n".into()),
+            // Erasing the history takes the images in it along.
+            ('J', None, 3) => {
+                self.images.clear();
+                None
+            }
             ('c', None, 0) => Some("\x1b[?1;2c".into()),
             ('c', Some(b'>'), 0) => Some("\x1b[>0;1;0c".into()),
             _ => None,
@@ -175,6 +210,7 @@ impl Pane {
                 TerminalCallbacks {
                     input: input.clone(),
                     log: crate::marks::MarkLog::default(),
+                    images: crate::inlineimg::ImageLog::default(),
                 },
             ),
             revision: 1,
@@ -204,6 +240,12 @@ impl Pane {
                     Ok(n) => {
                         let mut st = read_state.lock().unwrap();
                         st.parser.process(&buf[..n]);
+                        // Clearing the screen also removes the inline images drawn on it.
+                        let (erases, top) = {
+                            let screen = st.parser.screen();
+                            (screen.erase_count(), screen.scrolled_total())
+                        };
+                        st.parser.callbacks_mut().images.after_output(erases, top);
                         st.revision += 1;
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -239,6 +281,7 @@ impl Pane {
             first_line: top.saturating_sub(scrollback_lines() as u64),
             top_line: top,
             fg: self.foreground_command(st.exited.is_some()),
+            images: changed.then(|| st.parser.callbacks().images.placements.clone()),
         }
     }
     /// The command line of the foreground process group (cached for a second; `ps` is only run when asked again).
@@ -504,8 +547,10 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         .context("attach to a workspace first")?,
                 )
                 .context("workspace no longer exists")?;
-            if !matches!(action, Request::Poll { .. } | Request::Capture { .. })
-                && (conn.readonly || ws.controller.as_ref() != Some(&conn.id))
+            if !matches!(
+                action,
+                Request::Poll { .. } | Request::Capture { .. } | Request::Image { .. }
+            ) && (conn.readonly || ws.controller.as_ref() != Some(&conn.id))
             {
                 bail!("read-only connection cannot modify the workspace");
             }
@@ -591,6 +636,22 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                     let (text, first_line) =
                         ws.panes.get(&pane).context("pane not found")?.capture();
                     Ok(Response::Captured { text, first_line })
+                }
+                Request::Image { pane, id } => {
+                    let p = ws.panes.get(&pane).context("pane not found")?;
+                    let bytes = p
+                        .state
+                        .lock()
+                        .unwrap()
+                        .parser
+                        .callbacks()
+                        .images
+                        .bytes(id)
+                        .context("image not found")?;
+                    Ok(Response::ImageData {
+                        id,
+                        data: crate::ui::base64(&bytes),
+                    })
                 }
                 _ => bail!("unsupported request"),
             }

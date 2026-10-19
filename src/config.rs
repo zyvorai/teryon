@@ -270,6 +270,12 @@ pub struct DesktopConfig {
     pub tab_inactive_fg: Option<String>,
     /// Open windows maximized (it wins over `initial_cols`/`initial_rows`).
     pub maximized: bool,
+    /// Open windows in native full screen (macOS: the Dock and menu bar hide; ⌘⌃F leaves it).
+    pub fullscreen: bool,
+    /// Round the corners of a bare window and give it a soft edge, in points (0 = square).
+    pub corner_radius: f32,
+    /// Fine grain over the background, 0 (none) to 100; WezTerm's `noise = 10` is about 10.
+    pub background_noise: f32,
     /// Open windows this many columns by rows wide (both or neither), instead of the last size.
     pub initial_cols: Option<u16>,
     pub initial_rows: Option<u16>,
@@ -317,6 +323,9 @@ impl Default for DesktopConfig {
             chrome: Chrome::Full,
             tab_bar: TabBar::Off,
             maximized: false,
+            fullscreen: false,
+            corner_radius: 0.,
+            background_noise: 0.,
             tab_bar_bg: None,
             tab_active_bg: None,
             tab_active_fg: None,
@@ -367,6 +376,8 @@ impl DesktopConfig {
         check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
+        check("corner_radius", self.corner_radius, 0., 24.)?;
+        check("background_noise", self.background_noise, 0., 100.)?;
         check("text_gamma", self.text_gamma, 0.3, 1.)?;
         check("window_blur", self.window_blur as f32, 0., 100.)?;
         check("gradient_angle", self.gradient_angle, -360., 360.)?;

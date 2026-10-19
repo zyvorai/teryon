@@ -53,6 +53,8 @@ pub enum MouseProtocolEncoding {
 /// Represents the overall terminal state.
 #[derive(Clone, Debug)]
 pub struct Screen {
+    /// TERYON patch: how many times the whole display was erased (CSI 2 J) or reset.
+    erases: u64,
     grid: crate::grid::Grid,
     alternate_grid: crate::grid::Grid,
 
@@ -72,6 +74,7 @@ impl Screen {
         let mut grid = crate::grid::Grid::new(size, scrollback_len);
         grid.allocate_rows();
         Self {
+            erases: 0,
             grid,
             alternate_grid: crate::grid::Grid::new(size, 0),
 
@@ -639,6 +642,18 @@ impl Screen {
         self.grid().scrolled_total()
     }
 
+    /// TERYON patch: how many times the whole display was erased or reset so far.
+    #[must_use]
+    pub fn erase_count(&self) -> u64 {
+        self.erases
+    }
+
+    /// TERYON patch: move the cursor down `count` rows, scrolling at the bottom, like line feeds
+    /// (used to leave room for an inline image).
+    pub fn advance_rows(&mut self, count: u16) {
+        self.grid_mut().row_inc_scroll(count);
+    }
+
     pub(crate) fn grid(&self) -> &crate::grid::Grid {
         if self.mode(MODE_ALTERNATE_SCREEN) {
             &self.alternate_grid
@@ -1003,7 +1018,9 @@ impl Screen {
 
     // ESC c
     pub(crate) fn ris(&mut self) {
+        let erases = self.erases + 1;
         *self = Self::new(self.grid.size(), self.grid.scrollback_len());
+        self.erases = erases;
     }
 
     // csi codes
@@ -1068,7 +1085,10 @@ impl Screen {
         match mode {
             0 => self.grid_mut().erase_all_forward(attrs),
             1 => self.grid_mut().erase_all_backward(attrs),
-            2 => self.grid_mut().erase_all(attrs),
+            2 => {
+                self.erases += 1;
+                self.grid_mut().erase_all(attrs);
+            }
             _ => unhandled(self),
         }
     }

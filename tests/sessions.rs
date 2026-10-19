@@ -767,3 +767,46 @@ fn mcp_server_runs_a_persistent_pane_waits_for_output_and_respects_the_controlle
     let tools = ro.rpc("tools/list", serde_json::json!({}));
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 5);
 }
+
+#[test]
+fn an_inline_image_reserves_its_rows_and_its_bytes_can_be_fetched() {
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("images", false);
+    let script = format!(
+        "printf 'before\\n'; printf '\\033]1337;File=inline=1;width=10:{PNG}\\007'; printf '\\nafter\\n'; sleep 6"
+    );
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec!["/bin/sh".into(), "-c".into(), script],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    c.until(pane, "after");
+    let view = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+    let images = view.images.expect("images are sent with the screen");
+    assert_eq!(images.len(), 1);
+    // The picture starts under "before", covers 10 columns by 5 rows, and "after" follows it.
+    assert_eq!((images[0].line, images[0].cols, images[0].rows), (1, 10, 5));
+    let text = c.capture(pane);
+    let after = text.lines().position(|l| l.starts_with("after")).unwrap();
+    assert_eq!(after, 6, "{text:?}");
+    let Response::ImageData { id, data } = c.call(Request::Image {
+        pane,
+        id: images[0].id,
+    }) else {
+        panic!("no image")
+    };
+    assert_eq!(id, images[0].id);
+    assert_eq!(
+        teryon::inlineimg::decode_base64(&data).unwrap()[..4],
+        *b"\x89PNG"
+    );
+    assert!(matches!(
+        c.call(Request::Image { pane, id: 999 }),
+        Response::Error { .. }
+    ));
+}

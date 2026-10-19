@@ -50,6 +50,9 @@ pub(crate) enum Command {
     Close(u64),
     Rename(u64, String),
     Capture(u64, CapturePurpose),
+    /// Fetch an inline image's bytes for a pane (desktop only).
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Image(u64, u64),
     Stop,
     /// Like `Stop`, but first remove this workspace and end its shells (a fresh desktop window).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
@@ -72,6 +75,9 @@ pub(crate) enum Update {
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Captured(String, u64, CapturePurpose),
     Latency(u64),
+    /// An inline image's bytes: pane, image id, file contents.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Image(u64, u64, Vec<u8>),
     /// The worker finished a `Discard` (or had nothing to discard) and is about to exit.
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Discarded,
@@ -157,6 +163,19 @@ pub(crate) fn worker(
                                         {
                                             let _ = tx
                                                 .send(Update::Captured(text, first_line, purpose));
+                                        }
+                                        continue;
+                                    }
+                                    Command::Image(pane, id) => {
+                                        // An image that already scrolled away is not an error.
+                                        if let Ok(Response::ImageData { id, data }) =
+                                            rpc.call(Request::Image { pane, id })
+                                        {
+                                            if let Some(bytes) =
+                                                crate::inlineimg::decode_base64(&data)
+                                            {
+                                                let _ = tx.send(Update::Image(pane, id, bytes));
+                                            }
                                         }
                                         continue;
                                     }
@@ -292,7 +311,7 @@ impl App {
                 "Offline: action not sent. Use the draft editor to compose locally.".into();
             return;
         }
-        if self.readonly && !matches!(command, Command::Capture(..)) {
+        if self.readonly && !matches!(command, Command::Capture(..) | Command::Image(..)) {
             self.notice = "Read-only attachment".into();
             return;
         }
@@ -422,7 +441,7 @@ impl App {
             }
             Update::Message(s) => self.notice = s,
             Update::Latency(ms) => self.latency = Some(ms),
-            Update::Discarded => {}
+            Update::Discarded | Update::Image(..) => {}
             Update::Created(id) => self.focus = id,
             Update::Captured(text, _, purpose) => match purpose {
                 CapturePurpose::View(query) => {
@@ -585,7 +604,7 @@ fn desired_size(size: Rect, mode: LayoutMode, n: usize) -> (u16, u16) {
         (a.width / cols).saturating_sub(2).clamp(10, 400),
     )
 }
-fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {

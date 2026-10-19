@@ -36,13 +36,15 @@ pub struct Theme {
     /// ANSI colors 0-15: black, red, green, yellow, blue, magenta, cyan, white, then bright variants.
     pub ansi: [Color; 16],
 }
-pub const BUILTINS: [&str; 20] = [
+pub const BUILTINS: [&str; 22] = [
     "mac27-dark",
     "mac27-light",
     "apple-dark",
     "apple-light",
     "tokyo-night",
     "tokyo-night-storm",
+    "tokyo-night-day",
+    "carbon",
     "catppuccin-mocha",
     "dracula",
     "gruvbox-dark",
@@ -253,6 +255,34 @@ impl Theme {
         }
     }
     /// `load`, then follow the macOS accent color (Mac27 themes only).
+    /// `self` moved `k` (0..=1) of the way toward `other`; the result carries `other`'s name.
+    pub fn blend(&self, other: &Theme, k: f32) -> Theme {
+        let mix = |a: Color, b: Color| match (a, b) {
+            (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
+                let f =
+                    |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * k).round() as u8;
+                Color::Rgb(f(ar, br), f(ag, bg), f(ab, bb))
+            }
+            _ => b,
+        };
+        let mut ansi = other.ansi;
+        for (slot, (a, b)) in ansi.iter_mut().zip(self.ansi.iter().zip(&other.ansi)) {
+            *slot = mix(*a, *b);
+        }
+        Theme {
+            name: other.name.clone(),
+            background: mix(self.background, other.background),
+            panel: mix(self.panel, other.panel),
+            foreground: mix(self.foreground, other.foreground),
+            muted: mix(self.muted, other.muted),
+            accent: mix(self.accent, other.accent),
+            success: mix(self.success, other.success),
+            warning: mix(self.warning, other.warning),
+            border: mix(self.border, other.border),
+            primary: mix(self.primary, other.primary),
+            ansi,
+        }
+    }
     pub fn load_native(name: &str) -> Result<Self> {
         let mut theme = Self::load(name)?;
         theme.follow_system_accent(system_accent_index());
@@ -266,6 +296,8 @@ impl Theme {
             "apple-light" => include_str!("../themes/apple-light.toml"),
             "tokyo-night" => include_str!("../themes/tokyo-night.toml"),
             "tokyo-night-storm" => include_str!("../themes/tokyo-night-storm.toml"),
+            "tokyo-night-day" => include_str!("../themes/tokyo-night-day.toml"),
+            "carbon" => include_str!("../themes/carbon.toml"),
             "catppuccin-mocha" => include_str!("../themes/catppuccin-mocha.toml"),
             "dracula" => include_str!("../themes/dracula.toml"),
             "gruvbox-dark" => include_str!("../themes/gruvbox-dark.toml"),

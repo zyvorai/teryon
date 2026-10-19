@@ -54,6 +54,11 @@ pub enum Request {
     Capture {
         pane: u64,
     },
+    /// The bytes of an inline image shown in a pane (see `PaneView::images`).
+    Image {
+        pane: u64,
+        id: u64,
+    },
     Info,
     Shutdown {
         force: bool,
@@ -105,6 +110,19 @@ pub struct PaneView {
     /// Command line of the pane's foreground process (e.g. `claude` or `node /…/codex`); old daemons send none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fg: Option<String>,
+    /// Inline images on the screen and in history, sent together with `screen`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<Placement>>,
+}
+/// An inline image: its id (for `Request::Image`), the absolute line of its top row, and the
+/// cells it covers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Placement {
+    pub id: u64,
+    pub line: u64,
+    pub col: u16,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,6 +151,11 @@ pub enum Response {
         /// Absolute number of the first line of `text` (0 from daemons that do not know).
         #[serde(default)]
         first_line: u64,
+    },
+    ImageData {
+        id: u64,
+        /// The image file, base64 encoded.
+        data: String,
     },
     Info {
         os: String,

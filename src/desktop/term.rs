@@ -891,6 +891,9 @@ impl Desktop {
                 bg_default.gamma_multiply(opacity),
             );
         }
+        if self.cfg.background_noise > 0. {
+            self.paint_noise(ui.ctx(), &painter, rect);
+        }
         if card {
             // A hairline edge, and a soft accent ring on the focused pane when there are several.
             let ring = id == self.focus && self.pane_rects.len() > 1;
@@ -920,8 +923,27 @@ impl Desktop {
             .scrollback
             .get(&id)
             .is_some_and(|s| !s.loading && (s.offset > 0 || s.copy.is_some()));
+        if !in_history {
+            self.paint_images(
+                ui.ctx(),
+                &painter.with_clip_rect(rect),
+                (rect, pad_left, pad_top),
+                id,
+                (cw, ch, rows),
+            );
+        }
         if !in_history && self.cfg.scrollbar == crate::config::Scrollbar::Always {
             self.paint_live_scrollbar(&painter, rect, id, rows, &t);
+        }
+        if self.cfg.chrome == crate::config::Chrome::None {
+            self.paint_command_toast(ui, &painter, rect, id, &t);
+        }
+        if !self
+            .scrollback
+            .get(&id)
+            .is_some_and(|s| !s.loading && (s.offset > 0 || s.copy.is_some()))
+        {
+            self.scroll_visual.remove(&id);
         }
         if let Some(sb) = self
             .scrollback
@@ -932,9 +954,23 @@ impl Desktop {
             let total = sb.lines.len();
             let end = total.saturating_sub(sb.offset);
             let start = end.saturating_sub(usize::from(rows));
-            for (i, line) in sb.lines[start..end].iter().enumerate() {
-                let row = start + i;
-                let y = rect.top() + pad_top + i as f32 * ch;
+            // The view glides to the new position instead of jumping whole lines.
+            let target = sb.offset as f32;
+            let dt = ui.input(|i| i.unstable_dt).min(0.1);
+            let seen = self.scroll_visual.entry(id).or_insert(target);
+            *seen += (target - *seen) * (1. - (-dt * 24.).exp());
+            if (target - *seen).abs() < 0.01 {
+                *seen = target;
+            } else {
+                ui.ctx().request_repaint();
+            }
+            let top_line = total as f32 - *seen - f32::from(rows);
+            let first = (top_line.floor().max(0.)) as usize;
+            let last = ((top_line.ceil().max(0.)) as usize + usize::from(rows) + 1).min(total);
+            let painter = painter.with_clip_rect(rect);
+            for (i, line) in sb.lines[first.min(last)..last].iter().enumerate() {
+                let row = first + i;
+                let y = rect.top() + pad_top + (row as f32 - top_line) * ch;
                 if let Some(cm) = &sb.copy {
                     for col in 0..usize::from(cols) {
                         if cm.selected(row, col) {
@@ -1109,12 +1145,15 @@ impl Desktop {
             let (r, c) = screen.cursor_position();
             if r < rows && c < cols {
                 let active = self.focus == id && self.window_focused;
-                let blink_on = !self.cfg.cursor_blink
-                    || !active
-                    || (ui.input(|i| i.time) * 2.) as i64 % 2 == 0;
-                if self.cfg.cursor_blink && active {
-                    ui.ctx().request_repaint_after(Duration::from_millis(250));
-                }
+                // Blinking eases in and out (a cosine, a little weighted toward "on") rather than
+                // snapping, like WezTerm's cursor_blink_ease_in/out.
+                let blink_a = if self.cfg.cursor_blink && active {
+                    ui.ctx().request_repaint_after(Duration::from_millis(33));
+                    let phase = ui.input(|i| i.time) * std::f64::consts::TAU / 0.8;
+                    ((0.5 + 0.5 * phase.cos()) * 1.6).min(1.) as f32
+                } else {
+                    1.
+                };
                 let pos = Pos2::new(
                     rect.left() + pad_left + f32::from(c) * cw,
                     rect.top() + pad_top + f32::from(r) * ch,
@@ -1135,7 +1174,8 @@ impl Desktop {
                         Stroke::new(1_f32, ink),
                         egui::StrokeKind::Inside,
                     );
-                } else if blink_on {
+                } else if blink_a > 0.01 {
+                    let ink = ink.gamma_multiply(blink_a);
                     match self.cfg.cursor_style {
                         CursorStyle::Block => {
                             painter.rect_filled(cell_rect, 0., ink);
@@ -1145,7 +1185,7 @@ impl Desktop {
                                     egui::Align2::LEFT_TOP,
                                     cell.contents(),
                                     font.clone(),
-                                    bg_default,
+                                    bg_default.gamma_multiply(blink_a),
                                 );
                             };
                         }
@@ -1226,6 +1266,170 @@ impl Desktop {
     }
     /// The thumb at the bottom of the track for a pane showing its live screen: it is as tall as the
     /// screen is of all retained lines, so a long history makes it short.
+    /// Inline images (iTerm2 protocol) at their cells: decode what has arrived, draw what shows.
+    fn paint_images(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        (rect, pad_left, pad_top): (Rect, f32, f32),
+        id: u64,
+        (cw, ch, rows): (f32, f32, u16),
+    ) {
+        let Some(p) = self.panes.get_mut(&id) else {
+            return;
+        };
+        if p.placements.is_empty() || p.parser.screen().alternate_screen() {
+            return;
+        }
+        let pending: Vec<u64> = p.image_raw.keys().copied().collect();
+        for key in pending {
+            let Some(bytes) = p.image_raw.remove(&key) else {
+                continue;
+            };
+            // Formats the image crate cannot read (a GIF, say) are simply not shown.
+            if let Ok(img) = image::load_from_memory(&bytes) {
+                let rgba = img.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+                let tex = ctx.load_texture(
+                    format!("teryon-image-{id}-{key}"),
+                    pixels,
+                    egui::TextureOptions::LINEAR,
+                );
+                p.image_tex.insert(key, tex);
+            }
+        }
+        let top = p.info.top_line as i64;
+        for place in &p.placements {
+            let Some(tex) = p.image_tex.get(&place.id) else {
+                continue;
+            };
+            let row = place.line as i64 - top;
+            if row + i64::from(place.rows) <= 0 || row >= i64::from(rows) {
+                continue;
+            }
+            let at = Pos2::new(
+                rect.left() + pad_left + f32::from(place.col) * cw,
+                rect.top() + pad_top + row as f32 * ch,
+            );
+            let size = Vec2::new(f32::from(place.cols) * cw, f32::from(place.rows) * ch);
+            painter.image(
+                tex.id(),
+                Rect::from_min_size(at, size),
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                Color32::WHITE,
+            );
+        }
+    }
+    /// Fine monochrome grain over the background, from a small tiled random texture.
+    fn paint_noise(&mut self, ctx: &egui::Context, painter: &egui::Painter, rect: Rect) {
+        const SIDE: usize = 128;
+        let strength = (self.cfg.background_noise / 255.).clamp(0., 0.4);
+        if self.noise_tex.is_none() {
+            let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+            let a = (strength * 255.).round() as u8;
+            let pixels = (0..SIDE * SIDE)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    if seed & 1 == 0 {
+                        Color32::from_rgba_premultiplied(a, a, a, a)
+                    } else {
+                        Color32::from_rgba_premultiplied(0, 0, 0, a)
+                    }
+                })
+                .collect();
+            let image = egui::ColorImage {
+                size: [SIDE, SIDE],
+                pixels,
+            };
+            self.noise_tex = Some(ctx.load_texture(
+                "teryon-noise",
+                image,
+                egui::TextureOptions {
+                    magnification: egui::TextureFilter::Nearest,
+                    minification: egui::TextureFilter::Nearest,
+                    wrap_mode: egui::TextureWrapMode::Repeat,
+                    mipmap_mode: None,
+                },
+            ));
+        }
+        let Some(tex) = &self.noise_tex else { return };
+        // One texel per physical pixel.
+        let tiles = Vec2::new(rect.width(), rect.height()) * ctx.pixels_per_point() / SIDE as f32;
+        painter.image(
+            tex.id(),
+            rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(tiles.x, tiles.y)),
+            Color32::WHITE,
+        );
+    }
+    /// In a bare window there is no title bar to hold the status chip, so a finished command's
+    /// status and time appear briefly in the pane's top-right corner and fade out.
+    fn paint_command_toast(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        rect: Rect,
+        id: u64,
+        t: &Theme,
+    ) {
+        const HOLD: f64 = 3.;
+        const FADE: f64 = 1.;
+        let now = ui.input(|i| i.time);
+        let chip = self
+            .panes
+            .get(&id)
+            .filter(|p| {
+                // The prompt mark that follows a finished command must not hide it.
+                p.marks
+                    .iter()
+                    .rev()
+                    .find(|m| m.kind == 'C' || m.kind == 'D')
+                    .is_some_and(|m| m.kind == 'D')
+            })
+            .and_then(|p| command_chip(&p.marks));
+        let Some((text, bad)) = chip else {
+            self.chip_toasts.remove(&id);
+            return;
+        };
+        let seen = self
+            .chip_toasts
+            .entry(id)
+            .or_insert_with(|| (String::new(), now));
+        if seen.0 != text {
+            *seen = (text.clone(), now);
+        }
+        // A pane that is already showing a chip when the app starts counts as just finished.
+        let age = now - seen.1;
+        let hold = if bad { 2. * HOLD } else { HOLD };
+        let alpha = (1. - (age - hold) / FADE).clamp(0., 1.) as f32;
+        if alpha <= 0. {
+            return;
+        }
+        ui.ctx().request_repaint_after(Duration::from_millis(50));
+        let ink = color(if bad { t.warning } else { t.success });
+        let galley =
+            painter.layout_no_wrap(text, FontId::monospace(12.), ink.gamma_multiply(alpha));
+        let size = galley.size() + Vec2::new(18., 8.);
+        let pill = Rect::from_min_size(
+            Pos2::new(rect.right() - 16. - size.x, rect.top() + 8.),
+            size,
+        );
+        painter.rect_filled(
+            pill,
+            egui::CornerRadius::same(10),
+            color(t.panel).gamma_multiply(0.92 * alpha),
+        );
+        painter.rect_stroke(
+            pill,
+            egui::CornerRadius::same(10),
+            Stroke::new(1_f32, ink.gamma_multiply(0.5 * alpha)),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(pill.min + Vec2::new(9., 4.), galley, ink);
+    }
     fn paint_live_scrollbar(
         &self,
         painter: &egui::Painter,

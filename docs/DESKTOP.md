@@ -163,6 +163,9 @@ binding using `teryon config --keys`.
 | `window_opacity` | 1.0 | 0.3 to 1.0; turning transparency on needs a restart |
 | `window_blur` | 0 | 0 to 100: blur behind a transparent window (macOS; needs `window_opacity` below 1.0) |
 | `maximized` | false | open windows filling the screen (below the menu bar) |
+| `fullscreen` | false | open windows in native full screen (macOS: Dock and menu bar hide; ⌘⌃F leaves it); it wins over `maximized` |
+| `corner_radius` | 0 | round a bare window's corners (points, 0 to 24) and draw a hairline edge with a faint top highlight |
+| `background_noise` | 0 | fine grain over the background, 0 to 100 (WezTerm's `noise = 10`) |
 | `text_gamma` | 0.55 | 0.3 (heavy) to 1.0 (thin) text weight; lower is closer to WezTerm's heavier look |
 | `cursor_color` | theme accent | `#RRGGBB` |
 | `background_gradient` | none | two or more `#RRGGBB` stops painted across the terminal |
@@ -225,3 +228,13 @@ rename, copy visible screen, offline draft, always on top.
 * Shell-integration features such as jumping between prompts (TERYON does not inject into your shell).
 * Native macOS tabs (TERYON has its own tabs) and a global-hotkey dropdown window (a GUI toolkit cannot
   register global shortcuts).
+
+
+## Polish
+
+* **Tabs** show an icon for the foreground program (`nvim`, `ssh`, `cargo`, `git`, `python`, `node`, `docker`, AI agents) and its name, a spinner while a command runs in a shell that has the integration loaded, an × on each tab, and cross-fade when focus moves.
+* **Command chips**: in a bare window a finished command's status and time (`✓ 1.2 s`, `✗ 1 · 340 ms`) appear in the pane's top-right corner and fade out (needs the shell integration).
+* **Cursor** blinks with an eased fade when `cursor_blink = true`.
+* **Scrolling back** glides to the new position instead of jumping a line at a time.
+* **Themes** cross-fade over a quarter second whenever they change. `carbon` (neutral dark) and `tokyo-night-day` are new built-ins.
+* **Inline images**: programs that print iTerm2 images (`imgcat`, `OSC 1337 ; File=inline=1`) show them in the pane. The daemon reserves the rows, keeps up to 64 MB of images per pane, and clearing the screen removes them. PNG and JPEG are drawn; other formats leave blank space. Images do not show inside full-screen programs or in the scrollback text view.

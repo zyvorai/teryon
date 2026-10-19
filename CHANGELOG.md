@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop: inline images (iTerm2 `OSC 1337`), a command status chip in bare windows, tabs with program icons, a spinner and ×, eased cursor blink, smooth scroll-back, theme cross-fade with new `carbon` and `tokyo-night-day` themes, `fullscreen`, `corner_radius` and `background_noise` options.
+
 - Desktop: a `maximized` start option, a WezTerm-style accent scrollbar flush with the right edge, and a × on every tab of the bottom strip.
 
 - Desktop: ⌘T opens a new shell tab at once when `fresh_window` is on (closing it ends its shell); `text_gamma` sets text weight (uses a patched `vendor/egui_glow`).

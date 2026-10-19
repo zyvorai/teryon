@@ -14,6 +14,7 @@ pub mod files;
 pub mod frecent;
 pub mod highlight;
 pub mod history;
+pub mod inlineimg;
 pub mod ipc;
 pub mod keymap;
 pub mod keys;

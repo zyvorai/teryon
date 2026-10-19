@@ -78,6 +78,8 @@ impl Desktop {
         );
         let hover_bg = color(t.border);
         let hover_fg = color(t.foreground);
+        let now = ctx.input(|i| i.time);
+        let mut spinning = false;
         let mut pick = None;
         let mut close = None;
         let mut new_tab = false;
@@ -119,8 +121,11 @@ impl Desktop {
                                 .is_some_and(|p| x_zone.contains(p));
                         let hovered = response.hovered() && !on;
                         let (fill, ink) = if hovered { hover } else { (fill, ink) };
-                        ui.painter()
-                            .rect_filled(rect, egui::CornerRadius::same(8), fill);
+                        ui.painter().rect_filled(
+                            rect,
+                            egui::CornerRadius::same((rect.height() / 2.) as u8),
+                            fill,
+                        );
                         let origin =
                             Pos2::new(rect.left() + 10., rect.center().y - galley.size().y / 2.);
                         ui.painter().galley(origin, galley.clone(), ink);
@@ -149,21 +154,25 @@ impl Desktop {
                     let many = self.tabs.len() > 1;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let on = i == self.active;
-                        let name = match self.panes.get(&self.focus) {
-                            Some(p) if on && !p.info.title.is_empty() => p.info.title.as_str(),
-                            _ if tab.name.starts_with("win-") => "Shell",
-                            _ => tab.name.as_str(),
+                        let text = match (on, &tab.state) {
+                            (true, _) | (_, None) => {
+                                tab_label(&self.panes, self.focus, &tab.name, now)
+                            }
+                            (false, Some(sess)) => {
+                                tab_label(&sess.panes, sess.focus, &tab.name, now)
+                            }
                         };
-                        let name: String = name.chars().take(22).collect();
-                        let text = format!(
-                            "\u{f120} {} {name}",
-                            if on { "\u{25cf}" } else { "\u{25cb}" }
+                        spinning |= text.starts_with(|c| ('\u{2800}'..='\u{28ff}').contains(&c));
+                        // Tabs cross-fade between idle and active colors when focus moves.
+                        let k = ctx.animate_bool_with_time(
+                            egui::Id::new(("teryon-tab-fade", i)),
+                            on,
+                            0.15,
                         );
-                        let (fill, ink) = if on {
-                            (active_bg, active_fg)
-                        } else {
-                            (idle_bg, idle_fg)
-                        };
+                        let (fill, ink) = (
+                            idle_bg.lerp_to_gamma(active_bg, k),
+                            idle_fg.lerp_to_gamma(active_fg, k),
+                        );
                         let (response, clicked_x) =
                             chip(ui, text, on, many, fill, ink, (hover_bg, hover_fg));
                         if clicked_x {
@@ -197,7 +206,11 @@ impl Desktop {
                     });
                 });
             });
-        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        ctx.request_repaint_after(std::time::Duration::from_millis(if spinning {
+            80
+        } else {
+            1000
+        }));
         if let Some(i) = close {
             self.activate(i);
             self.close_tab();
@@ -443,4 +456,60 @@ fn clock_now() -> String {
         tm
     };
     format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
+}
+
+/// An icon for a foreground program, in Nerd Font glyphs.
+fn program_icon(program: &str) -> &'static str {
+    match program {
+        "nvim" | "vim" | "vi" => "\u{e62b}",
+        "ssh" | "mosh" => "\u{f0c2}",
+        "git" | "lazygit" | "tig" => "\u{e702}",
+        "cargo" | "rustc" | "rustup" => "\u{e7a8}",
+        "python" | "python3" | "ipython" => "\u{e73c}",
+        "node" | "npm" | "pnpm" | "yarn" | "bun" => "\u{e718}",
+        "docker" | "podman" => "\u{f308}",
+        "claude" | "codex" | "gemini" | "aider" => "\u{f0d0}",
+        "htop" | "btop" | "top" => "\u{f080}",
+        _ => "\u{f120}",
+    }
+}
+/// A tab's label: an icon for the foreground program (a spinner while a command runs) and a title
+/// (the program, or what the pane's title says).
+fn tab_label(panes: &BTreeMap<u64, Pane>, focus: u64, fallback: &str, now: f64) -> String {
+    let Some(p) = panes.get(&focus) else {
+        let name = if fallback.starts_with("win-") {
+            "Shell"
+        } else {
+            fallback
+        };
+        return format!("\u{f120}  {name}");
+    };
+    let program = p
+        .info
+        .fg
+        .as_deref()
+        .and_then(|c| c.split_whitespace().next())
+        .and_then(|c| c.rsplit('/').next())
+        .unwrap_or("");
+    let is_shell = matches!(
+        program,
+        "" | "zsh" | "bash" | "fish" | "sh" | "-zsh" | "-bash"
+    );
+    let title = p.info.title.trim();
+    let name = if !is_shell {
+        program
+    } else if !title.is_empty() {
+        title
+    } else {
+        "Shell"
+    };
+    let running = p.marks.last().is_some_and(|m| m.kind == 'C');
+    let icon = if running && is_shell {
+        const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        FRAMES[((now * 12.) as usize) % FRAMES.len()]
+    } else {
+        program_icon(program)
+    };
+    let name: String = name.chars().take(22).collect();
+    format!("{icon}  {name}")
 }

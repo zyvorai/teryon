@@ -29,3 +29,5 @@ Implemented features are documented in the README. This file names the gaps so a
 5. Add integrated transfers, discovered ports and signed native packaging, each with failure and permission tests.
 
 The goal is a strong remote workspace. “Best in the world” requires evidence from real users, compatibility testing and performance measurements; it is not a release flag.
+
+* Inline images are iTerm2-protocol only (no Kitty or Sixel), draw PNG and JPEG, and assume 8×16 px cells when sizing; a daemon started before the upgrade keeps running the old code, so stop it (`teryon stop --force`, which ends its shells) after updating to get images.
