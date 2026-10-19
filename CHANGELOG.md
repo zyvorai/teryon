@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Agents: the overview (⌘⇧A) shows a one-line summary of where each agent got to and can start Claude, Codex, Gemini, aider, Cursor or OpenCode in a new pane (also in the palette as "Agent: start …"). "Agent: send a prompt to all idle agents…" types one prompt into every agent sitting at its prompt, skipping working agents and ones waiting for approval. "Finished" notifications now include that last line.
+- Remote link: reconnect waits are spread by up to ±20% so tabs do not retry in lockstep, and a link that comes back after the machine slept (20 s without a poll) is replaced at once instead of waiting for ssh keepalives to fail.
 - Typing `exit` (or Ctrl-D) no longer leaves a dead pane: after a clean exit the pane closes, or the tab closes when it was the last pane, or the window closes when it was the only tab (the workspace is removed). A non-zero exit keeps the pane so you can read the output; the close-pane key then removes it.
 - `drag_selects = true` makes a drag select (and honor `copy_on_select`) in panes whose program tracks the mouse, such as Claude Code; plain clicks and the wheel still reach the program. Shift-drag always selects.
 

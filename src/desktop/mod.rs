@@ -248,6 +248,9 @@ pub struct Desktop {
     ai: ai::Panel,
     files: files::Browser,
     agents_open: bool,
+    /// Command to type into the next pane the host creates (an agent being started).
+    spawn_cmd: Option<String>,
+    agent_prompt: Option<agents::AgentPrompt>,
     aicmd: aicmd::Bar,
     cmdhist: cmdhist::Bar,
     /// A failed-command chip was clicked: explain this pane's failure with the assistant.
@@ -430,6 +433,8 @@ impl Desktop {
             ai: ai::Panel::new(),
             files: files::Browser::new(),
             agents_open: false,
+            spawn_cmd: None,
+            agent_prompt: None,
             aicmd: aicmd::Bar::default(),
             cmdhist: cmdhist::Bar::default(),
             explain_req: None,
@@ -682,6 +687,7 @@ impl Desktop {
                         self.extra.floating = Some(id);
                     }
                     self.title_new_pane(id);
+                    self.run_spawned(id);
                 }
                 Update::Captured(text, first_line, purpose) => match purpose {
                     CapturePurpose::View(query) => {
@@ -1294,6 +1300,7 @@ impl Desktop {
             self.cheatsheet_ui(ctx);
         }
         self.snippet_ui(ctx);
+        self.agent_prompt_ui(ctx);
         self.toast_ui(ctx);
         if std::mem::take(&mut self.exit_window) {
             self.quit_ok = true;
@@ -1439,7 +1446,11 @@ impl Desktop {
             self.toast("Read only");
             return;
         }
-        if self.panes.get(&self.focus).is_some_and(|p| p.info.exited.is_some()) {
+        if self
+            .panes
+            .get(&self.focus)
+            .is_some_and(|p| p.info.exited.is_some())
+        {
             self.close_exited(self.focus);
             return;
         }
@@ -1643,6 +1654,8 @@ impl Desktop {
             ActionKind::Ai => self.ai_toggle(),
             ActionKind::Files => self.files_toggle(),
             ActionKind::Agents => self.agents_open = !self.agents_open,
+            ActionKind::SpawnAgent(kind) => self.spawn_agent(kind),
+            ActionKind::PromptAgents => self.open_agent_prompt(),
             ActionKind::AiCommand => self.aicmd_toggle(),
             ActionKind::CommandHistory => self.cmdhist_toggle(),
         }
@@ -3124,7 +3137,8 @@ mod tests {
         let mut other = app.panes.get(&1).unwrap().info.clone();
         other.id = 2;
         other.exited = None;
-        app.panes.insert(2, Pane::new(other, vt100::Parser::new(10, 60, 0)));
+        app.panes
+            .insert(2, Pane::new(other, vt100::Parser::new(10, 60, 0)));
         app.close_exited(1);
         assert!(!app.exit_window);
         assert!(matches!(&drain(&rx)[..], [Command::Close(1)]));

@@ -76,6 +76,8 @@ pub(super) enum ActionKind {
     Ai,
     Files,
     Agents,
+    SpawnAgent(crate::agents::Kind),
+    PromptAgents,
     AiCommand,
     CommandHistory,
 }
@@ -162,6 +164,8 @@ impl ActionKind {
                 | Self::TabMove(_)
                 | Self::TabStep(_)
                 | Self::Open(..)
+                | Self::SpawnAgent(_)
+                | Self::PromptAgents
                 | Self::Snippet(_) => return None,
             }
             .to_string(),
@@ -268,6 +272,10 @@ pub(super) fn actions(
         ("Ask AI…", ActionKind::Ai),
         ("File browser", ActionKind::Files),
         ("Agents overview", ActionKind::Agents),
+        (
+            "Agent: send a prompt to all idle agents…",
+            ActionKind::PromptAgents,
+        ),
         ("AI command bar: describe a command…", ActionKind::AiCommand),
         ("Search command history…", ActionKind::CommandHistory),
         ("Open workspace…", ActionKind::OpenWorkspace),
@@ -351,6 +359,13 @@ pub(super) fn actions(
             kind,
         })
         .collect();
+    for kind in crate::agents::Kind::ALL {
+        list.push(Action {
+            title: format!("Agent: start {} in a new pane", kind.name()),
+            hint: String::new(),
+            kind: ActionKind::SpawnAgent(kind),
+        });
+    }
     for mode in [
         LayoutMode::Single,
         LayoutMode::Vertical,

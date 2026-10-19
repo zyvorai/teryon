@@ -24,6 +24,64 @@ impl Kind {
 }
 
 impl Kind {
+    pub const ALL: [Kind; 6] = [
+        Self::Claude,
+        Self::Codex,
+        Self::Gemini,
+        Self::Aider,
+        Self::Cursor,
+        Self::OpenCode,
+    ];
+    /// The command that starts this agent in a shell.
+    pub fn launch(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Aider => "aider",
+            Self::Cursor => "cursor-agent",
+            Self::OpenCode => "opencode",
+        }
+    }
+}
+
+/// Interface text that is never the answer: hints, key legends and mode lines.
+const CHROME: [&str; 8] = [
+    "esc to",
+    "? for shortcuts",
+    "shift+tab",
+    "ctrl+",
+    "bypass permissions",
+    "auto-accept",
+    "tokens",
+    "/help",
+];
+
+/// One line saying where the agent got to: the last line of real text on screen, without the
+/// bullets and frames the agents draw around it. `None` when the screen holds nothing readable.
+pub fn summary(rows: &[String]) -> Option<String> {
+    const MAX: usize = 120;
+    for row in rows.iter().rev() {
+        let line = row
+            .trim()
+            .trim_matches(|c: char| "│┃|".contains(c))
+            .trim_start_matches(|c: char| "⏺●•⎿✻✽·*-> ".contains(c) || c == '❯')
+            .trim();
+        let letters = line.chars().filter(|c| c.is_alphanumeric()).count();
+        let lower = line.to_lowercase();
+        if letters < 4 || CHROME.iter().any(|c| lower.contains(c)) {
+            continue;
+        }
+        let mut out: String = line.chars().take(MAX).collect();
+        if line.chars().count() > MAX {
+            out.push('…');
+        }
+        return Some(out);
+    }
+    None
+}
+
+impl Kind {
     /// Keystrokes that answer an approval prompt with "yes": Enter takes the preselected choice in
     /// the menu-style agents, aider asks for a typed `y`.
     pub fn approve_keys(self) -> &'static [u8] {
@@ -183,6 +241,36 @@ pub fn status(rows: &[String], quiet: Duration) -> Status {
 mod tests {
     use super::*;
 
+    #[test]
+    fn launch_commands_are_detected_as_their_own_agent() {
+        for k in Kind::ALL {
+            assert_eq!(detect(k.launch()), Some(k));
+        }
+    }
+    #[test]
+    fn the_summary_is_the_last_real_line() {
+        let rows: Vec<String> = [
+            "⏺ Fixed the failing test in src/lib.rs",
+            "",
+            "╭──────────────╮",
+            "│ > Try \"fix lint\" │",
+            "╰──────────────╯",
+            "  ? for shortcuts",
+            "",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(summary(&rows).as_deref(), Some("Try \"fix lint\""));
+        let rows = vec![
+            "⏺ All done: 12 tests pass".to_string(),
+            "  esc to interrupt".into(),
+        ];
+        assert_eq!(summary(&rows).as_deref(), Some("All done: 12 tests pass"));
+        assert_eq!(summary(&["───".to_string(), "".into()]), None);
+        let long = vec!["x".repeat(300)];
+        assert_eq!(summary(&long).unwrap().chars().count(), 121);
+    }
     #[test]
     fn approval_keys_fit_each_agents_prompt() {
         assert_eq!(Kind::Claude.approve_keys(), b"\r");

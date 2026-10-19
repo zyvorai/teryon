@@ -851,13 +851,14 @@ impl Desktop {
                     };
                     if *pressed && rect.contains(*pos) && reporting && b == 0 && defer {
                         self.pending_press = Some((id, *pos));
-                    } else if !*pressed && b == 0 && self.pending_press.is_some_and(|(p, _)| p == id)
+                    } else if !*pressed
+                        && b == 0
+                        && self.pending_press.is_some_and(|(p, _)| p == id)
                     {
                         // Released without dragging: it was a click for the program after all.
                         if let Some((_, at)) = self.pending_press.take() {
-                            out_bytes.extend(
-                                report(MouseKind::Press, Some(b), at).unwrap_or_default(),
-                            );
+                            out_bytes
+                                .extend(report(MouseKind::Press, Some(b), at).unwrap_or_default());
                             out_bytes.extend(
                                 report(MouseKind::Release, Some(b), *pos).unwrap_or_default(),
                             );

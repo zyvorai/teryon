@@ -34,6 +34,20 @@ const POLL_HOT: Duration = Duration::from_millis(6);
 /// How long polling stays fast after input or a screen change.
 const HOT_FOR: Duration = Duration::from_millis(400);
 
+/// A worker loop that comes back after longer than this was suspended (laptop sleep, network
+/// change), so its connection is assumed dead and replaced at once instead of waiting for ssh keepalives.
+const RESUME_GAP: Duration = Duration::from_secs(20);
+
+/// `wait_ms` spread by up to ±20% (from `seed`), so tabs that lost the same link do not all
+/// reconnect in the same instant.
+pub(crate) fn jittered(wait_ms: u64, seed: u32) -> u64 {
+    let spread = wait_ms / 5;
+    if spread == 0 {
+        return wait_ms;
+    }
+    wait_ms - spread + u64::from(seed) % (2 * spread + 1)
+}
+
 /// How long the worker waits for a command before it polls again.
 pub(crate) fn poll_wait(now: Instant, hot_until: Instant) -> Duration {
     if now < hot_until {
@@ -209,7 +223,12 @@ pub(crate) fn worker(
                 let mut hot_until = Instant::now();
                 let mut last_sent = Instant::now();
                 let result = (|| -> Result<()> {
+                    let mut ticked = Instant::now();
                     loop {
+                        if ticked.elapsed() > RESUME_GAP {
+                            bail!("resumed after {} s", ticked.elapsed().as_secs());
+                        }
+                        ticked = Instant::now();
                         match rx.recv_timeout(poll_wait(Instant::now(), hot_until)) {
                             Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                                 return Ok(())
@@ -393,9 +412,15 @@ pub(crate) fn worker(
         }
         // Discard stale actions throughout backoff, including buffered keystrokes.
         attempt += 1;
-        let _ = tx.send(Update::Retry(attempt, backoff));
+        let wait = jittered(
+            backoff,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.subsec_nanos()),
+        );
+        let _ = tx.send(Update::Retry(attempt, wait));
         wake();
-        let until = Instant::now() + Duration::from_millis(backoff);
+        let until = Instant::now() + Duration::from_millis(wait);
         while Instant::now() < until {
             match rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
@@ -1307,6 +1332,16 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reconnect_waits_are_spread_but_stay_near_the_backoff() {
+        for seed in [0, 1, 7, 999_999_999, u32::MAX] {
+            let w = jittered(1000, seed);
+            assert!((800..=1200).contains(&w), "{w}");
+        }
+        assert_eq!(jittered(250, 3), 250 - 50 + 3);
+        assert_eq!(jittered(3, 99), 3, "tiny waits are left alone");
+        assert_ne!(jittered(5000, 1), jittered(5000, 2));
+    }
     #[test]
     fn polling_is_fast_only_while_hot() {
         let now = std::time::Instant::now();
