@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop: ⌘T opens a new shell tab at once when `fresh_window` is on (closing it ends its shell); `text_gamma` sets text weight (uses a patched `vendor/egui_glow`).
+
 - Desktop: `cursor_color`, `window_blur` (macOS background blur) and `background_gradient` with `gradient_angle`.
 
 - Desktop: `tab_bar = "bottom"` adds a WezTerm-style tab strip (tab pills, a new-tab button and a clock) under a bare `chrome = "none"` window.

@@ -38,3 +38,5 @@ strip = true
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }
 vt100 = { path = "vendor/vt100" }
+# egui_glow with one change: a settable gamma for text coverage (see vendor/egui_glow/src/lib.rs).
+egui_glow = { path = "vendor/egui_glow" }

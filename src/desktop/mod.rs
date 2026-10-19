@@ -479,14 +479,20 @@ impl Desktop {
         });
         self.activate(self.tabs.len() - 1);
     }
-    /// Detach the current tab (its shells keep running on the host).
+    /// Detach the current tab (its shells keep running on the host, unless it is a fresh-window tab).
     fn close_tab(&mut self) {
         if self.tabs.len() < 2 {
             self.notice = "This is the only tab".into();
             return;
         }
         let closing = self.active;
-        let _ = self.tx.try_send(Command::Stop);
+        // A tab made by ⌘T in a fresh-window setup owns its shell: closing it ends the shell.
+        let owned = self.cfg.fresh_window && self.tabs[closing].name.starts_with("win-");
+        let _ = self.tx.try_send(if owned {
+            Command::Discard
+        } else {
+            Command::Stop
+        });
         let other = if closing > 0 { closing - 1 } else { 1 };
         self.activate(other);
         self.tabs.remove(closing);
@@ -1189,6 +1195,14 @@ impl Desktop {
                 self.find_open = true;
                 self.find_focus = true;
             }
+            ActionKind::NewTab if self.cfg.fresh_window => {
+                // Like a terminal's ⌘T: a new shell right away, named for you.
+                let millis = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis());
+                let host = self.host.clone();
+                self.open_tab(&host, &format!("win-{millis}-{}", std::process::id()));
+            }
             ActionKind::NewTab => {
                 self.command = "tab ".into();
                 self.palette = true;
@@ -1748,6 +1762,7 @@ pub fn run(
         app.toast("Press ⌘K for everything, ⌘/ for shortcuts");
     }
     app.saved = settings;
+    eframe::egui_glow::set_font_gamma(app.cfg.text_gamma);
     eframe::run_native(
         "TERYON — Your Mac mini. Wherever you work.",
         eframe::NativeOptions {

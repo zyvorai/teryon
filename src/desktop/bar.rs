@@ -130,7 +130,7 @@ impl Desktop {
                         let on = i == self.active;
                         let name = match self.panes.get(&self.focus) {
                             Some(p) if on && !p.info.title.is_empty() => p.info.title.as_str(),
-                            _ if tab.name.starts_with("win-") => "shell",
+                            _ if tab.name.starts_with("win-") => "Shell",
                             _ => tab.name.as_str(),
                         };
                         let name: String = name.chars().take(22).collect();

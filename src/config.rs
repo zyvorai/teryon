@@ -230,6 +230,8 @@ pub struct DesktopConfig {
     pub cursor_blink: bool,
     /// `#RRGGBB` cursor color (default: the theme's accent).
     pub cursor_color: Option<String>,
+    /// Text weight: coverage gamma of the glyph atlas, 0.3 (heavy) to 1.0 (thin); 0.55 is egui's own.
+    pub text_gamma: f32,
     /// Blur what shows through a transparent window, 0 (off) to 100 (macOS only; needs
     /// `window_opacity` below 1.0 and a restart).
     pub window_blur: u32,
@@ -295,6 +297,7 @@ impl Default for DesktopConfig {
             cursor_style: CursorStyle::Block,
             cursor_blink: false,
             cursor_color: None,
+            text_gamma: 0.55,
             window_blur: 0,
             background_gradient: Vec::new(),
             gradient_angle: 135.,
@@ -360,6 +363,7 @@ impl DesktopConfig {
         check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
+        check("text_gamma", self.text_gamma, 0.3, 1.)?;
         check("window_blur", self.window_blur as f32, 0., 100.)?;
         check("gradient_angle", self.gradient_angle, -360., 360.)?;
         let is_hex = |c: &str| {
