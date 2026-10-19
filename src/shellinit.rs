@@ -2,21 +2,72 @@
 //! working directory are (OSC 133 and OSC 7). Everything works without them, only less smartly.
 use std::path::{Path, PathBuf};
 
-const ZSH: &str = r#"# TERYON shell integration for zsh (OSC 133 prompt marks, OSC 7 working directory).
+const ZSH: &str = r#"# TERYON shell integration for zsh (OSC 133 prompt marks, OSC 7 working directory, history, suggestions).
 if [[ -z "$__teryon_integrated" ]]; then
-  typeset -g __teryon_integrated=1 __teryon_ran=
+  typeset -g __teryon_integrated=1 __teryon_ran= __teryon_cmd= __teryon_t0=
+  zmodload zsh/datetime 2>/dev/null
   __teryon_precmd() {
     local s=$?
     [[ -n "$__teryon_ran" ]] && printf '\e]133;D;%s\a' "$s"
+    (( $+functions[__teryon_record] )) && __teryon_record "$s"
     __teryon_ran=
     local p=${PWD//\%/%25}; p=${p// /%20}; p=${p//$'\n'/%0A}
     printf '\e]7;file://%s%s\a' "${HOST}" "$p"
     printf '\e]133;A\a'
   }
-  __teryon_preexec() { __teryon_ran=1; printf '\e]133;C\a'; }
+  __teryon_preexec() { __teryon_ran=1; __teryon_cmd=$1; __teryon_t0=$EPOCHREALTIME; printf '\e]133;C\a'; }
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
+fi
+# History and autosuggestions. Set TERYON_PLUS=0 before this line to turn them off.
+if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
+  typeset -g __teryon_plus=1 __teryon_hint= __teryon_hl=
+  __teryon_record() {
+    [[ -n "$__teryon_cmd" && -n "$__teryon_t0" ]] || return
+    local -i ms=$(( (EPOCHREALTIME - __teryon_t0) * 1000 ))
+    command teryon hist add --exit "$1" --ms "$ms" --cwd "$PWD" -- "$__teryon_cmd" >/dev/null 2>&1 &!
+    __teryon_cmd= __teryon_t0=
+  }
+  __teryon_clear_hint() {
+    POSTDISPLAY=
+    __teryon_hint=
+    if [[ -n "$__teryon_hl" ]]; then region_highlight=("${(@)region_highlight:#$__teryon_hl}"); __teryon_hl=; fi
+  }
+  __teryon_suggest() {
+    __teryon_clear_hint
+    [[ -n "$BUFFER" && "$CURSOR" -eq "${#BUFFER}" && "$BUFFER" != *$'\n'* ]] || return
+    local s; s=$(command teryon hist suggest --cwd "$PWD" -- "$BUFFER" 2>/dev/null) || return
+    [[ -n "$s" && "$s" == "$BUFFER"?* ]] || return
+    __teryon_hint=$s
+    POSTDISPLAY=${s#"$BUFFER"}
+    __teryon_hl="${#BUFFER} $(( ${#BUFFER} + ${#POSTDISPLAY} )) fg=8"
+    region_highlight+=("$__teryon_hl")
+  }
+  __teryon_accept_all() {
+    if [[ -n "$__teryon_hint" && "$CURSOR" -eq "${#BUFFER}" ]]; then
+      BUFFER=$__teryon_hint; CURSOR=${#BUFFER}; __teryon_clear_hint
+    else
+      zle "${1:-.forward-char}"
+    fi
+  }
+  __teryon_forward_char() { __teryon_accept_all .forward-char; }
+  __teryon_end_of_line() { __teryon_accept_all .end-of-line; }
+  __teryon_forward_word() {
+    if [[ -n "$__teryon_hint" && "$CURSOR" -eq "${#BUFFER}" ]]; then
+      local rest=${__teryon_hint#"$BUFFER"} lead tail
+      lead=${rest%%[![:space:]]*}; tail=${rest#"$lead"}
+      BUFFER+=$lead${tail%%[[:space:]]*}; CURSOR=${#BUFFER}
+      __teryon_suggest
+    else
+      zle .forward-word
+    fi
+  }
+  autoload -Uz add-zle-hook-widget
+  add-zle-hook-widget line-pre-redraw __teryon_suggest
+  add-zle-hook-widget line-finish __teryon_clear_hint
+  zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
+  bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
 fi
 "#;
 
@@ -153,6 +204,19 @@ mod tests {
                 continue;
             };
             assert!(status.success(), "{shell} rejected its integration script");
+        }
+    }
+    #[test]
+    fn zsh_script_records_history_and_binds_the_suggestion_keys() {
+        let z = script("zsh").unwrap();
+        for needle in [
+            "hist add",
+            "hist suggest",
+            "line-pre-redraw",
+            "TERYON_PLUS",
+            "__teryon_forward_word",
+        ] {
+            assert!(z.contains(needle), "zsh script lacks {needle}");
         }
     }
     #[test]

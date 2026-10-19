@@ -190,6 +190,9 @@ enum Commands {
         #[arg(value_parser = ["zsh", "bash", "fish"])]
         shell: String,
     },
+    /// Command history behind the shell integration (used by the zsh widgets).
+    #[command(hide = true, subcommand)]
+    Hist(HistCommand),
     /// Guided first-run setup: tools, SSH hosts, reachability, theme.
     Setup {
         /// Accept every default without asking.
@@ -312,6 +315,27 @@ enum Commands {
     /// Internal SSH stdio bridge. Do not print banners on its stdout.
     #[command(hide = true)]
     Relay,
+}
+#[derive(Subcommand)]
+enum HistCommand {
+    /// Record one finished command.
+    Add {
+        #[arg(long, default_value_t = 0)]
+        exit: i32,
+        #[arg(long, default_value_t = 0)]
+        ms: u64,
+        #[arg(long, default_value = "")]
+        cwd: String,
+        #[arg(last = true)]
+        cmd: Vec<String>,
+    },
+    /// Print the command to ghost after PREFIX (nothing if none).
+    Suggest {
+        #[arg(long, default_value = "")]
+        cwd: String,
+        #[arg(last = true)]
+        prefix: Vec<String>,
+    },
 }
 #[derive(Subcommand)]
 enum LayoutCommand {
@@ -888,6 +912,24 @@ fn run() -> Result<i32> {
                 "{}",
                 teryon::shellinit::script(&shell).context("unsupported shell")?
             )
+        }
+        Commands::Hist(HistCommand::Add { exit, ms, cwd, cmd }) => {
+            let at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            teryon::history::add(&teryon::history::Entry {
+                cmd: cmd.join(" "),
+                cwd,
+                exit,
+                ms,
+                at,
+            })?;
+        }
+        Commands::Hist(HistCommand::Suggest { cwd, prefix }) => {
+            let entries = teryon::history::load_tail();
+            if let Some(s) = teryon::history::suggest(&entries, &prefix.join(" "), &cwd) {
+                println!("{s}");
+            }
         }
         Commands::Setup { yes } => {
             let mut io = teryon::setup::Console { assume_yes: yes };
