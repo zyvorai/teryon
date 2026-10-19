@@ -20,7 +20,7 @@ if [[ -z "$__teryon_integrated" ]]; then
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
 fi
-# History, autosuggestions and syntax highlighting. Set TERYON_PLUS=0 before this line to turn them off.
+# History, autosuggestions, syntax highlighting and fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories). Set TERYON_PLUS=0 before this line to turn them off.
 if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   typeset -g __teryon_plus=1 __teryon_hint=
   typeset -ga __teryon_hls; __teryon_hls=()
@@ -79,10 +79,36 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       zle .forward-word
     fi
   }
+  __teryon_history_widget() {
+    zle -I
+    local out rc
+    out=$(command teryon pick --history --cwd "$PWD" --query "$BUFFER" 2>/dev/null); rc=$?
+    zle reset-prompt
+    [[ $rc -eq 0 || $rc -eq 10 ]] || return 0
+    BUFFER=$out; CURSOR=${#BUFFER}
+    (( rc == 10 )) && zle accept-line
+    return 0
+  }
+  __teryon_file_widget() {
+    zle -I
+    local out
+    out=$(command teryon pick --files --cwd "$PWD" 2>/dev/null) || { zle reset-prompt; return 0; }
+    LBUFFER+="${(q)out} "
+    zle reset-prompt
+  }
+  __teryon_cd_widget() {
+    zle -I
+    local out
+    out=$(command teryon pick --dirs --cwd "$PWD" 2>/dev/null) || { zle reset-prompt; return 0; }
+    BUFFER="cd -- ${(q)out}"
+    zle accept-line
+  }
   autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint
   zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
+  zle -N __teryon_history_widget; zle -N __teryon_file_widget; zle -N __teryon_cd_widget
+  bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget
   bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
 fi
 "#;
@@ -230,6 +256,9 @@ mod tests {
             "hist suggest",
             "line-pre-redraw",
             "teryon highlight",
+            "pick --history",
+            "pick --files",
+            "pick --dirs",
             "TERYON_PLUS",
             "__teryon_forward_word",
         ] {

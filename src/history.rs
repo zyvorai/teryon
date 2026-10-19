@@ -58,6 +58,13 @@ pub fn load_tail() -> Vec<Entry> {
     };
     read().map(|t| parse(&t)).unwrap_or_default()
 }
+/// The whole history, oldest first.
+pub fn load_all() -> Vec<Entry> {
+    path()
+        .and_then(|p| Ok(std::fs::read_to_string(p)?))
+        .map(|t| parse(&t))
+        .unwrap_or_default()
+}
 /// The command to ghost after `prefix`: the newest longer one that starts with it, preferring
 /// commands that ran in `cwd`. Single-line commands only.
 pub fn suggest(entries: &[Entry], prefix: &str, cwd: &str) -> Option<String> {

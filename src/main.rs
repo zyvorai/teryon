@@ -199,6 +199,24 @@ enum Commands {
         #[arg(last = true)]
         line: Vec<String>,
     },
+    /// Fuzzy picker for shell widgets: history, files, directories or lines from stdin.
+    #[command(hide = true)]
+    Pick {
+        /// Pick from command history.
+        #[arg(long, conflicts_with_all = ["files", "dirs"])]
+        history: bool,
+        /// Pick a file below --cwd.
+        #[arg(long, conflicts_with = "dirs")]
+        files: bool,
+        /// Pick a directory below --cwd.
+        #[arg(long)]
+        dirs: bool,
+        #[arg(long, default_value = ".")]
+        cwd: PathBuf,
+        /// Initial query.
+        #[arg(long, default_value = "")]
+        query: String,
+    },
     /// Guided first-run setup: tools, SSH hosts, reachability, theme.
     Setup {
         /// Accept every default without asking.
@@ -935,6 +953,49 @@ fn run() -> Result<i32> {
             let entries = teryon::history::load_tail();
             if let Some(s) = teryon::history::suggest(&entries, &prefix.join(" "), &cwd) {
                 println!("{s}");
+            }
+        }
+        Commands::Pick {
+            history,
+            files,
+            dirs,
+            cwd,
+            query,
+        } => {
+            use std::io::Read;
+            let cwd = cwd.canonicalize().unwrap_or(cwd);
+            let (items, scoped, label) = if history {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let home = std::env::var("HOME").unwrap_or_default();
+                let items = teryon::picker::history_items(
+                    &teryon::history::load_all(),
+                    &cwd.to_string_lossy(),
+                    &home,
+                    now,
+                );
+                (items, true, "history")
+            } else if dirs {
+                (teryon::picker::walk(&cwd, true), false, "directory")
+            } else if files {
+                let items = teryon::picker::git_files(&cwd)
+                    .unwrap_or_else(|| teryon::picker::walk(&cwd, false));
+                (items, false, "file")
+            } else {
+                let mut text = String::new();
+                std::io::stdin().read_to_string(&mut text)?;
+                let items = text.lines().map(teryon::picker::Item::plain).collect();
+                (items, false, "pick")
+            };
+            match teryon::picker::run(items, &query, scoped, label)? {
+                Some((text, run)) => {
+                    println!("{text}");
+                    if run {
+                        std::process::exit(10);
+                    }
+                }
+                None => std::process::exit(1),
             }
         }
         Commands::Highlight { line } => {
