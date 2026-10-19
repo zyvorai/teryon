@@ -52,6 +52,10 @@ See `docs/AI.md`.
 Enter puts the command at the prompt, ⌥Enter runs it, Tab narrows to this directory. It needs the zsh integration
 (`teryon setup`) and a local workspace, because the history is kept on this Mac.
 
+Commands that contain a recognizable secret (a token, a `--password` flag, a URL with credentials) are not recorded,
+so they are never suggested back or listed. History kept before that can be cleaned with `teryon hist scrub`; a
+command you start with a space is also never recorded.
+
 ## A bare window
 
 For a window that is only the terminal, like WezTerm with its tab bar and title bar off:

@@ -27,9 +27,43 @@ pub struct Entry {
 pub fn path() -> Result<PathBuf> {
     Ok(util::home()?.join(".teryon/history.jsonl"))
 }
-/// Whether `cmd` belongs in the history: not blank, and not hidden by a leading space.
+/// Whether `cmd` belongs in the history: not blank, not hidden by a leading space, and not
+/// carrying a recognizable secret (a token, a password flag, a URL with credentials). Such a command
+/// is simply not kept, the way a shell's `HISTIGNORE` would, since a history that suggests it back
+/// or lists it in a picker would show the secret again.
 pub fn should_record(cmd: &str) -> bool {
-    !cmd.trim().is_empty() && !cmd.starts_with(' ')
+    !cmd.trim().is_empty() && !cmd.starts_with(' ') && !has_secret(cmd)
+}
+/// Whether `cmd` contains something the redaction rules would hide.
+pub fn has_secret(cmd: &str) -> bool {
+    crate::ai::redact::redact(cmd).1 > 0
+}
+/// `entries` without the ones that contain a secret, and how many were dropped.
+pub fn scrubbed(entries: Vec<Entry>) -> (Vec<Entry>, usize) {
+    let before = entries.len();
+    let kept: Vec<Entry> = entries
+        .into_iter()
+        .filter(|e| !has_secret(&e.cmd))
+        .collect();
+    let dropped = before - kept.len();
+    (kept, dropped)
+}
+/// Remove entries with secrets from the history file itself; returns how many were removed.
+pub fn scrub_file() -> Result<usize> {
+    let path = path()?;
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(0);
+    };
+    let (kept, dropped) = scrubbed(parse(&text));
+    if dropped > 0 {
+        let out: String = kept
+            .iter()
+            .filter_map(|e| serde_json::to_string(e).ok())
+            .map(|l| l + "\n")
+            .collect();
+        util::write_private_atomic(&path, out.as_bytes())?;
+    }
+    Ok(dropped)
 }
 /// Parse file text, oldest first; lines that are not valid entries are skipped.
 pub fn parse(text: &str) -> Vec<Entry> {
@@ -141,6 +175,38 @@ mod tests {
         assert!(should_record("git status"));
         assert!(!should_record("   "));
         assert!(!should_record(" secret --token abc"));
+    }
+    #[test]
+    fn commands_with_secrets_are_not_recorded() {
+        for cmd in [
+            "export GITHUB_TOKEN=ghp_aB3dEfGhIjKlMnOpQrStUvWxYz0123456789",
+            "curl -u me --password hunter2xyz https://example.com",
+            "git clone https://me:p4ssw0rd@example.com/r.git",
+            "AWS_SECRET_ACCESS_KEY=abcdef123456 aws s3 ls",
+        ] {
+            assert!(!should_record(cmd), "{cmd}");
+        }
+        for cmd in [
+            "git status",
+            "cargo test --all-features",
+            "echo the token count is 5",
+        ] {
+            assert!(should_record(cmd), "{cmd}");
+        }
+    }
+    #[test]
+    fn scrubbing_drops_only_the_entries_with_secrets() {
+        let list = vec![
+            e("ls", "/a", 1),
+            e("deploy --token=abc123def456", "/a", 2),
+            e("git status", "/a", 3),
+        ];
+        let (kept, dropped) = scrubbed(list);
+        assert_eq!(dropped, 1);
+        assert_eq!(
+            kept.iter().map(|x| x.cmd.as_str()).collect::<Vec<_>>(),
+            ["ls", "git status"]
+        );
     }
     #[test]
     fn suggestion_is_the_newest_longer_match_preferring_this_directory() {

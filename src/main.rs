@@ -391,6 +391,8 @@ enum HistCommand {
         #[arg(last = true)]
         cmd: Vec<String>,
     },
+    /// Remove commands that contain a secret from the history file (they are no longer recorded either).
+    Scrub,
     /// Print the command to ghost after PREFIX (nothing if none).
     Suggest {
         #[arg(long, default_value = "")]
@@ -1138,6 +1140,13 @@ fn run() -> Result<i32> {
                 ms,
                 at,
             })?;
+        }
+        Commands::Hist(HistCommand::Scrub) => {
+            let n = teryon::history::scrub_file()?;
+            println!(
+                "Removed {n} command{} that contained a secret from the history.",
+                if n == 1 { "" } else { "s" }
+            );
         }
         Commands::Hist(HistCommand::Suggest { cwd, prefix }) => {
             let entries = teryon::history::load_tail();
