@@ -1,6 +1,46 @@
 //! Encode input for xterm-compatible remote programs. Local prefix is Ctrl+Space.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub fn encode(key: KeyEvent, app_cursor: bool) -> Option<Vec<u8>> {
+    encode_with(key, app_cursor, 0)
+}
+/// `Some(CSI code ; modifiers u)` for the keys the Kitty protocol's "disambiguate" flag changes:
+/// Esc, and a letter, digit or symbol pressed with Ctrl or Alt. Plain text, Shift-only text and
+/// the other special keys keep their usual encodings.
+fn kitty_disambiguated(key: KeyEvent) -> Option<Vec<u8>> {
+    let m = key.modifiers;
+    let (shift, alt, ctrl) = (
+        m.contains(KeyModifiers::SHIFT),
+        m.contains(KeyModifiers::ALT),
+        m.contains(KeyModifiers::CONTROL),
+    );
+    let mods = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(ctrl);
+    let (code, mods) = match key.code {
+        KeyCode::Esc => (27, mods),
+        // Shift+Tab is Tab with the shift bit.
+        KeyCode::BackTab => (9, ((mods - 1) | 1) + 1),
+        KeyCode::Char(c) if alt || ctrl => {
+            // The key is named by its unshifted character; the app maps Ctrl+/ to `_` for the shell.
+            let c = if ctrl && c == '_' { '/' } else { c };
+            (c.to_lowercase().next().unwrap_or(c) as u32, mods)
+        }
+        _ => return None,
+    };
+    Some(
+        if mods == 1 {
+            format!("\x1b[{code}u")
+        } else {
+            format!("\x1b[{code};{mods}u")
+        }
+        .into_bytes(),
+    )
+}
+/// Like `encode`, for a program that pushed Kitty keyboard `kitty` flags (see `kittykeys`).
+pub fn encode_with(key: KeyEvent, app_cursor: bool, kitty: u8) -> Option<Vec<u8>> {
+    if kitty & crate::kittykeys::DISAMBIGUATE != 0 {
+        if let Some(bytes) = kitty_disambiguated(key) {
+            return Some(bytes);
+        }
+    }
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     let mut bytes = match key.code {
@@ -72,6 +112,53 @@ pub fn paste(text: &str, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn kitty_disambiguate_changes_only_esc_and_modified_keys() {
+        use crossterm::event::{KeyCode as K, KeyEvent as E, KeyModifiers as M};
+        let enc = |code, mods| encode_with(E::new(code, mods), false, 1);
+        assert_eq!(enc(K::Esc, M::NONE).unwrap(), b"\x1b[27u");
+        assert_eq!(enc(K::Char('a'), M::CONTROL).unwrap(), b"\x1b[97;5u");
+        assert_eq!(enc(K::Char('b'), M::ALT).unwrap(), b"\x1b[98;3u");
+        // Shift is named by the unshifted key plus the shift bit.
+        assert_eq!(enc(K::Char('B'), M::ALT | M::SHIFT).unwrap(), b"\x1b[98;4u");
+        assert_eq!(
+            enc(K::Char('a'), M::CONTROL | M::ALT).unwrap(),
+            b"\x1b[97;7u"
+        );
+        assert_eq!(enc(K::Char(' '), M::CONTROL).unwrap(), b"\x1b[32;5u");
+        // Combinations the legacy encoding could not express at all.
+        assert_eq!(enc(K::Char('1'), M::CONTROL).unwrap(), b"\x1b[49;5u");
+        // The app's Ctrl+/ arrives as Ctrl+_ and is reported as the key it is.
+        assert_eq!(enc(K::Char('_'), M::CONTROL).unwrap(), b"\x1b[47;5u");
+        assert_eq!(enc(K::BackTab, M::SHIFT).unwrap(), b"\x1b[9;2u");
+        // Untouched: text, Shift-only text, Enter, Tab, Backspace, arrows, function keys.
+        assert_eq!(enc(K::Char('a'), M::NONE).unwrap(), b"a");
+        assert_eq!(enc(K::Char('A'), M::SHIFT).unwrap(), b"A");
+        assert_eq!(enc(K::Enter, M::NONE).unwrap(), b"\r");
+        assert_eq!(enc(K::Tab, M::NONE).unwrap(), b"\t");
+        assert_eq!(enc(K::Backspace, M::NONE).unwrap(), [127]);
+        assert_eq!(enc(K::Up, M::NONE).unwrap(), b"\x1b[A");
+        assert_eq!(enc(K::Up, M::CONTROL).unwrap(), b"\x1b[1;5A");
+        assert_eq!(enc(K::F(5), M::NONE).unwrap(), b"\x1b[15~");
+    }
+    #[test]
+    fn without_the_flag_nothing_changes() {
+        use crossterm::event::{KeyCode as K, KeyEvent as E, KeyModifiers as M};
+        for (code, mods, want) in [
+            (K::Esc, M::NONE, &b"\x1b"[..]),
+            (K::Char('a'), M::CONTROL, &[1u8][..]),
+            (K::Char('b'), M::ALT, &b"\x1bb"[..]),
+            (K::BackTab, M::SHIFT, &b"\x1b[Z"[..]),
+        ] {
+            assert_eq!(encode(E::new(code, mods), false).unwrap(), want);
+            assert_eq!(encode_with(E::new(code, mods), false, 0).unwrap(), want);
+            // Flags this terminal does not honor change nothing either.
+            assert_eq!(
+                encode_with(E::new(code, mods), false, 0b1110).unwrap(),
+                want
+            );
+        }
+    }
     #[test]
     fn controls_unicode_and_arrows() {
         assert_eq!(
