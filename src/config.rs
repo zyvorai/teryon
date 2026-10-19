@@ -305,6 +305,9 @@ pub struct DesktopConfig {
     pub notify_after_seconds: u32,
     /// Notify when an AI coding agent in the background needs you or finishes.
     pub agent_notifications: bool,
+    /// Show Approve and Deny buttons in the agents overview for an agent that is waiting. Off by
+    /// default: they type into the agent, so a mis-click answers a real prompt.
+    pub agent_quick_approve: bool,
     /// Open the file browser sidebar when the app starts.
     pub file_browser: bool,
     /// Themes to switch to when macOS goes light or dark (either may be left out).
@@ -370,6 +373,7 @@ impl Default for DesktopConfig {
             copy_on_select: false,
             notify_after_seconds: 10,
             agent_notifications: true,
+            agent_quick_approve: false,
             file_browser: false,
             theme_light: None,
             theme_dark: None,

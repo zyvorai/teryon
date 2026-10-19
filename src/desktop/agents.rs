@@ -157,6 +157,24 @@ impl Desktop {
         }
     }
 
+    /// Answer the approval prompt of the agent in pane `id`; only while it is still asking.
+    pub(super) fn answer_agent(&mut self, id: u64, kind: Kind, yes: bool) {
+        if self.readonly || !self.cfg.agent_quick_approve {
+            return;
+        }
+        let asking = self
+            .panes
+            .get(&id)
+            .is_some_and(|p| p.track.status == Some(Status::NeedsYou));
+        if !asking {
+            self.toast("That agent is no longer waiting");
+            return;
+        }
+        let data = if yes { kind.approve_keys() } else { kind.deny_keys() }.to_vec();
+        self.send(Command::Input { pane: id, data });
+        self.toast(format!("{} in pane {id}: {}", kind.name(), if yes { "approved" } else { "denied" }));
+    }
+
     /// Every agent in the active workspace, needing-you first.
     pub(super) fn agents_list(&self) -> Vec<(u64, Kind, Status, String, String)> {
         let mut out: Vec<_> = self
@@ -187,6 +205,8 @@ impl Desktop {
         let list = self.agents_list();
         let t = self.theme.clone();
         let mut jump = None;
+        let mut answer: Option<(u64, Kind, bool)> = None;
+        let quick = self.cfg.agent_quick_approve && !self.readonly;
         let mut open = true;
         egui::Window::new("Agents")
             .open(&mut open)
@@ -204,6 +224,7 @@ impl Desktop {
                 }
                 for (id, kind, status, title, cwd) in &list {
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.), Sense::click());
+                    let asking = quick && *status == Status::NeedsYou;
                     if resp.hovered() {
                         ui.painter().rect_filled(rect, 8., color(mix(t.panel, t.foreground, 0.08)));
                     }
@@ -223,12 +244,28 @@ impl Desktop {
                         FontId::proportional(11.),
                         color(t.muted),
                     );
-                    ui.painter().text(rect.right_center() - Vec2::new(10., 0.), egui::Align2::RIGHT_CENTER, status.label(), FontId::proportional(12.), c);
-                    if resp.clicked() {
+                    let label_x = if asking { 150. } else { 10. };
+                    ui.painter().text(rect.right_center() - Vec2::new(label_x, 0.), egui::Align2::RIGHT_CENTER, status.label(), FontId::proportional(12.), c);
+                    if asking {
+                        let deny = egui::Rect::from_center_size(rect.right_center() - Vec2::new(34., 0.), Vec2::new(60., 24.));
+                        let approve = egui::Rect::from_center_size(rect.right_center() - Vec2::new(100., 0.), Vec2::new(60., 24.));
+                        let a = ui.put(approve, egui::Button::new("Approve")).on_hover_text("Answers the prompt: yes");
+                        let d = ui.put(deny, egui::Button::new("Deny")).on_hover_text("Answers the prompt: no");
+                        if a.clicked() {
+                            answer = Some((*id, *kind, true));
+                        } else if d.clicked() {
+                            answer = Some((*id, *kind, false));
+                        } else if resp.clicked() {
+                            jump = Some(*id);
+                        }
+                    } else if resp.clicked() {
                         jump = Some(*id);
                     }
                 }
             });
+        if let Some((id, kind, yes)) = answer {
+            self.answer_agent(id, kind, yes);
+        }
         if let Some(id) = jump {
             self.focus = id;
             self.agents_open = false;
@@ -280,6 +317,34 @@ mod tests {
         let list = app.agents_list();
         assert_eq!(list[0].0, 2);
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn approve_and_deny_type_into_a_waiting_agent_only_when_enabled() {
+        let (mut app, rx) = app_with_screen("");
+        app.window_focused = true;
+        agent_pane(
+            &mut app,
+            2,
+            Some("claude"),
+            "Do you want to proceed?\r\n❯ 1. Yes\r\n",
+        );
+        app.agents_update();
+        while rx.try_recv().is_ok() {}
+        app.answer_agent(2, Kind::Claude, true);
+        assert!(rx.try_recv().is_err(), "off by default");
+        app.cfg.agent_quick_approve = true;
+        app.answer_agent(2, Kind::Claude, true);
+        assert!(matches!(rx.try_recv(), Ok(Command::Input { pane: 2, data }) if data == b"\r"));
+        app.answer_agent(2, Kind::Claude, false);
+        assert!(matches!(rx.try_recv(), Ok(Command::Input { pane: 2, data }) if data == b"\x1b"));
+        app.readonly = true;
+        app.answer_agent(2, Kind::Claude, true);
+        assert!(rx.try_recv().is_err(), "nothing is sent when read only");
+        app.readonly = false;
+        app.panes.get_mut(&2).unwrap().track.status = Some(Status::Working);
+        app.answer_agent(2, Kind::Claude, true);
+        assert!(rx.try_recv().is_err(), "a stale click does not answer a later prompt");
     }
 
     #[test]

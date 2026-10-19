@@ -23,6 +23,24 @@ impl Kind {
     }
 }
 
+impl Kind {
+    /// Keystrokes that answer an approval prompt with "yes": Enter takes the preselected choice in
+    /// the menu-style agents, aider asks for a typed `y`.
+    pub fn approve_keys(self) -> &'static [u8] {
+        match self {
+            Self::Aider => b"y\r",
+            _ => b"\r",
+        }
+    }
+    /// Keystrokes that decline: Esc cancels the menu-style prompts, aider takes `n`.
+    pub fn deny_keys(self) -> &'static [u8] {
+        match self {
+            Self::Aider => b"n\r",
+            _ => b"\x1b",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     /// Producing output or showing its "interrupt" hint.
@@ -165,6 +183,13 @@ pub fn status(rows: &[String], quiet: Duration) -> Status {
 mod tests {
     use super::*;
 
+    #[test]
+    fn approval_keys_fit_each_agents_prompt() {
+        assert_eq!(Kind::Claude.approve_keys(), b"\r");
+        assert_eq!(Kind::Claude.deny_keys(), b"\x1b");
+        assert_eq!(Kind::Aider.approve_keys(), b"y\r");
+        assert_eq!(Kind::Aider.deny_keys(), b"n\r");
+    }
     #[test]
     fn agents_are_recognized_by_their_command_line() {
         for (cmd, want) in [

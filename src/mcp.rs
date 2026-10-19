@@ -90,6 +90,7 @@ impl<B: Backend> Server<B> {
     pub fn tools(&self) -> Vec<Value> {
         let mut t = vec![
             tool("list_workspaces", "List the persistent workspaces on a host.", target_props(json!({})), &[], true),
+            tool("list_agents", "List the AI coding agents (Claude Code, Codex, Gemini CLI, aider...) running in a workspace's panes and whether each is working, waiting for approval or idle.", target_props(json!({})), &[], true),
             tool("list_panes", "List the panes of a workspace: id, title, directory, foreground command, exit status.", target_props(json!({})), &[], true),
             tool(
                 "read_pane",
@@ -242,6 +243,32 @@ impl<B: Backend> Server<B> {
                         })
                         .collect::<Vec<_>>()
                         .join("\n")
+                })
+            }
+            "list_agents" => {
+                let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
+                let panes = self.backend.panes(&host, &ws)?;
+                let mut lines = Vec::new();
+                for p in panes {
+                    let fg = p.fg.clone().unwrap_or_else(|| p.title.clone());
+                    let Some(kind) = crate::agents::detect(&fg) else {
+                        continue;
+                    };
+                    let status = if p.exited.is_some() {
+                        crate::agents::Status::Done
+                    } else {
+                        let (text, _) = self.backend.capture(&host, &ws, p.id)?;
+                        let rows: Vec<String> = text.lines().map(str::to_string).collect();
+                        // The server cannot see how recently the screen changed, so only the
+                        // screen text decides between waiting, working and idle.
+                        crate::agents::status(&rows, Duration::from_secs(60))
+                    };
+                    lines.push(format!("{}\t{}\t{}", p.id, kind.name(), status.label()));
+                }
+                Ok(if lines.is_empty() {
+                    "no agents".into()
+                } else {
+                    lines.join("\n")
                 })
             }
             "list_panes" => {
@@ -625,6 +652,7 @@ mod tests {
             names,
             [
                 "list_workspaces",
+                "list_agents",
                 "list_panes",
                 "read_pane",
                 "search_scrollback",
@@ -634,7 +662,7 @@ mod tests {
         let (msg, err) = call(&mut ro, "new_pane", json!({"command": ["ls"]}));
         assert!(err && msg.contains("--allow-write"), "{msg}");
         let (rw, _) = server(true, &["x"]);
-        assert_eq!(rw.tools().len(), 8);
+        assert_eq!(rw.tools().len(), 9);
         assert!(rw
             .tools()
             .iter()
@@ -719,6 +747,8 @@ mod tests {
         );
         let (list, _) = call(&mut s, "list_panes", json!({}));
         assert!(list.contains("fg=claude") && list.contains("running"));
+        let (agents, err) = call(&mut s, "list_agents", json!({}));
+        assert!(!err && agents.starts_with("1\tClaude\t"), "{agents}");
     }
 
     #[test]
