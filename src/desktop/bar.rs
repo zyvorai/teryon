@@ -299,7 +299,18 @@ impl Desktop {
                         if pick != self.active {
                             self.activate(pick);
                         }
-                        if icon_button(ui, &t, Icon::Close, "Detach this tab").clicked() {
+                        if icon_button(
+                            ui,
+                            &t,
+                            Icon::Close,
+                            if self.tab_owns_shells(self.active) {
+                                "Close this tab (ends its shells)"
+                            } else {
+                                "Detach this tab"
+                            },
+                        )
+                        .clicked()
+                        {
                             self.close_tab();
                         }
                     } else if !compact {

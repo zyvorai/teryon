@@ -386,6 +386,8 @@ pub struct DesktopConfig {
     pub scrollbar: Scrollbar,
     /// Ask before closing the window (shells keep running either way).
     pub confirm_quit: bool,
+    /// Ask before closing a tab or window that would end running shells (`fresh_window` tabs and windows own theirs).
+    pub confirm_end_shells: bool,
     /// Key bindings: action name -> chord such as "cmd+shift+d"; "none" unbinds.
     pub keys: BTreeMap<String, String>,
     /// Saved commands shown in the palette as "Snippet: NAME".
@@ -441,6 +443,7 @@ impl Default for DesktopConfig {
             fresh_window: false,
             scrollbar: Scrollbar::Auto,
             confirm_quit: false,
+            confirm_end_shells: true,
             keys: BTreeMap::new(),
             snippets: Vec::new(),
             triggers: Vec::new(),

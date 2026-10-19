@@ -60,6 +60,7 @@ destination = "susant@mini.local"
 # scrollback_lines = 10000
 # pane_titles = "auto"             # auto | always | never
 # confirm_quit = false
+# confirm_end_shells = true        # ask before closing a fresh-window tab or window that would end running shells
 #
 # [desktop.keys]                   # action = "chord"; "none" unbinds
 # palette = "cmd+p"

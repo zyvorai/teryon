@@ -195,6 +195,8 @@ pub struct Desktop {
     window_focused: bool,
     /// Close-confirmation dialog state (see `confirm_quit`).
     quit_dialog: bool,
+    /// A tab or window close waiting for a yes because it would end running shells.
+    end_prompt: Option<EndPrompt>,
     quit_ok: bool,
     /// Desktop options from `config.toml` and the key bindings built from them.
     cfg: DesktopConfig,
@@ -399,6 +401,7 @@ impl Desktop {
             wheel_accum: 0.,
             window_focused: true,
             quit_dialog: false,
+            end_prompt: None,
             quit_ok: false,
             cfg: DesktopConfig::default(),
             applied_font: None,
@@ -605,10 +608,47 @@ impl Desktop {
             self.notice = "This is the only tab".into();
             return;
         }
+        // Closing a tab that owns its shells ends them, so ask first (unless the shell already ended).
+        let ended = std::mem::take(&mut self.shell_ended);
+        if self.tab_owns_shells(self.active) && !ended && self.cfg.confirm_end_shells {
+            let shells = self.live_shells();
+            if !shells.is_empty() {
+                self.end_prompt = Some(EndPrompt {
+                    window: false,
+                    shells,
+                });
+                return;
+            }
+        }
+        self.finish_close_tab(ended || self.tab_owns_shells(self.active));
+    }
+    /// A tab made by ⌘T in a fresh-window setup owns its shells: closing it ends them.
+    fn tab_owns_shells(&self, tab: usize) -> bool {
+        self.cfg.fresh_window
+            && self
+                .tabs
+                .get(tab)
+                .is_some_and(|t| t.name.starts_with("win-"))
+    }
+    /// Closing this window would end running shells (a fresh window owns them) and that needs a yes.
+    fn window_close_ends_shells(&self) -> bool {
+        self.discard_workspace && self.cfg.confirm_end_shells && !self.live_shells().is_empty()
+    }
+    /// What is running in the active tab's panes, for the "this ends them" question.
+    fn live_shells(&self) -> Vec<String> {
+        self.panes
+            .values()
+            .filter(|p| p.info.exited.is_none())
+            .map(|p| {
+                let cmd = p.info.fg.as_deref().unwrap_or("").split_whitespace().next();
+                let name = cmd.map(|c| c.rsplit('/').next().unwrap_or(c).to_string());
+                name.filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| p.info.title.clone())
+            })
+            .collect()
+    }
+    fn finish_close_tab(&mut self, owned: bool) {
         let closing = self.active;
-        // A tab made by ⌘T in a fresh-window setup owns its shell: closing it ends the shell.
-        let owned = (self.cfg.fresh_window && self.tabs[closing].name.starts_with("win-"))
-            || std::mem::take(&mut self.shell_ended);
         let _ = self.tx.try_send(if owned {
             Command::Discard
         } else {
@@ -1333,10 +1373,20 @@ impl Desktop {
             self.quit_ok = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        if ctx.input(|i| i.viewport().close_requested()) && self.cfg.confirm_quit && !self.quit_ok {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.quit_dialog = true;
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quit_ok {
+            // A fresh window owns its shells, so closing it ends them: always ask that.
+            if self.window_close_ends_shells() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.end_prompt = Some(EndPrompt {
+                    window: true,
+                    shells: self.live_shells(),
+                });
+            } else if self.cfg.confirm_quit {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.quit_dialog = true;
+            }
         }
+        self.end_prompt_ui(ctx);
         if self.quit_dialog {
             egui::Window::new("Detach from this workspace?")
                 .collapsible(false)
@@ -1451,7 +1501,77 @@ impl Desktop {
         ctx.request_repaint_after(Duration::from_millis(33));
     }
 }
+/// A close that would end running shells, waiting for the user's answer.
+struct EndPrompt {
+    /// The whole window (rather than one tab).
+    window: bool,
+    /// What is running, one entry per shell.
+    shells: Vec<String>,
+}
 impl Desktop {
+    /// The "this ends your running shells" question for closing a tab or a fresh window.
+    fn end_prompt_ui(&mut self, ctx: &egui::Context) {
+        // While it is open the keyboard belongs to the dialog, not to the shell underneath.
+        self.confirm_close = self.end_prompt.is_some();
+        let Some(prompt) = self.end_prompt.as_ref() else {
+            return;
+        };
+        let t = self.theme.clone();
+        let what = if prompt.window { "window" } else { "tab" };
+        let n = prompt.shells.len();
+        let mut names: Vec<&str> = prompt.shells.iter().map(String::as_str).take(4).collect();
+        if n > names.len() {
+            names.push("…");
+        }
+        let (mut end, mut cancel) = (false, false);
+        egui::Window::new(format!("Close this {what}?"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "This {what} owns its shells. Closing it ends {n} running shell{}: {}.",
+                    if n == 1 { "" } else { "s" },
+                    names.join(", ")
+                ));
+                ui.label(
+                    RichText::new("Anything running in them stops. Detaching is not an option for a new-window tab.")
+                        .size(12.)
+                        .color(color(t.muted)),
+                );
+                ui.horizontal(|ui| {
+                    // Cancel is the default so a stray Enter cannot end anything.
+                    let keep = ui.add(egui::Button::new("Keep it open"));
+                    keep.request_focus();
+                    if keep.clicked() {
+                        cancel = true;
+                    }
+                    if ui
+                        .add(egui::Button::new(
+                            RichText::new(format!("End shells and close {what}")).color(color(t.warning)),
+                        ))
+                        .clicked()
+                    {
+                        end = true;
+                    }
+                });
+                if ui.input(|i| i.key_pressed(Key::Escape)) {
+                    cancel = true;
+                }
+            });
+        if end {
+            let window = prompt.window;
+            self.end_prompt = None;
+            if window {
+                self.quit_ok = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                self.finish_close_tab(true);
+            }
+        } else if cancel {
+            self.end_prompt = None;
+        }
+    }
     /// A shell exited cleanly (`exit`, Ctrl-D): drop its pane, or end the tab or window when it was the last one.
     fn close_exited(&mut self, id: u64) {
         if self.readonly || !self.panes.get(&id).is_some_and(|p| p.info.exited.is_some()) {
@@ -2972,6 +3092,72 @@ mod tests {
         assert_eq!((app.tabs.len(), app.active), (2, 0));
         app.close_tab();
         assert_eq!(app.tabs.len(), 1);
+    }
+    /// A second, fresh-window tab ("win-…") with one live pane in it.
+    fn app_with_owned_tab() -> Desktop {
+        let mut app = app_with("nord");
+        app.target = Target::new("local".into(), None).ok();
+        app.cfg.fresh_window = true;
+        app.open_tab("m", "win-7");
+        app.add_test_pane(1);
+        app
+    }
+    #[test]
+    fn closing_a_tab_that_owns_live_shells_asks_first() {
+        let mut app = app_with_owned_tab();
+        assert_eq!((app.tabs.len(), app.active), (2, 1));
+        app.close_tab();
+        assert_eq!(app.tabs.len(), 2, "nothing closes before the answer");
+        let prompt = app.end_prompt.as_ref().expect("a question is asked");
+        assert!(!prompt.window && prompt.shells.len() == 1);
+        // The dialog draws, and Keep it open leaves the tab alone.
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.end_prompt_ui(ctx));
+        assert!(app.confirm_close, "the keyboard belongs to the dialog");
+        app.end_prompt = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.end_prompt_ui(ctx));
+        assert!(!app.confirm_close);
+        assert_eq!(app.tabs.len(), 2);
+        // Saying yes closes it.
+        app.finish_close_tab(true);
+        assert_eq!(app.tabs.len(), 1);
+    }
+    #[test]
+    fn the_question_is_skipped_when_nothing_would_be_lost_or_it_is_turned_off() {
+        // Turned off: closes at once.
+        let mut app = app_with_owned_tab();
+        app.cfg.confirm_end_shells = false;
+        app.close_tab();
+        assert!((app.tabs.len(), app.end_prompt.is_none()) == (1, true));
+        // A shell that already ended leaves nothing to end.
+        let mut app = app_with_owned_tab();
+        app.panes.get_mut(&1).unwrap().info.exited = Some(0);
+        app.close_tab();
+        assert_eq!(app.tabs.len(), 1);
+        // A tab that only detaches never asks: its shells keep running on the host.
+        let mut app = app_with("nord");
+        app.target = Target::new("local".into(), None).ok();
+        app.open_tab("m", "other");
+        app.add_test_pane(1);
+        app.close_tab();
+        assert!((app.tabs.len(), app.end_prompt.is_none()) == (1, true));
+    }
+    #[test]
+    fn closing_a_fresh_window_with_live_shells_asks_and_says_what_runs() {
+        let (mut app, _rx) = app_with_screen("");
+        assert!(
+            !app.window_close_ends_shells(),
+            "a window that only detaches never asks"
+        );
+        app.discard_workspace = true;
+        app.panes.get_mut(&1).unwrap().info.fg = Some("/usr/bin/vim notes.md".into());
+        assert_eq!(app.live_shells(), vec!["vim".to_string()]);
+        assert!(app.window_close_ends_shells());
+        app.cfg.confirm_end_shells = false;
+        assert!(!app.window_close_ends_shells());
+        app.cfg.confirm_end_shells = true;
+        app.panes.get_mut(&1).unwrap().info.exited = Some(0);
+        assert!(!app.window_close_ends_shells(), "nothing is left running");
     }
     /// A desktop with one pane whose screen shows `text`, online, with a command receiver.
     pub(in crate::desktop) fn app_with_screen(text: &str) -> (Desktop, mpsc::Receiver<Command>) {

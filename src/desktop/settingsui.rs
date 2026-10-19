@@ -173,6 +173,12 @@ pub(super) const SECTIONS: &[(&str, &[Setting])] = &[
                 Ctl::Bool,
             ),
             s(
+                "confirm_end_shells",
+                "Confirm before ending shells",
+                "Ask before closing a tab or window that would end its running shells.",
+                Ctl::Bool,
+            ),
+            s(
                 "confirm_quit",
                 "Confirm before closing",
                 "Ask before closing the window (shells keep running).",
@@ -265,7 +271,7 @@ macro_rules! accessors {
     };
 }
 accessors! {
-    bool: [cursor_blink, status_line, file_browser, maximized, fullscreen, confirm_quit,
+    bool: [cursor_blink, status_line, file_browser, maximized, fullscreen, confirm_quit, confirm_end_shells,
            copy_on_select, command_gutter, fresh_window, agent_notifications, agent_quick_approve];
     float: [window_opacity, unfocused_opacity, corner_radius, background_noise, pane_inset,
             font_size, line_height, padding, text_gamma];
