@@ -26,6 +26,8 @@ pub struct Attrs {
     pub fgcolor: Color,
     pub bgcolor: Color,
     pub mode: u8,
+    /// TERYON patch: OSC 8 hyperlink id, an index into the screen's link table (0 = none).
+    pub link: u16,
 }
 
 impl Attrs {
@@ -96,6 +98,13 @@ impl Attrs {
         contents: &mut Vec<u8>,
         other: &Self,
     ) {
+        // Links are not text styling; they travel beside the screen, not in its escape codes.
+        let this = Self { link: 0, ..*self };
+        let other = &Self { link: 0, ..*other };
+        this.write_style_diff(contents, other);
+    }
+
+    fn write_style_diff(&self, contents: &mut Vec<u8>, other: &Self) {
         if self != other && self == &Self::default() {
             crate::term::ClearAttrs.write_buf(contents);
             return;

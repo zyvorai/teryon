@@ -73,6 +73,8 @@ struct Pane {
     track: agents::Track,
     /// Inline images: where they sit, which ids were asked for, their bytes and decoded textures.
     placements: Vec<crate::protocol::Placement>,
+    /// OSC 8 hyperlinks on the live screen.
+    links: Vec<crate::protocol::LinkSpan>,
     image_asked: std::collections::HashSet<u64>,
     image_raw: HashMap<u64, Vec<u8>>,
     image_tex: HashMap<u64, egui::TextureHandle>,
@@ -88,6 +90,7 @@ impl Pane {
             scanned: false,
             track: agents::Track::default(),
             placements: Vec::new(),
+            links: Vec::new(),
             image_asked: Default::default(),
             image_raw: HashMap::new(),
             image_tex: HashMap::new(),
@@ -753,6 +756,9 @@ impl Desktop {
                                 }
                             }
                             pane.marks = m.clone();
+                        }
+                        if let Some(list) = &view.links {
+                            pane.links = list.clone();
                         }
                         if let Some(list) = &view.images {
                             let live: std::collections::HashSet<u64> =

@@ -50,6 +50,19 @@ pub enum MouseProtocolEncoding {
     // Urxvt,
 }
 
+/// A run of cells on one row that belong to an OSC 8 hyperlink; `end` is exclusive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hyperlink {
+    /// Screen row.
+    pub row: u16,
+    /// First column of the run.
+    pub start: u16,
+    /// One past the last column of the run.
+    pub end: u16,
+    /// The link target, as the program sent it.
+    pub url: String,
+}
+
 /// Represents the overall terminal state.
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -60,6 +73,8 @@ pub struct Screen {
 
     attrs: crate::attrs::Attrs,
     saved_attrs: crate::attrs::Attrs,
+    /// TERYON patch: URLs of OSC 8 hyperlinks, referenced by id from cell attrs.
+    links: crate::links::Links,
 
     modes: u8,
     mouse_protocol_mode: MouseProtocolMode,
@@ -80,6 +95,7 @@ impl Screen {
 
             attrs: crate::attrs::Attrs::default(),
             saved_attrs: crate::attrs::Attrs::default(),
+            links: crate::links::Links::default(),
 
             modes: 0,
             mouse_protocol_mode: MouseProtocolMode::default(),
@@ -92,6 +108,94 @@ impl Screen {
         self.grid.set_size(crate::grid::Size { rows, cols });
         self.alternate_grid
             .set_size(crate::grid::Size { rows, cols });
+    }
+
+    /// OSC 8: start (or, with an empty URL, end) the hyperlink the next printed cells belong to.
+    /// `rest` is everything after `8;`: the parameters, then the URL split at its own `;`s.
+    pub(crate) fn set_hyperlink(&mut self, rest: &[&[u8]]) {
+        let Some(url) = crate::links::parse_uri(rest.get(1..).unwrap_or(&[]))
+        else {
+            self.attrs.link = 0;
+            return;
+        };
+        if self.links.get_id_for(&url).is_none() && self.links.is_full() {
+            self.compact_links();
+        }
+        self.attrs.link = self.links.intern(&url).unwrap_or(0);
+    }
+
+    /// Drop table entries no cell (or pending attrs) refers to any more, and renumber the rest.
+    fn compact_links(&mut self) {
+        let mut keep = vec![false; crate::links::MAX_LINKS + 1];
+        let mut mark = |id: u16| {
+            if let Some(k) = keep.get_mut(usize::from(id)) {
+                *k = true;
+            }
+        };
+        mark(self.attrs.link);
+        mark(self.saved_attrs.link);
+        for grid in [&self.grid, &self.alternate_grid] {
+            for row in grid.all_rows() {
+                for cell in row.cells_ref() {
+                    mark(cell.link());
+                }
+            }
+        }
+        let (links, map) = self.links.retain(&keep);
+        let remap = |id: u16| map.get(usize::from(id)).copied().unwrap_or(0);
+        self.attrs.link = remap(self.attrs.link);
+        self.saved_attrs.link = remap(self.saved_attrs.link);
+        for grid in [&mut self.grid, &mut self.alternate_grid] {
+            for row in grid.all_rows_mut() {
+                for cell in row.cells_mut() {
+                    cell.set_link(remap(cell.link()));
+                }
+            }
+        }
+        self.links = links;
+    }
+
+    /// The hyperlinks on the visible screen, one span per run of cells sharing a link.
+    #[must_use]
+    pub fn hyperlinks(&self) -> Vec<Hyperlink> {
+        let mut out: Vec<Hyperlink> = Vec::new();
+        for (r, row) in self.grid().visible_rows().enumerate() {
+            let mut open: Option<(u16, u16)> = None;
+            let mut flush = |open: &mut Option<(u16, u16)>, end: u16| {
+                if let Some((start, id)) = open.take() {
+                    if let Some(url) = self.links.get(id) {
+                        out.push(Hyperlink {
+                            row: u16::try_from(r).unwrap_or(u16::MAX),
+                            start,
+                            end,
+                            url: url.to_string(),
+                        });
+                    }
+                }
+            };
+            let mut cols = 0u16;
+            for (c, cell) in row.cells_ref().enumerate() {
+                let c = u16::try_from(c).unwrap_or(u16::MAX);
+                cols = c.saturating_add(1);
+                // The second half of a wide character belongs to the same link as the first.
+                let id = if cell.is_wide_continuation() {
+                    open.map_or(0, |(_, cur)| cur)
+                } else {
+                    cell.link()
+                };
+                match open {
+                    Some((_, cur)) if cur == id => {}
+                    _ => {
+                        flush(&mut open, c);
+                        if id != 0 {
+                            open = Some((c, id));
+                        }
+                    }
+                }
+            }
+            flush(&mut open, cols);
+        }
+        out
     }
 
     /// Returns the current size of the terminal.
@@ -1249,7 +1353,10 @@ impl Screen {
         // instance with a 0 in it, but vte doesn't allow creating new Params
         // instances
         if params.is_empty() {
-            self.attrs = crate::attrs::Attrs::default();
+            self.attrs = crate::attrs::Attrs {
+                link: self.attrs.link,
+                ..Default::default()
+            };
             return;
         }
 
@@ -1286,7 +1393,13 @@ impl Screen {
 
         loop {
             match next_param!() {
-                [0] => self.attrs = crate::attrs::Attrs::default(),
+                [0] => {
+                    // SGR 0 ends the styling, not an open hyperlink.
+                    self.attrs = crate::attrs::Attrs {
+                        link: self.attrs.link,
+                        ..Default::default()
+                    };
+                }
                 [1] => self.attrs.set_bold(),
                 [2] => self.attrs.set_dim(),
                 [3] => self.attrs.set_italic(true),

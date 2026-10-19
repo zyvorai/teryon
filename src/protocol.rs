@@ -125,6 +125,17 @@ pub struct PaneView {
     /// Inline images on the screen and in history, sent together with `screen`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<Placement>>,
+    /// OSC 8 hyperlinks on the visible screen, sent together with `screen`; old daemons send none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<Vec<LinkSpan>>,
+}
+/// A run of cells on one screen row that a program marked as a hyperlink (`end` is exclusive).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LinkSpan {
+    pub row: u16,
+    pub start: u16,
+    pub end: u16,
+    pub url: String,
 }
 /// An inline image: its id (for `Request::Image`), the absolute line of its top row, and the
 /// cells it covers.
@@ -287,6 +298,10 @@ mod tests {
         let old = r#"{"id":1,"title":"t","cwd":"/","pid":null,"rows":24,"cols":80,"revision":3,"screen":null,"exited":null}"#;
         let v: PaneView = serde_json::from_str(old).unwrap();
         assert!(v.marks.is_none() && v.first_line == 0 && v.top_line == 0 && v.fg.is_none());
+        assert!(
+            v.links.is_none(),
+            "a daemon from before OSC 8 sends no links"
+        );
         // A new daemon talking to an older client, whose struct knows none of the new fields.
         #[derive(Deserialize)]
         #[allow(dead_code)]
@@ -312,12 +327,19 @@ mod tests {
             }]),
             first_line: 2,
             top_line: 5,
+            links: Some(vec![LinkSpan {
+                row: 1,
+                start: 2,
+                end: 5,
+                url: "https://a.example".into(),
+            }]),
             ..Default::default()
         })
         .unwrap();
         serde_json::from_str::<OldPaneView>(&new).unwrap();
         let back: PaneView = serde_json::from_str(&new).unwrap();
         assert_eq!(back.marks.unwrap()[0].exit, Some(1));
+        assert_eq!(back.links.unwrap()[0].url, "https://a.example");
         let captured: Response = serde_json::from_str(r#"{"type":"captured","text":"x"}"#).unwrap();
         assert!(matches!(captured, Response::Captured { first_line: 0, .. }));
         // Unchanged polls carry no marks at all.

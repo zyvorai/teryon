@@ -947,6 +947,7 @@ impl Desktop {
         }
         // Local selection: drag, shift-click extend, double-click word, triple-click line, ⌥-drag block.
         let mut link: Option<(u16, usize, usize, String)> = None;
+        let mut marked = false;
         if let Some(pos) = response.hover_pos() {
             let (row, col) = cell_at(pos);
             if let Some(pane) = self.panes.get(&id) {
@@ -954,6 +955,25 @@ impl Desktop {
                 if let Some((url, start, end)) = uikit::url_at(&chars, usize::from(col)) {
                     link = Some((row, start, end, url));
                 }
+                // A link the program marked (OSC 8) wins over guessing from the text. Its spans
+                // describe the live screen, so they do not apply while scrolled back.
+                if !scrolled {
+                    if let Some(h) = pane
+                        .links
+                        .iter()
+                        .find(|h| h.row == row && col >= h.start && col < h.end)
+                        .filter(|h| uikit::safe_link(&h.url))
+                    {
+                        link = Some((row, usize::from(h.start), usize::from(h.end), h.url.clone()));
+                        marked = true;
+                    }
+                }
+            }
+        }
+        if marked {
+            // What a link says is not what it opens, so show where it goes.
+            if let Some((.., url)) = &link {
+                response.clone().on_hover_text(url);
             }
         }
         if reporting && !local {

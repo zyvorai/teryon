@@ -888,3 +888,33 @@ fn a_soft_closed_pane_keeps_running_and_comes_back_until_its_grace_period_ends()
         Response::Error { .. }
     ));
 }
+
+#[test]
+fn osc8_hyperlinks_reach_the_client_as_spans_beside_the_screen() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("links", false);
+    let script = "printf 'see \\033]8;;https://docs.example/a?x=1;y=2\\033\\\\the docs\\033]8;;\\033\\\\ now\\n'; printf 'done\\n'; sleep 6";
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec!["/bin/sh".into(), "-c".into(), script.into()],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    c.until(pane, "done");
+    let view = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+    let links = view.links.expect("links are sent with the screen");
+    assert_eq!(
+        links,
+        vec![teryon::protocol::LinkSpan {
+            row: 0,
+            start: 4,
+            end: 12,
+            url: "https://docs.example/a?x=1;y=2".into(),
+        }]
+    );
+    // The text itself is untouched, and the link markup never shows up in it.
+    assert!(c.capture(pane).starts_with("see the docs now"));
+}

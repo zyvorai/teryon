@@ -319,6 +319,19 @@ impl Pane {
             fg: self.foreground_command(st.exited.is_some()),
             ports: self.listening_ports(st.exited.is_some()),
             images: changed.then(|| st.parser.callbacks().images.placements.clone()),
+            links: changed.then(|| {
+                st.parser
+                    .screen()
+                    .hyperlinks()
+                    .into_iter()
+                    .map(|h| crate::protocol::LinkSpan {
+                        row: h.row,
+                        start: h.start,
+                        end: h.end,
+                        url: h.url,
+                    })
+                    .collect()
+            }),
         }
     }
     /// Listening ports of this pane's processes. Returns the last answer at once; when it is older

@@ -29,6 +29,14 @@ impl Row {
         self.wrapped = false;
     }
 
+    pub fn cells_mut(&mut self) -> impl Iterator<Item = &mut crate::Cell> {
+        self.cells.iter_mut()
+    }
+
+    pub fn cells_ref(&self) -> impl Iterator<Item = &crate::Cell> {
+        self.cells.iter()
+    }
+
     fn cells(&self) -> impl Iterator<Item = &crate::Cell> {
         self.cells.iter()
     }
