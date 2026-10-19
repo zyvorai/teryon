@@ -108,6 +108,7 @@ pub fn up(
         rows: 40,
         cols: 120,
         cwd: first,
+        takeover: false,
     })? {
         Response::Attached { .. } => {}
         other => bail!("unexpected response: {other:?}"),

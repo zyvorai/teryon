@@ -24,6 +24,10 @@ pub enum Request {
         rows: u16,
         cols: u16,
         cwd: Option<String>,
+        /// Take the workspace's controller seat from whoever holds it. The previous controller keeps
+        /// its connection but can only watch; older daemons ignore this and refuse the attach.
+        #[serde(default)]
+        takeover: bool,
     },
     Poll {
         known: BTreeMap<String, u64>,

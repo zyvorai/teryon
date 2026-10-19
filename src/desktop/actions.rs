@@ -76,6 +76,7 @@ pub(super) enum ActionKind {
     Ai,
     Files,
     Agents,
+    TakeControl,
     SpawnAgent(crate::agents::Kind),
     PromptAgents,
     AiCommand,
@@ -166,6 +167,7 @@ impl ActionKind {
                 | Self::Open(..)
                 | Self::SpawnAgent(_)
                 | Self::PromptAgents
+                | Self::TakeControl
                 | Self::Snippet(_) => return None,
             }
             .to_string(),
@@ -272,6 +274,10 @@ pub(super) fn actions(
         ("Ask AI…", ActionKind::Ai),
         ("File browser", ActionKind::Files),
         ("Agents overview", ActionKind::Agents),
+        (
+            "Take control of this workspace from another device",
+            ActionKind::TakeControl,
+        ),
         (
             "Agent: send a prompt to all idle agents…",
             ActionKind::PromptAgents,

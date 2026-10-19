@@ -443,7 +443,7 @@ impl Real {
     fn rpc(&self, host: &str, ws: &str, readonly: bool, cwd: Option<String>) -> Result<Rpc> {
         let target = crate::config::target(host, self.remote_bin.clone())?;
         let mut rpc = target.connect()?;
-        rpc.call(Request::Attach { workspace: ws.into(), readonly, rows: 24, cols: 100, cwd }).map_err(|e| {
+        rpc.call(Request::Attach { workspace: ws.into(), readonly, rows: 24, cols: 100, cwd, takeover: false }).map_err(|e| {
             let m = format!("{e:#}");
             if m.contains("already has a controller") {
                 anyhow::anyhow!("workspace {ws:?} is controlled by another TERYON client (for example the desktop app); detach it or use a different --workspace")

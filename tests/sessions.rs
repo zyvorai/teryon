@@ -98,6 +98,17 @@ impl Client {
             rows: 24,
             cols: 100,
             cwd: Some("/tmp".into()),
+            takeover: false,
+        })
+    }
+    fn take_over(&mut self, name: &str) -> Response {
+        self.call(Request::Attach {
+            workspace: name.into(),
+            readonly: false,
+            rows: 24,
+            cols: 100,
+            cwd: Some("/tmp".into()),
+            takeover: true,
         })
     }
     fn snapshot(&mut self) -> Vec<PaneView> {
@@ -917,4 +928,73 @@ fn osc8_hyperlinks_reach_the_client_as_spans_beside_the_screen() {
     );
     // The text itself is untouched, and the link markup never shows up in it.
     assert!(c.capture(pane).starts_with("see the docs now"));
+}
+
+#[test]
+fn a_takeover_moves_the_controller_seat_and_the_old_controller_keeps_watching() {
+    let d = Daemon::start();
+    let mut laptop = d.client();
+    assert!(matches!(
+        laptop.attach("seat", false),
+        Response::Attached { .. }
+    ));
+    let mut phone = d.client();
+    // Without asking, a second controller is still refused.
+    assert!(matches!(
+        phone.attach("seat", false),
+        Response::Error { .. }
+    ));
+    // Asking takes the seat at once, even though the laptop's connection is alive.
+    assert!(matches!(
+        phone.take_over("seat"),
+        Response::Attached {
+            readonly: false,
+            ..
+        }
+    ));
+    let input = |pane, seq, text: &str| Request::Input {
+        pane,
+        seq,
+        data: text.as_bytes().to_vec(),
+    };
+    assert!(matches!(
+        phone.call(input(1, 1, "echo from-phone\r")),
+        Response::Ack { .. }
+    ));
+    phone.until(1, "from-phone");
+    // The laptop is told why it cannot type, and can still see the screen.
+    let Response::Error { message } = laptop.call(input(1, 1, "echo from-laptop\r")) else {
+        panic!("the old controller must not be able to type")
+    };
+    assert!(message.contains("taken over"), "{message}");
+    assert!(matches!(
+        laptop.call(Request::Resize {
+            pane: 1,
+            rows: 30,
+            cols: 90
+        }),
+        Response::Error { .. }
+    ));
+    assert!(laptop.capture(1).contains("from-phone"));
+    assert!(!laptop.capture(1).contains("from-laptop"));
+    // A plain read-only attachment is still just read-only, not "taken over".
+    let mut viewer = d.client();
+    viewer.attach("seat", true);
+    let Response::Error { message } = viewer.call(input(1, 1, "x")) else {
+        panic!("viewer typed")
+    };
+    assert!(message.contains("read-only"), "{message}");
+    // And the seat can be taken back.
+    assert!(matches!(
+        laptop.take_over("seat"),
+        Response::Attached { .. }
+    ));
+    assert!(matches!(
+        laptop.call(input(1, 1, "echo back\r")),
+        Response::Ack { .. }
+    ));
+    assert!(matches!(
+        phone.call(input(1, 2, "x")),
+        Response::Error { .. }
+    ));
 }

@@ -251,6 +251,9 @@ pub struct Desktop {
     ai: ai::Panel,
     files: files::Browser,
     agents_open: bool,
+    /// Another client holds the controller seat (this one lost it, or was refused it).
+    taken_over: bool,
+    controlled_elsewhere: bool,
     /// Command to type into the next pane the host creates (an agent being started).
     spawn_cmd: Option<String>,
     agent_prompt: Option<agents::AgentPrompt>,
@@ -436,6 +439,8 @@ impl Desktop {
             ai: ai::Panel::new(),
             files: files::Browser::new(),
             agents_open: false,
+            taken_over: false,
+            controlled_elsewhere: false,
             spawn_cmd: None,
             agent_prompt: None,
             aicmd: aicmd::Bar::default(),
@@ -663,6 +668,8 @@ impl Desktop {
             match update {
                 Update::Online => {
                     self.online = true;
+                    self.taken_over = false;
+                    self.controlled_elsewhere = false;
                     self.link.online();
                     self.last_size = (0, 0);
                     self.notice = "Attached to persistent remote shells".into();
@@ -673,6 +680,16 @@ impl Desktop {
                     self.notice = s;
                 }
                 Update::Message(s) => self.notice = s,
+                Update::TakenOver => {
+                    self.taken_over = true;
+                    self.notice = "Another device took over this workspace".into();
+                    self.toast("Another device took control · \"Take control\" in the palette takes it back");
+                }
+                Update::Controlled(s) => {
+                    self.controlled_elsewhere = true;
+                    self.notice = s;
+                    self.toast("Another device controls this workspace · \"Take control\" in the palette takes it over");
+                }
                 Update::Image(pane, id, bytes) => {
                     if let Some(p) = self.panes.get_mut(&pane) {
                         p.image_raw.insert(id, bytes);
@@ -1661,6 +1678,15 @@ impl Desktop {
             ActionKind::Ai => self.ai_toggle(),
             ActionKind::Files => self.files_toggle(),
             ActionKind::Agents => self.agents_open = !self.agents_open,
+            ActionKind::TakeControl => {
+                if self.readonly {
+                    self.toast("This window is read-only; reopen it without --readonly");
+                } else if self.tx.try_send(Command::Takeover).is_err() {
+                    self.toast("Action queue full; try again");
+                } else {
+                    self.toast("Taking control of this workspace…");
+                }
+            }
             ActionKind::SpawnAgent(kind) => self.spawn_agent(kind),
             ActionKind::PromptAgents => self.open_agent_prompt(),
             ActionKind::AiCommand => self.aicmd_toggle(),

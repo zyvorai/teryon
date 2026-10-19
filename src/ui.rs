@@ -89,6 +89,7 @@ fn side_call(
                 rows: size.0,
                 cols: size.1,
                 cwd: None,
+                takeover: false,
             })?;
             job(&mut rpc, &tx)
         };
@@ -135,6 +136,13 @@ pub(crate) enum Command {
     /// Like `Stop`, but first remove this workspace and end its shells (a fresh desktop window).
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Discard,
+    /// Take the controller seat from another client (it keeps watching, read-only).
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Takeover,
+}
+/// True for the daemon's answer to a request from a client that lost its seat to a takeover.
+fn lost_seat(e: &anyhow::Error) -> bool {
+    e.to_string().contains("taken over")
 }
 #[derive(Clone)]
 pub(crate) enum CapturePurpose {
@@ -165,6 +173,12 @@ pub(crate) enum Update {
     /// The worker finished a `Discard` (or had nothing to discard) and is about to exit.
     #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Discarded,
+    /// Another client took the controller seat; this one can only watch until it takes it back.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    TakenOver,
+    /// The attach was refused because another client holds the controller seat.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Controlled(String),
 }
 
 pub(crate) fn worker(
@@ -180,6 +194,7 @@ pub(crate) fn worker(
     let mut backoff = 250u64;
     let mut attempt = 0u32;
     let mut previous_instance: Option<String> = None;
+    let mut takeover = false;
     loop {
         let connection = (|| -> Result<_> {
             let mut rpc = target.connect()?;
@@ -189,11 +204,14 @@ pub(crate) fn worker(
                 rows: size.0,
                 cols: size.1,
                 cwd: cwd.clone(),
+                takeover,
             })?;
             Ok(rpc)
         })();
         match connection {
             Ok(mut rpc) => {
+                takeover = false;
+                let mut seat_lost = false;
                 backoff = 250;
                 attempt = 0;
                 let _ = tx.send(Update::Online);
@@ -252,7 +270,19 @@ pub(crate) fn worker(
                                         size = (rows, cols);
                                         if !readonly {
                                             for &pane in known.keys() {
-                                                rpc.call(Request::Resize { pane, rows, cols })?;
+                                                match rpc.call(Request::Resize { pane, rows, cols })
+                                                {
+                                                    Err(e) if lost_seat(&e) => {
+                                                        if !seat_lost {
+                                                            seat_lost = true;
+                                                            let _ = tx.send(Update::TakenOver);
+                                                        }
+                                                        break;
+                                                    }
+                                                    other => {
+                                                        other?;
+                                                    }
+                                                }
                                             }
                                         }
                                         continue;
@@ -322,6 +352,28 @@ pub(crate) fn worker(
                                         continue;
                                     }
                                     Command::Reconnect => continue,
+                                    Command::Takeover => {
+                                        match rpc.call(Request::Attach {
+                                            workspace: workspace.clone(),
+                                            readonly,
+                                            rows: size.0,
+                                            cols: size.1,
+                                            cwd: cwd.clone(),
+                                            takeover: true,
+                                        }) {
+                                            Ok(_) => {
+                                                seat_lost = false;
+                                                let _ = tx.send(Update::Message(
+                                                    "You have control of this workspace".into(),
+                                                ));
+                                            }
+                                            Err(e) if e.to_string().starts_with("server:") => {
+                                                let _ = tx.send(Update::Message(e.to_string()));
+                                            }
+                                            Err(e) => return Err(e),
+                                        }
+                                        continue;
+                                    }
                                     Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
@@ -333,6 +385,10 @@ pub(crate) fn worker(
                                     Err(e) if e.to_string().starts_with("server:") => {
                                         if is_input {
                                             seq = seq.saturating_sub(1);
+                                        }
+                                        if lost_seat(&e) && !seat_lost {
+                                            seat_lost = true;
+                                            let _ = tx.send(Update::TakenOver);
                                         }
                                         let _ = tx.send(Update::Message(e.to_string()));
                                     }
@@ -367,14 +423,23 @@ pub(crate) fn worker(
                         })?;
                         let poll_ms = polled.elapsed().as_millis() as u64;
                         if let Response::State { panes } = state {
-                            if !readonly {
+                            if !readonly && !seat_lost {
                                 for pane in &panes {
                                     if (pane.rows, pane.cols) != size {
-                                        rpc.call(Request::Resize {
+                                        match rpc.call(Request::Resize {
                                             pane: pane.id,
                                             rows: size.0,
                                             cols: size.1,
-                                        })?;
+                                        }) {
+                                            Err(e) if lost_seat(&e) => {
+                                                seat_lost = true;
+                                                let _ = tx.send(Update::TakenOver);
+                                                break;
+                                            }
+                                            other => {
+                                                other?;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -411,6 +476,11 @@ pub(crate) fn worker(
                 }));
             }
             Err(e) => {
+                if e.to_string().contains("already has a controller")
+                    && tx.send(Update::Controlled(e.to_string())).is_err()
+                {
+                    return;
+                }
                 if tx.send(Update::Offline(format!("{e:#}"))).is_err() {
                     return;
                 }
@@ -436,6 +506,10 @@ pub(crate) fn worker(
                 }
                 Ok(Command::Resize(r, c)) => size = (r, c),
                 Ok(Command::Reconnect) => break,
+                Ok(Command::Takeover) => {
+                    takeover = true;
+                    break;
+                }
                 _ => {}
             }
         }
@@ -626,7 +700,10 @@ impl App {
                 self.online = false;
                 self.notice = s;
             }
-            Update::Message(s) => self.notice = s,
+            Update::Message(s) | Update::Controlled(s) => self.notice = s,
+            Update::TakenOver => {
+                self.notice = "Another client took over this workspace; you can only watch".into();
+            }
             Update::Latency(ms) => self.latency = Some(ms),
             Update::Discarded | Update::Image(..) | Update::Daemon(..) | Update::Retry(..) => {}
             Update::Created(id) => self.focus = id,
