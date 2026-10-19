@@ -165,7 +165,7 @@ binding using `teryon config --keys`.
 | `text_gamma` | 0.55 | 0.3 (heavy) to 1.0 (thin) text weight; lower is closer to WezTerm's heavier look |
 | `cursor_color` | theme accent | `#RRGGBB` |
 | `background_gradient` | none | two or more `#RRGGBB` stops painted across the terminal |
-| `gradient_angle` | 135 | degrees: 0 runs left to right, 90 top to bottom |
+| `gradient_angle` | 135 | degrees as in CSS and WezTerm: 90 left to right, 180 top to bottom, 135 toward the bottom right |
 | `tab_bar` | `off` | `bottom` adds a strip of rounded tabs and a clock under a `chrome = "none"` window |
 | `tab_bar_bg`, `tab_active_bg`, `tab_active_fg`, `tab_inactive_bg`, `tab_inactive_fg` | from the theme | `#RRGGBB` colors of the tab strip |
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |

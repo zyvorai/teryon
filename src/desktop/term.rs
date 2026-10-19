@@ -1320,11 +1320,15 @@ impl Desktop {
     }
 }
 
-/// Fill `rect` with a linear gradient through `stops`, running at `angle` degrees (0 = left to
-/// right, 90 = top to bottom), as a coarse vertex-colored mesh.
+/// Fill `rect` with a linear gradient through `stops`, running at `angle` degrees like CSS and
+/// WezTerm (0 = bottom to top, 90 = left to right, 135 = toward the bottom right), as a coarse
+/// vertex-colored mesh.
 fn paint_gradient(painter: &egui::Painter, rect: Rect, stops: &[Color32], angle: f32, alpha: f32) {
     const N: usize = 24;
-    let (dy, dx) = angle.to_radians().sin_cos();
+    let (dx, dy) = {
+        let (sin, cos) = angle.to_radians().sin_cos();
+        (sin, -cos)
+    };
     let span = (rect.width() * dx.abs() + rect.height() * dy.abs()).max(1.);
     let at = |t: f32| {
         let x = t.clamp(0., 1.) * (stops.len() - 1) as f32;

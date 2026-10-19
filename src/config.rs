@@ -237,7 +237,8 @@ pub struct DesktopConfig {
     pub window_blur: u32,
     /// Two or more `#RRGGBB` colors painted across the terminal instead of the flat background.
     pub background_gradient: Vec<String>,
-    /// Gradient direction in degrees: 0 runs left to right, 90 top to bottom.
+    /// Gradient direction in degrees as in CSS and WezTerm: 90 runs left to right, 180 top to
+    /// bottom, 135 toward the bottom right.
     pub gradient_angle: f32,
     /// Window transparency, 0.3 (see-through) to 1.0 (opaque).
     pub window_opacity: f32,
