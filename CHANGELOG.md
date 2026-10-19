@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.3
+
+- The background gradient is also painted under pane title bars (it was skipped, leaving a flat color).
+
 ## 0.16.2
 
 - `ion` is the default theme for new installs; existing configs keep their theme. New `ion` theme (void navy, ion-blue accent, amber for "needs you"), with a matching header: host chip with a live dot, `01..` pane buttons, an amber "<agent> needs you" pill, `SHELLS ALIVE` / `LINK` stats, and a status line under the panes (`status_line = false` hides it).
