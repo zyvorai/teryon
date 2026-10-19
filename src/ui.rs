@@ -246,7 +246,9 @@ pub(crate) fn worker(
                                     },
                                     Command::Close(pane) => Request::Close { pane },
                                     // A daemon from before this existed just closes the pane for good.
-                                    Command::SoftClose(pane) if undo_ok => Request::SoftClose { pane },
+                                    Command::SoftClose(pane) if undo_ok => {
+                                        Request::SoftClose { pane }
+                                    }
                                     Command::SoftClose(pane) => Request::Close { pane },
                                     Command::Reopen if undo_ok => Request::Reopen,
                                     Command::Reopen => {
@@ -330,7 +332,11 @@ pub(crate) fn worker(
                                 ..
                             }) = rpc.call(Request::Info)
                             {
-                                let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
+                                let _ = tx.send(Update::Daemon(
+                                    format!("{arch} · {os}"),
+                                    uptime,
+                                    stats,
+                                ));
                             }
                         }
                         let polled = Instant::now();

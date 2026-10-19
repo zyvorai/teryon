@@ -542,7 +542,9 @@ fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("no `mac` set in [hosts.{host}]"))?;
         teryon::wake::wake(mac, h.broadcast.as_deref())?;
-        Ok(format!("Sent a wake packet to {host}; give it a few seconds"))
+        Ok(format!(
+            "Sent a wake packet to {host}; give it a few seconds"
+        ))
     };
     let Some(choice) = teryon::start::pick(entries, &theme, &mut lister, &mut waker)? else {
         return Ok(0);
@@ -757,7 +759,9 @@ fn run() -> Result<i32> {
                 names.push("local".into());
             }
             names.dedup();
-            let mut backend = teryon::mcp::Real { remote_bin: bin.clone() };
+            let mut backend = teryon::mcp::Real {
+                remote_bin: bin.clone(),
+            };
             let mut shown = 0;
             for host in names {
                 use teryon::mcp::Backend;
@@ -772,7 +776,12 @@ fn run() -> Result<i32> {
                     for (id, kind, status) in
                         teryon::mcp::agent_rows(&mut backend, &host, &w.name).unwrap_or_default()
                     {
-                        println!("{host}\t{}\tpane {id}\t{}\t{}", w.name, kind.name(), status.label());
+                        println!(
+                            "{host}\t{}\tpane {id}\t{}\t{}",
+                            w.name,
+                            kind.name(),
+                            status.label()
+                        );
                         shown += 1;
                     }
                 }
@@ -840,7 +849,8 @@ fn run() -> Result<i32> {
                 .unwrap_or_default();
             let name = teryon::recipe::workspace_name(&recipe, workspace.as_deref(), &base)?;
             let mut rpc = target(host.clone(), bin)?.connect()?;
-            let ids = teryon::recipe::up(&mut |r| rpc.call(r), &recipe, &name, &base, host == "local")?;
+            let ids =
+                teryon::recipe::up(&mut |r| rpc.call(r), &recipe, &name, &base, host == "local")?;
             println!(
                 "Started {} pane(s) in workspace {name}. Attach with: teryon connect {host} --workspace {name}",
                 ids.len()

@@ -40,7 +40,9 @@ pub fn parse(text: &str) -> Result<Recipe> {
     }
     for p in &r.panes {
         for (what, v) in [("name", &p.name), ("cwd", &p.cwd), ("command", &p.command)] {
-            if v.as_deref().is_some_and(|s| s.chars().any(char::is_control)) {
+            if v.as_deref()
+                .is_some_and(|s| s.chars().any(char::is_control))
+            {
                 bail!("a pane {what} must not contain control characters or line breaks");
             }
         }
@@ -61,7 +63,13 @@ pub fn workspace_name(recipe: &Recipe, flag: Option<&str>, dir: &Path) -> Result
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(64)
         .collect();
     if valid_name(&name) {
@@ -176,7 +184,10 @@ mod tests {
     #[test]
     fn relative_directories_resolve_against_the_recipe_only_on_this_machine() {
         let base = Path::new("/p");
-        assert_eq!(start_dir(Some("web"), base, true).as_deref(), Some("/p/web"));
+        assert_eq!(
+            start_dir(Some("web"), base, true).as_deref(),
+            Some("/p/web")
+        );
         assert_eq!(start_dir(Some("/x"), base, true).as_deref(), Some("/x"));
         assert_eq!(start_dir(Some("web"), base, false).as_deref(), Some("web"));
         assert_eq!(start_dir(None, base, true), None);

@@ -124,7 +124,10 @@ pub fn running_since(marks: &[Mark]) -> Option<u64> {
 }
 /// Whether the machine should stay awake: a command has run for `after_secs`, or an agent works.
 pub fn busy(running: &[u64], agent_working: bool, now_unix: u64, after_secs: u64) -> bool {
-    agent_working || running.iter().any(|at| now_unix.saturating_sub(*at) >= after_secs)
+    agent_working
+        || running
+            .iter()
+            .any(|at| now_unix.saturating_sub(*at) >= after_secs)
 }
 
 /// How often the daemon looks at its panes.
@@ -152,13 +155,17 @@ mod tests {
         let mut tr = Tracker::new(t0);
         let work = || screen(&["esc to interrupt"]);
         let ask = || screen(&["Do you want to proceed?", "1. Yes"]);
-        assert!(tr.observe(t0, 1, "claude", false, work, &[], 1000).is_empty());
+        assert!(tr
+            .observe(t0, 1, "claude", false, work, &[], 1000)
+            .is_empty());
         let later = t0 + Duration::from_secs(5);
         assert_eq!(
             tr.observe(later, 2, "claude", false, ask, &[], 1000),
             vec![Event::AgentNeedsYou(Kind::Claude)]
         );
-        assert!(tr.observe(later, 2, "claude", false, ask, &[], 1000).is_empty());
+        assert!(tr
+            .observe(later, 2, "claude", false, ask, &[], 1000)
+            .is_empty());
         assert_eq!(
             tr.observe(later, 3, "-zsh", false, Vec::new, &[], 1000),
             vec![Event::AgentDone(Kind::Claude)]
@@ -166,9 +173,15 @@ mod tests {
     }
     #[test]
     fn busy_means_a_long_running_command_or_a_working_agent() {
-        let running = [mark('A', 1, 5, None, None), mark('C', 2, 100, None, Some("make"))];
+        let running = [
+            mark('A', 1, 5, None, None),
+            mark('C', 2, 100, None, Some("make")),
+        ];
         assert_eq!(running_since(&running), Some(100));
-        let done = [mark('C', 2, 100, None, None), mark('D', 4, 110, Some(10), None)];
+        let done = [
+            mark('C', 2, 100, None, None),
+            mark('D', 4, 110, Some(10), None),
+        ];
         assert_eq!(running_since(&done), None);
         assert_eq!(running_since(&[]), None);
         assert!(!busy(&[100], false, 120, 30), "20 s is not long enough");
@@ -180,8 +193,12 @@ mod tests {
     fn plain_shells_are_not_agents() {
         let t0 = Instant::now();
         let mut tr = Tracker::new(t0);
-        assert!(tr.observe(t0, 1, "-zsh", false, Vec::new, &[], 1000).is_empty());
-        assert!(tr.observe(t0, 2, "cargo test", false, Vec::new, &[], 1000).is_empty());
+        assert!(tr
+            .observe(t0, 1, "-zsh", false, Vec::new, &[], 1000)
+            .is_empty());
+        assert!(tr
+            .observe(t0, 2, "cargo test", false, Vec::new, &[], 1000)
+            .is_empty());
     }
     #[test]
     fn long_commands_are_reported_after_the_first_look_with_only_the_program_name() {
@@ -192,11 +209,18 @@ mod tests {
             mark('D', 3, 20, Some(99_000), None),
         ];
         assert!(
-            tr.observe(t0, 1, "-zsh", false, Vec::new, &old, 30_000).is_empty(),
+            tr.observe(t0, 1, "-zsh", false, Vec::new, &old, 30_000)
+                .is_empty(),
             "what finished before the first look is not news"
         );
         let mut now = old.clone();
-        now.push(mark('C', 5, 30, None, Some("/usr/bin/cargo build --token=secret")));
+        now.push(mark(
+            'C',
+            5,
+            30,
+            None,
+            Some("/usr/bin/cargo build --token=secret"),
+        ));
         now.push(mark('D', 9, 95, Some(65_000), None));
         assert_eq!(
             tr.observe(t0, 2, "-zsh", false, Vec::new, &now, 30_000),
@@ -206,10 +230,13 @@ mod tests {
                 secs: 65
             }]
         );
-        assert!(tr.observe(t0, 3, "-zsh", false, Vec::new, &now, 30_000).is_empty());
+        assert!(tr
+            .observe(t0, 3, "-zsh", false, Vec::new, &now, 30_000)
+            .is_empty());
         now.push(mark('D', 12, 99, Some(2_000), None));
         assert!(
-            tr.observe(t0, 4, "-zsh", false, Vec::new, &now, 30_000).is_empty(),
+            tr.observe(t0, 4, "-zsh", false, Vec::new, &now, 30_000)
+                .is_empty(),
             "a short command is not worth a notification"
         );
     }

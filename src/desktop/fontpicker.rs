@@ -237,11 +237,24 @@ impl Desktop {
 
 /// One font as a card: its name and a few lines of code set in the font itself.
 #[allow(clippy::too_many_arguments)]
-fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: bool, current: bool, ready: bool, t: &Theme) {
+fn paint_card(
+    ui: &egui::Ui,
+    rect: Rect,
+    it: &Item,
+    selected: bool,
+    hovered: bool,
+    current: bool,
+    ready: bool,
+    t: &Theme,
+) {
     let p = ui.painter();
     let radius = egui::CornerRadius::same(12);
     if selected {
-        p.rect_filled(rect.expand(4.), egui::CornerRadius::same(15), color(t.accent).gamma_multiply(0.30));
+        p.rect_filled(
+            rect.expand(4.),
+            egui::CornerRadius::same(15),
+            color(t.accent).gamma_multiply(0.30),
+        );
     }
     p.rect_filled(rect, radius, color(mix(t.background, t.foreground, 0.05)));
     let edge = if selected {
@@ -283,7 +296,13 @@ fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: boo
     .iter()
     .enumerate()
     {
-        p.text(Pos2::new(x, y + n as f32 * 22.), egui::Align2::LEFT_TOP, *text, font.clone(), *c);
+        p.text(
+            Pos2::new(x, y + n as f32 * 22.),
+            egui::Align2::LEFT_TOP,
+            *text,
+            font.clone(),
+            *c,
+        );
     }
 }
 
@@ -305,12 +324,20 @@ mod tests {
     #[test]
     fn unreadable_files_are_skipped_and_the_current_font_is_preselected() {
         let (items, bytes, sel) = build_items(&files(), None);
-        assert_eq!(items.len(), 1, "only the default: none of the files can be read");
+        assert_eq!(
+            items.len(),
+            1,
+            "only the default: none of the files can be read"
+        );
         assert!(bytes.is_empty() && sel == 0);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Real-Regular.ttf");
         std::fs::write(&path, b"fontbytes").unwrap();
-        let real = vec![FontFile { path, stem: "Real-Regular".into(), label: "Real".into() }];
+        let real = vec![FontFile {
+            path,
+            stem: "Real-Regular".into(),
+            label: "Real".into(),
+        }];
         let (items, bytes, sel) = build_items(&real, Some("Real-Regular"));
         assert_eq!(items.len(), 2);
         assert_eq!(items[1].pick, Some(0));
@@ -319,14 +346,19 @@ mod tests {
     }
     #[test]
     fn the_list_filters_by_name() {
-        let mk = |l: &str| Item { family: Some(l.into()), label: l.into(), pick: None };
+        let mk = |l: &str| Item {
+            family: Some(l.into()),
+            label: l.into(),
+            pick: None,
+        };
         let items = vec![mk("Menlo"), mk("Hack"), mk("JetBrains Mono")];
         assert_eq!(visible(&items, "").len(), 3);
         assert_eq!(visible(&items, "jet"), [2]);
         assert!(visible(&items, "zzz").is_empty());
     }
     #[test]
-    fn the_picker_opens_renders_and_cancel_restores_the_fonts_while_choosing_saves_nothing_in_tests() {
+    fn the_picker_opens_renders_and_cancel_restores_the_fonts_while_choosing_saves_nothing_in_tests(
+    ) {
         let (mut app, _rx) = app_with_screen("");
         let ctx = egui::Context::default();
         app.open_font_picker();
@@ -344,6 +376,9 @@ mod tests {
         };
         let _ = ctx.run(esc, |ctx| app.frame(ctx));
         assert!(!app.font_picker.open);
-        assert_eq!(app.applied_font, None, "the normal fonts are reinstalled next frame");
+        assert_eq!(
+            app.applied_font, None,
+            "the normal fonts are reinstalled next frame"
+        );
     }
 }

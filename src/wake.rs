@@ -46,7 +46,13 @@ mod tests {
             [0xaa, 0xbb, 0x0c, 0xdd, 0xee, 0x01]
         );
         assert!(parse_mac("aa-bb-cc-dd-ee-ff").is_ok());
-        for bad in ["", "aa:bb:cc:dd:ee", "aa:bb:cc:dd:ee:gg", "aabb.ccdd.eeff", "a:b:c:d:e:f"] {
+        for bad in [
+            "",
+            "aa:bb:cc:dd:ee",
+            "aa:bb:cc:dd:ee:gg",
+            "aabb.ccdd.eeff",
+            "a:b:c:d:e:f",
+        ] {
             assert!(parse_mac(bad).is_err(), "{bad}");
         }
     }
@@ -61,10 +67,12 @@ mod tests {
     #[test]
     fn a_packet_reaches_a_listener() {
         let rx = UdpSocket::bind("127.0.0.1:0").unwrap();
-        rx.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        rx.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
         let port = rx.local_addr().unwrap().port();
         let tx = UdpSocket::bind("0.0.0.0:0").unwrap();
-        tx.send_to(&magic_packet([9; 6]), format!("127.0.0.1:{port}")).unwrap();
+        tx.send_to(&magic_packet([9; 6]), format!("127.0.0.1:{port}"))
+            .unwrap();
         let mut buf = [0u8; 200];
         assert_eq!(rx.recv(&mut buf).unwrap(), 102);
     }

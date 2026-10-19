@@ -1,6 +1,6 @@
 //! Right-click a command in the terminal: copy its command or output, run it again, or ask the assistant.
-use super::*;
 use super::term::Then;
+use super::*;
 use crate::protocol::Mark;
 
 /// A command block found under the pointer.
@@ -69,7 +69,8 @@ impl Desktop {
         let ch = self.font_size * self.cfg.line_height;
         let (_, pad_top, _, _) = self.cfg.insets();
         let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
-        let row = (((pos.y - rect.top() - pad_top) / ch).floor().max(0.) as usize).min(rows.saturating_sub(1));
+        let row = (((pos.y - rect.top() - pad_top) / ch).floor().max(0.) as usize)
+            .min(rows.saturating_sub(1));
         let line = self.view_top_line(id) + row as u64;
         self.block_menu = self
             .panes
@@ -95,10 +96,17 @@ impl Desktop {
         for (label, p, enabled) in [
             ("Copy command", BlockPick::CopyCommand, b.cmd.is_some()),
             ("Copy output", BlockPick::CopyOutput, finished),
-            ("Run it again", BlockPick::Rerun, b.cmd.is_some() && !self.readonly),
+            (
+                "Run it again",
+                BlockPick::Rerun,
+                b.cmd.is_some() && !self.readonly,
+            ),
             ("Ask AI about it", BlockPick::Ask, finished),
         ] {
-            if ui.add_enabled(enabled, egui::Button::new(label).frame(false)).clicked() {
+            if ui
+                .add_enabled(enabled, egui::Button::new(label).frame(false))
+                .clicked()
+            {
                 pick = Some(p);
                 ui.close_menu();
             }
@@ -174,7 +182,13 @@ impl Desktop {
 mod tests {
     use super::*;
     fn m(kind: char, line: u64, exit: Option<i32>, cmd: Option<&str>) -> Mark {
-        Mark { kind, line, exit, cmd: cmd.map(str::to_string), ..Default::default() }
+        Mark {
+            kind,
+            line,
+            exit,
+            cmd: cmd.map(str::to_string),
+            ..Default::default()
+        }
     }
     #[test]
     fn the_block_under_a_line_is_found_with_its_command_and_status() {
@@ -188,7 +202,11 @@ mod tests {
         let b = block_at(1, &marks, 12).unwrap();
         assert_eq!((b.c_line, b.d_line, b.exit), (11, Some(15), Some(2)));
         assert_eq!(b.cmd.as_deref(), Some("make"));
-        assert_eq!(block_at(1, &marks, 10).unwrap().c_line, 11, "the command line belongs to its block");
+        assert_eq!(
+            block_at(1, &marks, 10).unwrap().c_line,
+            11,
+            "the command line belongs to its block"
+        );
         let running = block_at(1, &marks, 20).unwrap();
         assert_eq!((running.c_line, running.d_line), (17, None));
         assert_eq!(block_at(1, &marks, 3), None);
@@ -209,16 +227,27 @@ mod tests {
         assert_eq!(app.copy_text.take().as_deref(), Some("make test"));
         drain(&rx);
         app.run_block_pick(BlockPick::Rerun);
-        assert!(matches!(&drain(&rx)[..], [Command::Input { pane: 1, data }] if data == b"make test\r"));
+        assert!(
+            matches!(&drain(&rx)[..], [Command::Input { pane: 1, data }] if data == b"make test\r")
+        );
         // The output is not loaded yet: it is requested, and copied when the history arrives.
         app.run_block_pick(BlockPick::CopyOutput);
-        assert!(matches!(&drain(&rx)[..], [Command::Capture(1, CapturePurpose::Scrollback(1))]));
+        assert!(matches!(
+            &drain(&rx)[..],
+            [Command::Capture(1, CapturePurpose::Scrollback(1))]
+        ));
         let text: String = (0..10).map(|i| format!("line {i}\n")).collect();
         app.finish_scrollback(1, &text, 0);
-        assert_eq!(app.copy_text.take().as_deref(), Some("line 3\nline 4\nline 5"));
+        assert_eq!(
+            app.copy_text.take().as_deref(),
+            Some("line 3\nline 4\nline 5")
+        );
         // Read only: nothing is typed.
         app.readonly = true;
-        let enabled = app.block_menu.as_ref().is_some_and(|b| b.cmd.is_some() && !app.readonly);
+        let enabled = app
+            .block_menu
+            .as_ref()
+            .is_some_and(|b| b.cmd.is_some() && !app.readonly);
         assert!(!enabled, "the menu greys out Run it again when read only");
     }
 }

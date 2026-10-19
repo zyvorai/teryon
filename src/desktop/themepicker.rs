@@ -69,7 +69,10 @@ impl Desktop {
             })
             .collect();
         let current = self.committed_theme.name.clone();
-        let sel = items.iter().position(|i| i.theme.name == current).unwrap_or(0);
+        let sel = items
+            .iter()
+            .position(|i| i.theme.name == current)
+            .unwrap_or(0);
         self.theme_picker = ThemePicker {
             open: true,
             query: String::new(),
@@ -170,14 +173,22 @@ impl Desktop {
                         self.theme_picker.sel = usize::MAX;
                         self.theme_picker.scroll = true;
                     }
-                    for (label, f) in [("All", Filter::All), ("Dark", Filter::Dark), ("Light", Filter::Light)] {
+                    for (label, f) in [
+                        ("All", Filter::All),
+                        ("Dark", Filter::Dark),
+                        ("Light", Filter::Light),
+                    ] {
                         let on = self.theme_picker.filter == f;
                         let chip = egui::Button::new(RichText::new(label).size(13.).color(if on {
                             color(t.background)
                         } else {
                             color(t.foreground)
                         }))
-                        .fill(if on { color(t.accent) } else { color(mix(t.panel, t.foreground, 0.08)) })
+                        .fill(if on {
+                            color(t.accent)
+                        } else {
+                            color(mix(t.panel, t.foreground, 0.08))
+                        })
                         .corner_radius(egui::CornerRadius::same(14))
                         .min_size(Vec2::new(54., 30.));
                         if ui.add(chip).clicked() {
@@ -188,40 +199,51 @@ impl Desktop {
                     }
                 });
                 ui.add_space(12.);
-                egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::splat(12.);
-                    let gap = 12.;
-                    let card_w = (ui.available_width() - gap * (cols as f32 - 1.)) / cols as f32;
-                    for chunk in shown.chunks(cols).enumerate().map(|(n, c)| (n, c.to_vec())) {
-                        let (n, chunk) = chunk;
-                        ui.horizontal(|ui| {
-                            for (k, idx) in chunk.iter().enumerate() {
-                                let row = n * cols + k;
-                                let it = &self.theme_picker.items[*idx];
-                                let selected = row == pos;
-                                let (rect, resp) = ui.allocate_exact_size(
-                                    Vec2::new(card_w, 142.),
-                                    Sense::click(),
-                                );
-                                if selected && self.theme_picker.scroll {
-                                    resp.scroll_to_me(None);
+                egui::ScrollArea::vertical()
+                    .max_height(list_h)
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::splat(12.);
+                        let gap = 12.;
+                        let card_w =
+                            (ui.available_width() - gap * (cols as f32 - 1.)) / cols as f32;
+                        for chunk in shown.chunks(cols).enumerate().map(|(n, c)| (n, c.to_vec())) {
+                            let (n, chunk) = chunk;
+                            ui.horizontal(|ui| {
+                                for (k, idx) in chunk.iter().enumerate() {
+                                    let row = n * cols + k;
+                                    let it = &self.theme_picker.items[*idx];
+                                    let selected = row == pos;
+                                    let (rect, resp) = ui.allocate_exact_size(
+                                        Vec2::new(card_w, 142.),
+                                        Sense::click(),
+                                    );
+                                    if selected && self.theme_picker.scroll {
+                                        resp.scroll_to_me(None);
+                                    }
+                                    paint_card(
+                                        ui,
+                                        rect,
+                                        it,
+                                        selected,
+                                        resp.hovered(),
+                                        it.theme.name == committed,
+                                        &t,
+                                    );
+                                    if resp.clicked() {
+                                        choose = Some(it.id.clone());
+                                    }
                                 }
-                                paint_card(ui, rect, it, selected, resp.hovered(), it.theme.name == committed, &t);
-                                if resp.clicked() {
-                                    choose = Some(it.id.clone());
-                                }
-                            }
-                        });
-                    }
-                    if shown.is_empty() {
-                        ui.add_space(20.);
-                        ui.label(
-                            RichText::new("No theme matches.")
-                                .size(13.)
-                                .color(color(t.muted)),
-                        );
-                    }
-                });
+                            });
+                        }
+                        if shown.is_empty() {
+                            ui.add_space(20.);
+                            ui.label(
+                                RichText::new("No theme matches.")
+                                    .size(13.)
+                                    .color(color(t.muted)),
+                            );
+                        }
+                    });
                 ui.add_space(10.);
                 ui.label(
                     RichText::new("↑ ↓ ← → preview live   ·   Enter use it   ·   Esc cancel")
@@ -231,7 +253,9 @@ impl Desktop {
             });
         self.theme_picker.scroll = false;
         if enter && choose.is_none() {
-            choose = shown.get(pos).map(|i| self.theme_picker.items[*i].id.clone());
+            choose = shown
+                .get(pos)
+                .map(|i| self.theme_picker.items[*i].id.clone());
         }
         if let Some(id) = choose {
             self.theme_picker.open = false;
@@ -253,7 +277,15 @@ fn segments(painter: &egui::Painter, mut pos: Pos2, font: &FontId, parts: &[(&st
 }
 
 /// One theme as a small terminal: its background, a few lines in its colors, and its palette.
-fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: bool, current: bool, ui_theme: &Theme) {
+fn paint_card(
+    ui: &egui::Ui,
+    rect: Rect,
+    it: &Item,
+    selected: bool,
+    hovered: bool,
+    current: bool,
+    ui_theme: &Theme,
+) {
     let th = &it.theme;
     let p = ui.painter();
     let radius = egui::CornerRadius::same(12);
@@ -299,12 +331,22 @@ fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: boo
     );
     let y = rect.top() + 42.;
     let lh = 17.;
-    segments(p, Pos2::new(x, y), &mono, &[("❯ ", color(th.accent)), ("cargo test", fg)]);
+    segments(
+        p,
+        Pos2::new(x, y),
+        &mono,
+        &[("❯ ", color(th.accent)), ("cargo test", fg)],
+    );
     segments(
         p,
         Pos2::new(x, y + lh),
         &mono,
-        &[("✓ ", color(th.success)), ("12 passed  ", fg), ("✗ ", color(th.ansi[1])), ("1 failed", fg)],
+        &[
+            ("✓ ", color(th.success)),
+            ("12 passed  ", fg),
+            ("✗ ", color(th.ansi[1])),
+            ("1 failed", fg),
+        ],
     );
     segments(
         p,
@@ -316,13 +358,23 @@ fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: boo
         p,
         Pos2::new(x, y + lh * 3.),
         &mono,
-        &[("src/ ", color(th.ansi[4])), ("Cargo.toml ", color(th.ansi[6])), ("run.sh", color(th.ansi[2]))],
+        &[
+            ("src/ ", color(th.ansi[4])),
+            ("Cargo.toml ", color(th.ansi[6])),
+            ("run.sh", color(th.ansi[2])),
+        ],
     );
     // The palette along the bottom edge.
-    let dots = [th.accent, th.success, th.warning, th.ansi[1], th.ansi[2], th.ansi[3], th.ansi[4], th.ansi[5], th.ansi[6]];
+    let dots = [
+        th.accent, th.success, th.warning, th.ansi[1], th.ansi[2], th.ansi[3], th.ansi[4],
+        th.ansi[5], th.ansi[6],
+    ];
     for (n, c) in dots.iter().enumerate() {
         p.circle_filled(
-            Pos2::new(rect.right() - 20. - (dots.len() - 1 - n) as f32 * 14., rect.bottom() - 14.),
+            Pos2::new(
+                rect.right() - 20. - (dots.len() - 1 - n) as f32 * 14.,
+                rect.bottom() - 14.,
+            ),
             4.5,
             color(*c),
         );

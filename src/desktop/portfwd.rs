@@ -91,7 +91,11 @@ mod tests {
         assert!(a.contains(&"BatchMode=yes".to_string()));
         assert_eq!(a.last().unwrap(), "me@mini");
         let dash = forward_args("-oProxyCommand=evil", 1);
-        assert_eq!(dash[dash.len() - 2], "--", "a hostile destination cannot become an option");
+        assert_eq!(
+            dash[dash.len() - 2],
+            "--",
+            "a hostile destination cannot become an option"
+        );
     }
     #[test]
     fn without_a_listening_port_the_action_says_so() {

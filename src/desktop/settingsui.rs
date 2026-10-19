@@ -20,64 +20,216 @@ pub(super) struct Setting {
     pub restart: bool,
 }
 const fn s(key: &'static str, label: &'static str, help: &'static str, ctl: Ctl) -> Setting {
-    Setting { key, label, help, ctl, restart: false }
+    Setting {
+        key,
+        label,
+        help,
+        ctl,
+        restart: false,
+    }
 }
 const fn r(key: &'static str, label: &'static str, help: &'static str, ctl: Ctl) -> Setting {
-    Setting { key, label, help, ctl, restart: true }
+    Setting {
+        key,
+        label,
+        help,
+        ctl,
+        restart: true,
+    }
 }
 
 pub(super) const SECTIONS: &[(&str, &[Setting])] = &[
     (
         "Look",
         &[
-            s("window_opacity", "Window opacity", "How see-through the window is (1 = solid).", Ctl::Float(0.3, 1.0)),
-            s("unfocused_opacity", "Dim unfocused panes", "Brightness of panes that do not have focus.", Ctl::Float(0.2, 1.0)),
-            r("window_blur", "Background blur", "Blur behind a see-through window (macOS).", Ctl::Int(0, 100)),
-            s("corner_radius", "Rounded corners", "Window corner radius in points (bare window).", Ctl::Float(0., 24.)),
-            s("background_noise", "Film grain", "Fine grain over the background, 0 to 100.", Ctl::Float(0., 100.)),
-            s("pane_inset", "Space around panes", "Gap between the window edge and the panes.", Ctl::Float(0., 32.)),
+            s(
+                "window_opacity",
+                "Window opacity",
+                "How see-through the window is (1 = solid).",
+                Ctl::Float(0.3, 1.0),
+            ),
+            s(
+                "unfocused_opacity",
+                "Dim unfocused panes",
+                "Brightness of panes that do not have focus.",
+                Ctl::Float(0.2, 1.0),
+            ),
+            r(
+                "window_blur",
+                "Background blur",
+                "Blur behind a see-through window (macOS).",
+                Ctl::Int(0, 100),
+            ),
+            s(
+                "corner_radius",
+                "Rounded corners",
+                "Window corner radius in points (bare window).",
+                Ctl::Float(0., 24.),
+            ),
+            s(
+                "background_noise",
+                "Film grain",
+                "Fine grain over the background, 0 to 100.",
+                Ctl::Float(0., 100.),
+            ),
+            s(
+                "pane_inset",
+                "Space around panes",
+                "Gap between the window edge and the panes.",
+                Ctl::Float(0., 32.),
+            ),
         ],
     ),
     (
         "Text",
         &[
-            s("font_size", "Font size", "Terminal text size in points.", Ctl::Float(8., 36.)),
-            s("line_height", "Line height", "Multiple of the font size.", Ctl::Float(1., 2.5)),
-            s("padding", "Text padding", "Space between the text and the pane edge.", Ctl::Float(0., 48.)),
-            s("text_gamma", "Text weight", "Lower is heavier text, higher is thinner.", Ctl::Float(0.3, 1.0)),
-            s("cursor_style", "Cursor shape", "Block, bar or underline.", Ctl::Choice(&["block", "bar", "underline"])),
-            s("cursor_blink", "Blinking cursor", "Fade the cursor in and out.", Ctl::Bool),
+            s(
+                "font_size",
+                "Font size",
+                "Terminal text size in points.",
+                Ctl::Float(8., 36.),
+            ),
+            s(
+                "line_height",
+                "Line height",
+                "Multiple of the font size.",
+                Ctl::Float(1., 2.5),
+            ),
+            s(
+                "padding",
+                "Text padding",
+                "Space between the text and the pane edge.",
+                Ctl::Float(0., 48.),
+            ),
+            s(
+                "text_gamma",
+                "Text weight",
+                "Lower is heavier text, higher is thinner.",
+                Ctl::Float(0.3, 1.0),
+            ),
+            s(
+                "cursor_style",
+                "Cursor shape",
+                "Block, bar or underline.",
+                Ctl::Choice(&["block", "bar", "underline"]),
+            ),
+            s(
+                "cursor_blink",
+                "Blinking cursor",
+                "Fade the cursor in and out.",
+                Ctl::Bool,
+            ),
         ],
     ),
     (
         "Window",
         &[
-            r("chrome", "Window frame", "Full has a title bar and tabs; none is a bare terminal.", Ctl::Choice(&["full", "none"])),
-            s("tab_bar", "Tab strip", "A tab strip along the bottom of a bare window.", Ctl::Choice(&["off", "bottom"])),
-            s("pane_titles", "Pane title bars", "When each pane shows its title bar.", Ctl::Choice(&["auto", "always", "never"])),
-            s("scrollbar", "Scrollbar", "Only while scrolled back, or always.", Ctl::Choice(&["auto", "always"])),
-            s("status_line", "Status line", "The muted line under the panes.", Ctl::Bool),
-            s("file_browser", "File browser at start", "Open the file sidebar when the app starts.", Ctl::Bool),
-            r("maximized", "Open maximized", "New windows start maximized.", Ctl::Bool),
-            r("fullscreen", "Open in full screen", "New windows start in native full screen.", Ctl::Bool),
-            s("confirm_quit", "Confirm before closing", "Ask before closing the window (shells keep running).", Ctl::Bool),
+            r(
+                "chrome",
+                "Window frame",
+                "Full has a title bar and tabs; none is a bare terminal.",
+                Ctl::Choice(&["full", "none"]),
+            ),
+            s(
+                "tab_bar",
+                "Tab strip",
+                "A tab strip along the bottom of a bare window.",
+                Ctl::Choice(&["off", "bottom"]),
+            ),
+            s(
+                "pane_titles",
+                "Pane title bars",
+                "When each pane shows its title bar.",
+                Ctl::Choice(&["auto", "always", "never"]),
+            ),
+            s(
+                "scrollbar",
+                "Scrollbar",
+                "Only while scrolled back, or always.",
+                Ctl::Choice(&["auto", "always"]),
+            ),
+            s(
+                "status_line",
+                "Status line",
+                "The muted line under the panes.",
+                Ctl::Bool,
+            ),
+            s(
+                "file_browser",
+                "File browser at start",
+                "Open the file sidebar when the app starts.",
+                Ctl::Bool,
+            ),
+            r(
+                "maximized",
+                "Open maximized",
+                "New windows start maximized.",
+                Ctl::Bool,
+            ),
+            r(
+                "fullscreen",
+                "Open in full screen",
+                "New windows start in native full screen.",
+                Ctl::Bool,
+            ),
+            s(
+                "confirm_quit",
+                "Confirm before closing",
+                "Ask before closing the window (shells keep running).",
+                Ctl::Bool,
+            ),
         ],
     ),
     (
         "Behavior",
         &[
-            s("copy_on_select", "Copy on select", "Copy as soon as you finish selecting.", Ctl::Bool),
-            s("scrollback_lines", "Scrollback", "Lines of history shown when scrolling back.", Ctl::Int(1000, 100_000)),
-            s("command_gutter", "Command gutter", "A thin bar beside each command (needs shell integration).", Ctl::Bool),
-            s("fresh_window", "Fresh shell per window", "Each window starts its own shell instead of the shared one.", Ctl::Bool),
+            s(
+                "copy_on_select",
+                "Copy on select",
+                "Copy as soon as you finish selecting.",
+                Ctl::Bool,
+            ),
+            s(
+                "scrollback_lines",
+                "Scrollback",
+                "Lines of history shown when scrolling back.",
+                Ctl::Int(1000, 100_000),
+            ),
+            s(
+                "command_gutter",
+                "Command gutter",
+                "A thin bar beside each command (needs shell integration).",
+                Ctl::Bool,
+            ),
+            s(
+                "fresh_window",
+                "Fresh shell per window",
+                "Each window starts its own shell instead of the shared one.",
+                Ctl::Bool,
+            ),
         ],
     ),
     (
         "Alerts",
         &[
-            s("notify_after_seconds", "Long command alert", "Notify when a command ran this long (0 = off).", Ctl::Int(0, 3600)),
-            s("agent_notifications", "AI agent alerts", "Notify when an agent needs you or finishes.", Ctl::Bool),
-            s("agent_quick_approve", "Approve / Deny buttons", "Answer an agent's prompt from the Agents overview.", Ctl::Bool),
+            s(
+                "notify_after_seconds",
+                "Long command alert",
+                "Notify when a command ran this long (0 = off).",
+                Ctl::Int(0, 3600),
+            ),
+            s(
+                "agent_notifications",
+                "AI agent alerts",
+                "Notify when an agent needs you or finishes.",
+                Ctl::Bool,
+            ),
+            s(
+                "agent_quick_approve",
+                "Approve / Deny buttons",
+                "Answer an agent's prompt from the Agents overview.",
+                Ctl::Bool,
+            ),
         ],
     ),
 ];
@@ -218,14 +370,19 @@ impl Desktop {
                     ui.horizontal_wrapped(|ui| {
                         for (n, (name, _)) in SECTIONS.iter().enumerate() {
                             let on = self.settings_win.section == n;
-                            let chip = egui::Button::new(RichText::new(*name).size(13.).color(if on {
-                                color(t.background)
-                            } else {
-                                color(t.foreground)
-                            }))
-                            .fill(if on { color(t.accent) } else { color(mix(t.panel, t.foreground, 0.08)) })
-                            .corner_radius(egui::CornerRadius::same(14))
-                            .min_size(Vec2::new(60., 28.));
+                            let chip =
+                                egui::Button::new(RichText::new(*name).size(13.).color(if on {
+                                    color(t.background)
+                                } else {
+                                    color(t.foreground)
+                                }))
+                                .fill(if on {
+                                    color(t.accent)
+                                } else {
+                                    color(mix(t.panel, t.foreground, 0.08))
+                                })
+                                .corner_radius(egui::CornerRadius::same(14))
+                                .min_size(Vec2::new(60., 28.));
                             if ui.add(chip).clicked() {
                                 self.settings_win.section = n;
                             }
@@ -233,49 +390,65 @@ impl Desktop {
                     });
                     ui.add_space(8.);
                 }
-                egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
-                    let rows: Vec<&'static Setting> = if query.is_empty() {
-                        SECTIONS[self.settings_win.section.min(SECTIONS.len() - 1)].1.iter().collect()
-                    } else {
-                        SECTIONS
-                            .iter()
-                            .flat_map(|(_, list)| list.iter())
-                            .filter(|st| {
-                                st.label.to_lowercase().contains(&query)
-                                    || st.help.to_lowercase().contains(&query)
-                                    || st.key.contains(&query)
-                            })
-                            .collect()
-                    };
-                    egui::Grid::new("settings-grid")
-                        .num_columns(3)
-                        .spacing([14., 14.])
-                        .min_col_width(0.)
-                        .show(ui, |ui| {
-                            for st in rows {
-                                let Some(current) = get(&self.cfg, st.key) else { continue };
-                                ui.vertical(|ui| {
-                                    ui.set_min_width(width * 0.46);
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(st.label).size(14.));
-                                        if st.restart {
-                                            ui.label(RichText::new("restart").size(10.).color(color(t.warning)));
-                                        }
+                egui::ScrollArea::vertical()
+                    .max_height(list_h)
+                    .show(ui, |ui| {
+                        let rows: Vec<&'static Setting> = if query.is_empty() {
+                            SECTIONS[self.settings_win.section.min(SECTIONS.len() - 1)]
+                                .1
+                                .iter()
+                                .collect()
+                        } else {
+                            SECTIONS
+                                .iter()
+                                .flat_map(|(_, list)| list.iter())
+                                .filter(|st| {
+                                    st.label.to_lowercase().contains(&query)
+                                        || st.help.to_lowercase().contains(&query)
+                                        || st.key.contains(&query)
+                                })
+                                .collect()
+                        };
+                        egui::Grid::new("settings-grid")
+                            .num_columns(3)
+                            .spacing([14., 14.])
+                            .min_col_width(0.)
+                            .show(ui, |ui| {
+                                for st in rows {
+                                    let Some(current) = get(&self.cfg, st.key) else {
+                                        continue;
+                                    };
+                                    ui.vertical(|ui| {
+                                        ui.set_min_width(width * 0.46);
+                                        ui.horizontal(|ui| {
+                                            ui.label(RichText::new(st.label).size(14.));
+                                            if st.restart {
+                                                ui.label(
+                                                    RichText::new("restart")
+                                                        .size(10.)
+                                                        .color(color(t.warning)),
+                                                );
+                                            }
+                                        });
+                                        ui.label(
+                                            RichText::new(st.help).size(11.).color(color(t.muted)),
+                                        );
                                     });
-                                    ui.label(RichText::new(st.help).size(11.).color(color(t.muted)));
-                                });
-                                if let Some(e) = control(ui, st, &current, &t) {
-                                    edit = Some(e);
+                                    if let Some(e) = control(ui, st, &current, &t) {
+                                        edit = Some(e);
+                                    }
+                                    if get(&defaults, st.key).is_some_and(|d| d != current)
+                                        && ui
+                                            .small_button("↺")
+                                            .on_hover_text("Back to the default")
+                                            .clicked()
+                                    {
+                                        reset = Some(st.key);
+                                    }
+                                    ui.end_row();
                                 }
-                                if get(&defaults, st.key).is_some_and(|d| d != current)
-                                    && ui.small_button("↺").on_hover_text("Back to the default").clicked()
-                                {
-                                    reset = Some(st.key);
-                                }
-                                ui.end_row();
-                            }
-                        });
-                });
+                            });
+                    });
                 ui.add_space(10.);
                 ui.horizontal(|ui| {
                     if ui.button("🎨 Theme…").clicked() {
@@ -331,7 +504,11 @@ fn control(ui: &mut egui::Ui, st: &'static Setting, current: &Val, t: &Theme) ->
         (Ctl::Bool, Val::Bool(b)) => {
             let mut on = *b;
             if ui.add(toggle(&mut on, t)).changed() {
-                edit = Some(Edit { key: st.key, val: Val::Bool(on), commit: true });
+                edit = Some(Edit {
+                    key: st.key,
+                    val: Val::Bool(on),
+                    commit: true,
+                });
             }
         }
         (Ctl::Float(lo, hi), Val::Float(f)) => {
@@ -349,23 +526,39 @@ fn control(ui: &mut egui::Ui, st: &'static Setting, current: &Val, t: &Theme) ->
                     commit: !resp.dragged(),
                 });
             } else if resp.drag_stopped() {
-                edit = Some(Edit { key: st.key, val: Val::Float(f64::from(v)), commit: true });
+                edit = Some(Edit {
+                    key: st.key,
+                    val: Val::Float(f64::from(v)),
+                    commit: true,
+                });
             }
         }
         (Ctl::Int(lo, hi), Val::Int(n)) => {
             let mut v = (*n).clamp(i64::from(lo), i64::from(hi)) as i32;
             let resp = ui.add(egui::Slider::new(&mut v, lo as i32..=hi as i32));
             if resp.changed() {
-                edit = Some(Edit { key: st.key, val: Val::Int(i64::from(v)), commit: !resp.dragged() });
+                edit = Some(Edit {
+                    key: st.key,
+                    val: Val::Int(i64::from(v)),
+                    commit: !resp.dragged(),
+                });
             } else if resp.drag_stopped() {
-                edit = Some(Edit { key: st.key, val: Val::Int(i64::from(v)), commit: true });
+                edit = Some(Edit {
+                    key: st.key,
+                    val: Val::Int(i64::from(v)),
+                    commit: true,
+                });
             }
         }
         (Ctl::Choice(options), Val::Str(cur)) => {
             ui.horizontal(|ui| {
                 for o in options {
                     if ui.selectable_label(cur == o, *o).clicked() && cur != o {
-                        edit = Some(Edit { key: st.key, val: Val::Str((*o).into()), commit: true });
+                        edit = Some(Edit {
+                            key: st.key,
+                            val: Val::Str((*o).into()),
+                            commit: true,
+                        });
                     }
                 }
             });
@@ -408,7 +601,12 @@ impl Desktop {
                         .color(color(t.warning)),
                 );
                 ui.add_space(6.);
-                ui.label(RichText::new(shown).monospace().size(11.5).color(color(t.foreground)));
+                ui.label(
+                    RichText::new(shown)
+                        .monospace()
+                        .size(11.5)
+                        .color(color(t.foreground)),
+                );
                 ui.add_space(8.);
                 ui.horizontal(|ui| {
                     if ui.button("Open config file").clicked() {
@@ -437,7 +635,10 @@ impl Desktop {
 }
 
 fn find(key: &str) -> Option<&'static Setting> {
-    SECTIONS.iter().flat_map(|(_, l)| l.iter()).find(|s| s.key == key)
+    SECTIONS
+        .iter()
+        .flat_map(|(_, l)| l.iter())
+        .find(|s| s.key == key)
 }
 
 impl Desktop {
@@ -467,7 +668,12 @@ impl Desktop {
                     });
                 });
                 ui.add_space(8.);
-                for key in ["window_opacity", "unfocused_opacity", "font_size", "line_height"] {
+                for key in [
+                    "window_opacity",
+                    "unfocused_opacity",
+                    "font_size",
+                    "line_height",
+                ] {
                     let (Some(st), Some(cur)) = (find(key), get(&self.cfg, key)) else {
                         continue;
                     };
@@ -525,8 +731,11 @@ pub(super) fn toggle<'a>(on: &'a mut bool, t: &Theme) -> impl egui::Widget + 'a 
             resp.mark_changed();
         }
         let k = ui.ctx().animate_bool_with_time(resp.id, *on, 0.12);
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(11), off.lerp_to_gamma(accent, k));
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(11),
+            off.lerp_to_gamma(accent, k),
+        );
         ui.painter().circle_filled(
             Pos2::new(rect.left() + 11. + k * 18., rect.center().y),
             8.,
@@ -545,29 +754,40 @@ mod tests {
         let base = DesktopConfig::default();
         for (_, list) in SECTIONS {
             for st in *list {
-                let current = get(&base, st.key).unwrap_or_else(|| panic!("no getter for {}", st.key));
+                let current =
+                    get(&base, st.key).unwrap_or_else(|| panic!("no getter for {}", st.key));
                 let mut c = base.clone();
                 assert!(set(&mut c, st.key, &current), "{}", st.key);
-                assert_eq!(c, base, "writing the current value changes nothing: {}", st.key);
+                assert_eq!(
+                    c, base,
+                    "writing the current value changes nothing: {}",
+                    st.key
+                );
                 match st.ctl {
                     Ctl::Float(lo, hi) => {
                         for v in [lo, hi] {
                             let mut c = base.clone();
                             assert!(set(&mut c, st.key, &Val::Float(f64::from(v))));
-                            c.validate().unwrap_or_else(|e| panic!("{} = {v}: {e}", st.key));
+                            c.validate()
+                                .unwrap_or_else(|e| panic!("{} = {v}: {e}", st.key));
                         }
                     }
                     Ctl::Int(lo, hi) => {
                         for v in [lo, hi] {
                             let mut c = base.clone();
                             assert!(set(&mut c, st.key, &Val::Int(i64::from(v))));
-                            c.validate().unwrap_or_else(|e| panic!("{} = {v}: {e}", st.key));
+                            c.validate()
+                                .unwrap_or_else(|e| panic!("{} = {v}: {e}", st.key));
                         }
                     }
                     Ctl::Choice(options) => {
                         for o in options {
                             let mut c = base.clone();
-                            assert!(set(&mut c, st.key, &Val::Str((*o).into())), "{} = {o}", st.key);
+                            assert!(
+                                set(&mut c, st.key, &Val::Str((*o).into())),
+                                "{} = {o}",
+                                st.key
+                            );
                             assert_eq!(get(&c, st.key), Some(Val::Str((*o).into())));
                         }
                     }
@@ -579,14 +799,23 @@ mod tests {
             }
         }
         assert!(!set(&mut base.clone(), "nope", &Val::Bool(true)));
-        assert!(!set(&mut base.clone(), "cursor_style", &Val::Str("wavy".into())));
+        assert!(!set(
+            &mut base.clone(),
+            "cursor_style",
+            &Val::Str("wavy".into())
+        ));
     }
     #[test]
     fn every_setting_has_a_documented_key_in_the_config() {
         // A typo in a key would write an option the config rejects (`deny_unknown_fields`).
         for (_, list) in SECTIONS {
             for st in *list {
-                let text = configedit::set_desktop("", st.key, &get(&DesktopConfig::default(), st.key).unwrap()).unwrap();
+                let text = configedit::set_desktop(
+                    "",
+                    st.key,
+                    &get(&DesktopConfig::default(), st.key).unwrap(),
+                )
+                .unwrap();
                 configedit::validate(&text).unwrap_or_else(|e| panic!("{}: {e}", st.key));
             }
         }
@@ -598,7 +827,10 @@ mod tests {
         assert!((app.cfg.window_opacity - 0.8).abs() < 1e-6);
         assert!((app.unfocused_dim - (1. - app.cfg.unfocused_opacity)).abs() < 1e-6);
         app.change_setting("font_size", &Val::Float(500.), false);
-        assert!(app.cfg.font_size < 100., "an out-of-range value never reaches the config");
+        assert!(
+            app.cfg.font_size < 100.,
+            "an out-of-range value never reaches the config"
+        );
         app.change_setting("font_size", &Val::Float(18.), false);
         assert_eq!(app.font_size, 18.);
     }

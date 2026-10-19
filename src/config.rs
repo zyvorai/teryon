@@ -100,7 +100,10 @@ impl NotifyConfig {
         self.macos || self.ntfy_url.is_some() || self.webhook_url.is_some()
     }
     pub fn validate(&self) -> Result<()> {
-        for (name, url) in [("ntfy_url", &self.ntfy_url), ("webhook_url", &self.webhook_url)] {
+        for (name, url) in [
+            ("ntfy_url", &self.ntfy_url),
+            ("webhook_url", &self.webhook_url),
+        ] {
             if let Some(url) = url {
                 if !(url.starts_with("https://") || url.starts_with("http://"))
                     || url.chars().any(|c| c.is_control() || c.is_whitespace())
@@ -110,7 +113,10 @@ impl NotifyConfig {
             }
         }
         if self.after_seconds == 0 || self.after_seconds > 86_400 {
-            bail!("notify.after_seconds = {} is outside 1..86400", self.after_seconds);
+            bail!(
+                "notify.after_seconds = {} is outside 1..86400",
+                self.after_seconds
+            );
         }
         Ok(())
     }
@@ -649,10 +655,9 @@ mod notify_tests {
     use super::*;
     #[test]
     fn notify_section_parses_and_is_validated() {
-        let cfg: Config = toml::from_str(
-            "[notify]\nntfy_url = \"https://ntfy.sh/mine\"\nafter_seconds = 60\n",
-        )
-        .unwrap();
+        let cfg: Config =
+            toml::from_str("[notify]\nntfy_url = \"https://ntfy.sh/mine\"\nafter_seconds = 60\n")
+                .unwrap();
         assert!(cfg.notify.active() && cfg.notify.agents);
         cfg.notify.validate().unwrap();
         assert!(!Config::default().notify.active());

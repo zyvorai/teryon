@@ -58,8 +58,21 @@ pub fn is_fixed_pitch<R: Read + Seek>(r: &mut R) -> Option<bool> {
 pub fn is_regular_style(stem: &str) -> bool {
     let l = stem.to_lowercase();
     ![
-        "bold", "italic", "oblique", "light", "thin", "medium", "semi", "black", "heavy", "extra",
-        "condensed", "narrow", "ultra", "demi", "retina",
+        "bold",
+        "italic",
+        "oblique",
+        "light",
+        "thin",
+        "medium",
+        "semi",
+        "black",
+        "heavy",
+        "extra",
+        "condensed",
+        "narrow",
+        "ultra",
+        "demi",
+        "retina",
     ]
     .iter()
     .any(|w| l.contains(w))
@@ -176,17 +189,38 @@ mod tests {
     #[test]
     fn the_post_table_tells_monospace_from_proportional() {
         assert_eq!(is_fixed_pitch(&mut Cursor::new(font(1, false))), Some(true));
-        assert_eq!(is_fixed_pitch(&mut Cursor::new(font(0, false))), Some(false));
-        assert_eq!(is_fixed_pitch(&mut Cursor::new(font(1, true))), Some(true), "a collection");
-        assert_eq!(is_fixed_pitch(&mut Cursor::new(b"not a font at all".to_vec())), None);
+        assert_eq!(
+            is_fixed_pitch(&mut Cursor::new(font(0, false))),
+            Some(false)
+        );
+        assert_eq!(
+            is_fixed_pitch(&mut Cursor::new(font(1, true))),
+            Some(true),
+            "a collection"
+        );
+        assert_eq!(
+            is_fixed_pitch(&mut Cursor::new(b"not a font at all".to_vec())),
+            None
+        );
         assert_eq!(is_fixed_pitch(&mut Cursor::new(Vec::new())), None);
     }
     #[test]
     fn only_plain_regular_files_are_offered_and_labels_read_well() {
-        for ok in ["JetBrainsMono-Regular", "Menlo", "Courier New", "HackNerdFontMono-Regular"] {
+        for ok in [
+            "JetBrainsMono-Regular",
+            "Menlo",
+            "Courier New",
+            "HackNerdFontMono-Regular",
+        ] {
             assert!(is_regular_style(ok), "{ok}");
         }
-        for no in ["Menlo-Bold", "Fira Code Light", "X-Italic", "Mono-SemiBold", "Y Condensed"] {
+        for no in [
+            "Menlo-Bold",
+            "Fira Code Light",
+            "X-Italic",
+            "Mono-SemiBold",
+            "Y Condensed",
+        ] {
             assert!(!is_regular_style(no), "{no}");
         }
         assert_eq!(label_for("JetBrainsMono-Regular"), "JetBrainsMono");

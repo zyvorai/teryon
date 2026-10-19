@@ -66,7 +66,9 @@ pub fn parse_osc(params: &[&[u8]]) -> Option<OscEvent> {
             let kind = std::str::from_utf8(params.get(1)?).ok()?;
             match kind.chars().next()? {
                 'A' => Some(OscEvent::Prompt),
-                'C' => Some(OscEvent::Output(command_text(&params[2.min(params.len())..]))),
+                'C' => Some(OscEvent::Output(command_text(
+                    &params[2.min(params.len())..],
+                ))),
                 'D' => {
                     let status = params
                         .get(2)

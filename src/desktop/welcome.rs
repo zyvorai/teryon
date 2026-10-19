@@ -174,7 +174,11 @@ impl Desktop {
             }
             if !stalled || self.online {
                 ui.add_space(18.);
-                ui.label(RichText::new("Make it yours").size(12.).color(color(t.muted)));
+                ui.label(
+                    RichText::new("Make it yours")
+                        .size(12.)
+                        .color(color(t.muted)),
+                );
                 ui.add_space(4.);
                 let mut pick: Option<ActionKind> = None;
                 ui.horizontal(|ui| {

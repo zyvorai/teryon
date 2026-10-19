@@ -108,7 +108,10 @@ mod tests {
         assert!(out.contains("window_opacity = 0.94"), "{out}");
         assert!(out.contains("[hosts.mini]"));
         let out = set_desktop(&out, "font_size", &Val::Float(16.)).unwrap();
-        assert!(out.contains("font_size = 16.0") && out.matches("font_size").count() == 1, "{out}");
+        assert!(
+            out.contains("font_size = 16.0") && out.matches("font_size").count() == 1,
+            "{out}"
+        );
         validate(&out).unwrap();
     }
     #[test]

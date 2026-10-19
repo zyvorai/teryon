@@ -824,21 +824,15 @@ fn a_recipe_starts_named_panes_that_run_their_commands_and_refuses_to_start_twic
     )
     .unwrap();
     let base = std::path::Path::new("/tmp");
-    let ids = teryon::recipe::up(
-        &mut |r| Ok(c.call(r)),
-        &recipe,
-        "recipe-test",
-        base,
-        true,
-    )
-    .unwrap();
+    let ids =
+        teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-test", base, true).unwrap();
     assert_eq!(ids, [1, 2]);
     c.until(1, "FIRST-42");
     c.until(2, "SECOND-42");
     let titles: Vec<String> = c.snapshot().into_iter().map(|p| p.title).collect();
     assert_eq!(titles, ["one", "two"]);
-    let err = teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-test", base, true)
-        .unwrap_err();
+    let err =
+        teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-test", base, true).unwrap_err();
     assert!(format!("{err:#}").contains("already exists"));
 }
 #[test]
@@ -856,9 +850,18 @@ fn a_soft_closed_pane_keeps_running_and_comes_back_until_its_grace_period_ends()
         panic!()
     };
     c.until(pane, "KEEP-42");
-    let pid = c.snapshot().into_iter().find(|p| p.id == pane).unwrap().pid.unwrap();
+    let pid = c
+        .snapshot()
+        .into_iter()
+        .find(|p| p.id == pane)
+        .unwrap()
+        .pid
+        .unwrap();
     // Closing hides the pane but its process keeps running.
-    assert!(matches!(c.call(Request::SoftClose { pane }), Response::Ack { .. }));
+    assert!(matches!(
+        c.call(Request::SoftClose { pane }),
+        Response::Ack { .. }
+    ));
     assert!(c.snapshot().iter().all(|p| p.id != pane));
     assert_eq!(unsafe { libc::kill(pid as i32, 0) }, 0, "still alive");
     // Reopening returns the same pane with its output.
@@ -869,7 +872,10 @@ fn a_soft_closed_pane_keeps_running_and_comes_back_until_its_grace_period_ends()
     c.until(pane, "KEEP-42");
     // Nothing left to reopen, and a pane that is never reopened is ended after the grace period.
     assert!(matches!(c.call(Request::Reopen), Response::Error { .. }));
-    assert!(matches!(c.call(Request::SoftClose { pane }), Response::Ack { .. }));
+    assert!(matches!(
+        c.call(Request::SoftClose { pane }),
+        Response::Ack { .. }
+    ));
     let deadline = Instant::now() + Duration::from_secs(6);
     while unsafe { libc::kill(pid as i32, 0) } == 0 {
         assert!(Instant::now() < deadline, "the reaper never ended the pane");
@@ -877,5 +883,8 @@ fn a_soft_closed_pane_keeps_running_and_comes_back_until_its_grace_period_ends()
     }
     assert!(matches!(c.call(Request::Reopen), Response::Error { .. }));
     // The last pane cannot be soft-closed.
-    assert!(matches!(c.call(Request::SoftClose { pane: 1 }), Response::Error { .. }));
+    assert!(matches!(
+        c.call(Request::SoftClose { pane: 1 }),
+        Response::Error { .. }
+    ));
 }

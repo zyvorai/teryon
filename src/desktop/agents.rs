@@ -188,9 +188,18 @@ impl Desktop {
             self.toast("That agent is no longer waiting");
             return;
         }
-        let data = if yes { kind.approve_keys() } else { kind.deny_keys() }.to_vec();
+        let data = if yes {
+            kind.approve_keys()
+        } else {
+            kind.deny_keys()
+        }
+        .to_vec();
         self.send(Command::Input { pane: id, data });
-        self.toast(format!("{} in pane {id}: {}", kind.name(), if yes { "approved" } else { "denied" }));
+        self.toast(format!(
+            "{} in pane {id}: {}",
+            kind.name(),
+            if yes { "approved" } else { "denied" }
+        ));
     }
 
     /// Every agent in the active workspace, needing-you first.
@@ -389,7 +398,10 @@ mod tests {
         app.readonly = false;
         app.panes.get_mut(&2).unwrap().track.status = Some(Status::Working);
         app.answer_agent(2, Kind::Claude, true);
-        assert!(rx.try_recv().is_err(), "a stale click does not answer a later prompt");
+        assert!(
+            rx.try_recv().is_err(),
+            "a stale click does not answer a later prompt"
+        );
     }
 
     #[test]

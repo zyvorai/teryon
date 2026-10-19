@@ -227,7 +227,11 @@ impl Desktop {
     pub(super) fn ai_ask_block(&mut self, id: u64, cmd: &str, exit: Option<i32>, output: &str) {
         let tail: Vec<&str> = output.lines().collect();
         let tail = tail[tail.len().saturating_sub(60)..].join("\n");
-        let cwd = self.panes.get(&id).map(|p| p.info.cwd.clone()).unwrap_or_default();
+        let cwd = self
+            .panes
+            .get(&id)
+            .map(|p| p.info.cwd.clone())
+            .unwrap_or_default();
         let prompt = format!(
             "About this command in pane {id}: `{}`{}. Host: {}, directory: {cwd}. Explain what it did and what its output means; if something went wrong propose a fix with suggest_command.\n\n{}",
             redact::untrusted(cmd),
@@ -247,7 +251,10 @@ impl Desktop {
             self.toast("Needs shell integration: run `teryon shell-init zsh`");
             return;
         };
-        let cmd = c.cmd.clone().unwrap_or_else(|| "(command text not recorded)".into());
+        let cmd = c
+            .cmd
+            .clone()
+            .unwrap_or_else(|| "(command text not recorded)".into());
         let code = p
             .marks
             .iter()
@@ -425,12 +432,23 @@ mod tests {
         let (mut app, _rx) = app_with_screen(&format!("ls\r\nfile with key {secret}\r\n"));
         app.ai_ask_last(1);
         assert!(
-            app.toast.as_ref().is_some_and(|(t, _)| t.contains("shell integration")),
+            app.toast
+                .as_ref()
+                .is_some_and(|(t, _)| t.contains("shell integration")),
             "without marks it explains what is missing"
         );
-        let mut c = Mark { kind: 'C', line: 1, ..Default::default() };
+        let mut c = Mark {
+            kind: 'C',
+            line: 1,
+            ..Default::default()
+        };
         c.cmd = Some("ls -la".into());
-        let d = Mark { kind: 'D', line: 2, exit: Some(0), ..Default::default() };
+        let d = Mark {
+            kind: 'D',
+            line: 2,
+            exit: Some(0),
+            ..Default::default()
+        };
         app.panes.get_mut(&1).unwrap().marks = vec![c, d];
         let seen = Arc::new(Mutex::new(Vec::new()));
         app.ai_attach(Box::new(Spy(seen.clone())), Arc::new(NoRun), vec![]);
@@ -442,7 +460,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         let got = seen.lock().unwrap().join("");
-        assert!(got.contains("ls -la") && got.contains("exit status 0"), "{got}");
+        assert!(
+            got.contains("ls -la") && got.contains("exit status 0"),
+            "{got}"
+        );
         assert!(!got.contains(&secret), "{got}");
     }
 }

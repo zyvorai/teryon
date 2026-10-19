@@ -252,7 +252,9 @@ impl<B: Backend> Server<B> {
                     "no agents".into()
                 } else {
                     rows.iter()
-                        .map(|(id, kind, status)| format!("{id}\t{}\t{}", kind.name(), status.label()))
+                        .map(|(id, kind, status)| {
+                            format!("{id}\t{}\t{}", kind.name(), status.label())
+                        })
                         .collect::<Vec<_>>()
                         .join("\n")
                 })

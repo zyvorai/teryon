@@ -16,7 +16,8 @@ pub(super) struct KeyEditor {
 /// The chord for a pressed key, or why it cannot be used: a bare letter would steal typing from the shell.
 pub(super) fn chord_for(key_name: &str, mods: Mods) -> Result<Chord, &'static str> {
     let key = canon_key(key_name).ok_or("That key cannot be bound")?;
-    let function_key = key.len() >= 2 && key.starts_with('f') && key[1..].chars().all(|c| c.is_ascii_digit());
+    let function_key =
+        key.len() >= 2 && key.starts_with('f') && key[1..].chars().all(|c| c.is_ascii_digit());
     if !(mods.cmd || mods.ctrl || mods.alt || function_key) {
         return Err("Hold ⌘, ⌃ or ⌥ too, so typing still reaches the shell");
     }
@@ -95,9 +96,16 @@ impl Desktop {
         if let Some(action) = self.key_editor.capturing.clone() {
             let pressed = ctx.input(|i| {
                 i.events.iter().find_map(|e| match e {
-                    egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                        Some((key.name().to_string(), chord_mods(modifiers), *key == Key::Escape))
-                    }
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => Some((
+                        key.name().to_string(),
+                        chord_mods(modifiers),
+                        *key == Key::Escape,
+                    )),
                     _ => None,
                 })
             });
@@ -121,7 +129,10 @@ impl Desktop {
         let list: Vec<(String, String, String, bool)> = actions(&self.keymap, &[], &[], &[])
             .into_iter()
             .filter_map(|a| {
-                let name = a.kind.name().filter(|n| ACTION_NAMES.contains(&n.as_str()))?;
+                let name = a
+                    .kind
+                    .name()
+                    .filter(|n| ACTION_NAMES.contains(&n.as_str()))?;
                 let overridden = self.cfg.keys.contains_key(&name);
                 Some((name, a.title, a.hint, overridden))
             })
@@ -129,7 +140,9 @@ impl Desktop {
         let query = self.key_editor.query.clone();
         let rows: Vec<&(String, String, String, bool)> = list
             .iter()
-            .filter(|(name, title, ..)| uikit::fuzzy_score(&query, &format!("{title} {name}")).is_some())
+            .filter(|(name, title, ..)| {
+                uikit::fuzzy_score(&query, &format!("{title} {name}")).is_some()
+            })
             .collect();
         let screen = ctx.screen_rect();
         let width = (screen.width() - 80.).clamp(360., 720.);
@@ -170,45 +183,89 @@ impl Desktop {
                     edit.request_focus();
                 }
                 ui.add_space(10.);
-                egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
-                    for (name, title, hint, overridden) in &rows {
-                        let waiting = capturing.as_deref() == Some(name.as_str());
-                        ui.horizontal(|ui| {
-                            ui.set_min_height(30.);
-                            ui.label(RichText::new(title).size(14.));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if *overridden && ui.small_button("↺").on_hover_text("Back to the default").clicked() {
-                                    reset = Some(name.clone());
-                                }
-                                if !hint.is_empty() && ui.small_button("✕").on_hover_text("Remove this shortcut").clicked() {
-                                    clear = Some(name.clone());
-                                }
-                                let label = if waiting { "Press the new keys…".to_string() } else { "Change".to_string() };
-                                if ui.add(egui::Button::new(label).min_size(Vec2::new(70., 24.))).clicked() {
-                                    start = Some(name.clone());
-                                }
-                                let cap = if hint.is_empty() { "—".to_string() } else { hint.clone() };
-                                egui::Frame::new()
-                                    .fill(color(mix(t.panel, t.foreground, 0.1)))
-                                    .corner_radius(egui::CornerRadius::same(6))
-                                    .inner_margin(egui::Margin::symmetric(8, 3))
-                                    .show(ui, |ui| {
-                                        ui.label(RichText::new(cap).size(12.).color(color(t.muted)));
-                                    });
+                egui::ScrollArea::vertical()
+                    .max_height(list_h)
+                    .show(ui, |ui| {
+                        for (name, title, hint, overridden) in &rows {
+                            let waiting = capturing.as_deref() == Some(name.as_str());
+                            ui.horizontal(|ui| {
+                                ui.set_min_height(30.);
+                                ui.label(RichText::new(title).size(14.));
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if *overridden
+                                            && ui
+                                                .small_button("↺")
+                                                .on_hover_text("Back to the default")
+                                                .clicked()
+                                        {
+                                            reset = Some(name.clone());
+                                        }
+                                        if !hint.is_empty()
+                                            && ui
+                                                .small_button("✕")
+                                                .on_hover_text("Remove this shortcut")
+                                                .clicked()
+                                        {
+                                            clear = Some(name.clone());
+                                        }
+                                        let label = if waiting {
+                                            "Press the new keys…".to_string()
+                                        } else {
+                                            "Change".to_string()
+                                        };
+                                        if ui
+                                            .add(
+                                                egui::Button::new(label)
+                                                    .min_size(Vec2::new(70., 24.)),
+                                            )
+                                            .clicked()
+                                        {
+                                            start = Some(name.clone());
+                                        }
+                                        let cap = if hint.is_empty() {
+                                            "—".to_string()
+                                        } else {
+                                            hint.clone()
+                                        };
+                                        egui::Frame::new()
+                                            .fill(color(mix(t.panel, t.foreground, 0.1)))
+                                            .corner_radius(egui::CornerRadius::same(6))
+                                            .inner_margin(egui::Margin::symmetric(8, 3))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(cap)
+                                                        .size(12.)
+                                                        .color(color(t.muted)),
+                                                );
+                                            });
+                                    },
+                                );
                             });
-                        });
-                    }
-                    if rows.is_empty() {
-                        ui.label(RichText::new("No action matches.").size(13.).color(color(t.muted)));
-                    }
-                });
+                        }
+                        if rows.is_empty() {
+                            ui.label(
+                                RichText::new("No action matches.")
+                                    .size(13.)
+                                    .color(color(t.muted)),
+                            );
+                        }
+                    });
                 ui.add_space(8.);
                 let (text, c) = if !self.key_editor.message.is_empty() {
                     (self.key_editor.message.clone(), color(t.warning))
                 } else if capturing.is_some() {
-                    ("Press the new shortcut (with ⌘, ⌃ or ⌥) · Esc cancels".to_string(), color(t.accent))
+                    (
+                        "Press the new shortcut (with ⌘, ⌃ or ⌥) · Esc cancels".to_string(),
+                        color(t.accent),
+                    )
                 } else {
-                    ("Change · ✕ remove · ↺ back to the default · saved in config.toml".to_string(), color(t.muted))
+                    (
+                        "Change · ✕ remove · ↺ back to the default · saved in config.toml"
+                            .to_string(),
+                        color(t.muted),
+                    )
                 };
                 ui.label(RichText::new(text).size(12.).color(c));
             });
@@ -234,15 +291,28 @@ mod tests {
     use crate::desktop::tests::app_with_screen;
 
     fn mods(cmd: bool, shift: bool) -> Mods {
-        Mods { cmd, shift, ..Default::default() }
+        Mods {
+            cmd,
+            shift,
+            ..Default::default()
+        }
     }
     #[test]
     fn a_chord_needs_a_real_modifier_unless_it_is_a_function_key() {
         assert_eq!(chord_for("P", mods(true, false)).unwrap().text(), "cmd+p");
-        assert_eq!(chord_for("ArrowLeft", mods(true, true)).unwrap().text(), "cmd+shift+left");
+        assert_eq!(
+            chord_for("ArrowLeft", mods(true, true)).unwrap().text(),
+            "cmd+shift+left"
+        );
         assert_eq!(chord_for("F5", mods(false, false)).unwrap().text(), "f5");
-        assert!(chord_for("P", mods(false, false)).is_err(), "bare letters would steal typing");
-        assert!(chord_for("P", mods(false, true)).is_err(), "shift alone is not enough");
+        assert!(
+            chord_for("P", mods(false, false)).is_err(),
+            "bare letters would steal typing"
+        );
+        assert!(
+            chord_for("P", mods(false, true)).is_err(),
+            "shift alone is not enough"
+        );
         assert!(chord_for("Nonsense", mods(true, false)).is_err());
         let round = chord_for("=", mods(true, false)).unwrap();
         assert_eq!(Chord::parse(&round.text()).unwrap(), round);
@@ -250,7 +320,15 @@ mod tests {
     #[test]
     fn rebinding_detects_a_clash_and_allows_free_chords_and_unbinding() {
         let keys = BTreeMap::new();
-        let free = chord_for("J", Mods { cmd: true, alt: true, ..Default::default() }).unwrap();
+        let free = chord_for(
+            "J",
+            Mods {
+                cmd: true,
+                alt: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let next = rebind(&keys, "palette", Some(&free)).unwrap();
         assert_eq!(next["palette"], "cmd+alt+j");
         let taken = Chord::parse("cmd+d").unwrap();
@@ -267,7 +345,12 @@ mod tests {
         let _ = ctx.run(egui::RawInput::default(), |ctx| app.frame(ctx));
         assert!(app.key_editor.open);
         // Apply a binding straight to the live state (the file write is exercised in configedit's tests).
-        let next = rebind(&app.cfg.keys, "palette", Some(&Chord::parse("cmd+alt+j").unwrap())).unwrap();
+        let next = rebind(
+            &app.cfg.keys,
+            "palette",
+            Some(&Chord::parse("cmd+alt+j").unwrap()),
+        )
+        .unwrap();
         let mut cfg = app.cfg.clone();
         cfg.keys = next;
         app.apply_config(cfg);

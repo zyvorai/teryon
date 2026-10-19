@@ -31,22 +31,22 @@ mod cmdhist;
 mod dropzone;
 mod files;
 mod find;
-mod fontpicker;
 mod floating;
+mod fontpicker;
 mod hints;
-mod keyeditor;
 mod icons;
+mod keyeditor;
 mod menus;
 mod panes;
 mod portfwd;
 mod relink;
-mod settingsui;
 mod restore;
+mod settingsui;
 mod snippets;
 mod style;
 mod tabs;
-mod themepicker;
 mod term;
+mod themepicker;
 mod triggers;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
@@ -654,7 +654,9 @@ impl Desktop {
                     }
                 }
                 Update::Latency(ms) => self.latency = Some(ms),
-                Update::Daemon(platform, uptime, stats) => self.link.daemon(platform, uptime, stats),
+                Update::Daemon(platform, uptime, stats) => {
+                    self.link.daemon(platform, uptime, stats)
+                }
                 Update::Retry(attempt, wait) => self.link.retry(attempt, wait),
                 Update::Discarded => {}
                 Update::Created(id) => {
@@ -2434,7 +2436,14 @@ mod tests {
     fn a_background_tab_gets_a_mark_when_its_panes_change_and_loses_it_when_opened() {
         let (tx, _rx) = mpsc::sync_channel(4);
         let (_utx, urx) = mpsc::sync_channel(4);
-        let mut app = Desktop::new("mini".into(), "a".into(), false, Theme::load("nord").unwrap(), tx, urx);
+        let mut app = Desktop::new(
+            "mini".into(),
+            "a".into(),
+            false,
+            Theme::load("nord").unwrap(),
+            tx,
+            urx,
+        );
         let (btx, _brx) = mpsc::sync_channel(4);
         let (butx, burx) = mpsc::sync_channel(8);
         app.tabs.push(Tab {
@@ -2458,33 +2467,58 @@ mod tests {
                 last_size: (0, 0),
             }),
         });
-        let view = |revision| PaneView { id: 1, title: "sh".into(), rows: 5, cols: 20, revision, screen: Some(Vec::new()), ..Default::default() };
+        let view = |revision| PaneView {
+            id: 1,
+            title: "sh".into(),
+            rows: 5,
+            cols: 20,
+            revision,
+            screen: Some(Vec::new()),
+            ..Default::default()
+        };
         butx.send(Update::State(vec![view(1)])).unwrap();
         app.pump_background();
-        assert_eq!(app.tabs[1].activity.prefix(), "", "the first look is a baseline");
+        assert_eq!(
+            app.tabs[1].activity.prefix(),
+            "",
+            "the first look is a baseline"
+        );
         butx.send(Update::State(vec![view(2)])).unwrap();
         app.pump_background();
         assert_eq!(app.tabs[1].activity.prefix(), "● ");
         app.activate(1);
         app.pump_background();
-        assert_eq!(app.tabs[1].activity.prefix(), "", "the tab on screen is seen");
+        assert_eq!(
+            app.tabs[1].activity.prefix(),
+            "",
+            "the tab on screen is seen"
+        );
     }
     #[test]
     fn closing_a_pane_hides_it_with_an_undo_and_the_last_pane_is_kept() {
         let (mut app, rx) = app_with_screen("");
         app.close_focused_pane();
         assert!(drain(&rx).is_empty(), "a single pane is never closed");
-        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("last pane")));
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("last pane")));
         app.add_test_pane(2);
         app.focus = 2;
         app.run_action(ActionKind::ClosePane);
         assert!(matches!(&drain(&rx)[..], [Command::SoftClose(2)]));
-        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("brings it back")));
+        assert!(app
+            .toast
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("brings it back")));
         app.run_action(ActionKind::ReopenPane);
         assert!(matches!(&drain(&rx)[..], [Command::Reopen]));
         app.readonly = true;
         app.close_focused_pane();
-        assert!(drain(&rx).is_empty(), "read only attachments cannot close panes");
+        assert!(
+            drain(&rx).is_empty(),
+            "read only attachments cannot close panes"
+        );
     }
     pub(super) fn app_for_extras() -> (Desktop, mpsc::Receiver<Command>) {
         app_with_screen("")
@@ -3358,7 +3392,11 @@ mod tests {
             vec![(10, 15, Ok), (16, 20, Failed), (21, 30, Running)]
         );
         // A command whose end never arrived is dropped when a newer one starts.
-        let lost = vec![mark('C', 3, None, None), mark('C', 8, None, None), mark('D', 9, None, None)];
+        let lost = vec![
+            mark('C', 3, None, None),
+            mark('C', 8, None, None),
+            mark('D', 9, None, None),
+        ];
         assert_eq!(block_spans(&lost, 12), vec![(7, 9, Ok)]);
         assert!(block_spans(&[], 12).is_empty());
     }
@@ -3380,7 +3418,10 @@ mod tests {
     }
     #[test]
     fn a_reload_switches_theme_only_when_the_config_names_another() {
-        assert!(!theme_changed(None, "nord"), "the first read is not a change");
+        assert!(
+            !theme_changed(None, "nord"),
+            "the first read is not a change"
+        );
         assert!(!theme_changed(Some("nord"), "nord"));
         assert!(theme_changed(Some("nord"), "dracula"));
     }

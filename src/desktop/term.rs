@@ -400,7 +400,9 @@ impl Desktop {
         match found {
             Some(Some(cmd)) => Some(cmd),
             Some(None) => {
-                self.toast("Update the shell integration to record commands: `teryon shell-init zsh`");
+                self.toast(
+                    "Update the shell integration to record commands: `teryon shell-init zsh`",
+                );
                 None
             }
             None => {
@@ -604,7 +606,14 @@ impl Desktop {
                 .max_rect(inner)
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
-        if icon_button(&mut icons, &t, Icon::Close, "Close pane (undo with the Reopen action)").clicked() {
+        if icon_button(
+            &mut icons,
+            &t,
+            Icon::Close,
+            "Close pane (undo with the Reopen action)",
+        )
+        .clicked()
+        {
             out = Some(PaneAction::Close(id));
         }
         if icon_button(&mut icons, &t, Icon::Zoom, "Zoom / restore").clicked() {

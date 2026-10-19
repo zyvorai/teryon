@@ -553,10 +553,10 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             arch: std::env::consts::ARCH.into(),
             sessions: state.workspaces.len(),
             panes: state
-        .workspaces
-        .values()
-        .map(|w| w.panes.len() + w.graveyard.len())
-        .sum(),
+                .workspaces
+                .values()
+                .map(|w| w.panes.len() + w.graveyard.len())
+                .sum(),
             pid: std::process::id(),
             uptime: state.started.elapsed().as_secs(),
             stats: Some(host_stats()),
@@ -915,7 +915,11 @@ fn watch_panes(state: &Mutex<State>) {
                             "agent_done",
                             format!("{} finished in {ws} (pane {})", k.name(), pane.id),
                         ),
-                        Event::CommandDone { program, exit, secs } if cfg.commands => (
+                        Event::CommandDone {
+                            program,
+                            exit,
+                            secs,
+                        } if cfg.commands => (
                             "command_done",
                             format!(
                                 "{} finished in {secs} s (exit {}) in {ws}",

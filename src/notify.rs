@@ -76,7 +76,10 @@ pub fn send(cfg: &NotifyConfig, note: Note) {
             crate::util::notify(&note.message);
         }
         if let Some(url) = &cfg.ntfy_url {
-            let headers = [("Title", note.title.clone()), ("Tags", "computer".to_string())];
+            let headers = [
+                ("Title", note.title.clone()),
+                ("Tags", "computer".to_string()),
+            ];
             post(curl_config(url, &headers, &note.message));
         }
         if let Some(url) = &cfg.webhook_url {
@@ -91,7 +94,13 @@ pub fn send_remote(cfg: &NotifyConfig, note: Note) {
     if cfg.ntfy_url.is_none() && cfg.webhook_url.is_none() {
         return;
     }
-    send(&NotifyConfig { macos: false, ..cfg.clone() }, note);
+    send(
+        &NotifyConfig {
+            macos: false,
+            ..cfg.clone()
+        },
+        note,
+    );
 }
 
 #[cfg(test)]
@@ -133,7 +142,8 @@ mod tests {
             },
         );
         let (mut s, _) = listener.accept().unwrap();
-        s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
         let mut buf = [0u8; 4096];
         let mut got = String::new();
         while !got.contains("pane 1") {

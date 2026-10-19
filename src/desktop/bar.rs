@@ -600,12 +600,9 @@ fn health_labels(s: &crate::hoststats::HostStats) -> (String, Option<String>, Op
     (
         format!("{:.2}", s.load1),
         s.mem_used_pct.map(|p| format!("{p}%")),
-        s.thermal
-            .clone()
-            .filter(|t| t.as_str() != "nominal"),
+        s.thermal.clone().filter(|t| t.as_str() != "nominal"),
     )
 }
-
 
 #[cfg(test)]
 mod health_tests {

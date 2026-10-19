@@ -15,7 +15,12 @@ pub struct HostStats {
 
 fn pages(text: &str, label: &str) -> Option<u64> {
     let line = text.lines().find(|l| l.starts_with(label))?;
-    line.split(':').nth(1)?.trim().trim_end_matches('.').parse().ok()
+    line.split(':')
+        .nth(1)?
+        .trim()
+        .trim_end_matches('.')
+        .parse()
+        .ok()
 }
 /// Memory in use from `vm_stat` output and the total bytes (`hw.memsize`): active, wired and compressed pages.
 pub fn parse_vm_stat(text: &str, total_bytes: u64) -> Option<u8> {

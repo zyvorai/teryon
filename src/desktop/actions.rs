@@ -314,7 +314,10 @@ pub(super) fn actions(
         ("Decrease font size", ActionKind::FontDown),
         ("Reset font size", ActionKind::FontReset),
         ("Settings…", ActionKind::Settings),
-        ("Window look: opacity, size, spacing…", ActionKind::Appearance),
+        (
+            "Window look: opacity, size, spacing…",
+            ActionKind::Appearance,
+        ),
         ("Choose theme…", ActionKind::ThemePicker),
         ("Choose font…", ActionKind::FontPicker),
         ("Keyboard shortcuts…", ActionKind::KeyEditor),
