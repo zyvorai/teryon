@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.2
+
+- Theme picker redesigned: a larger window (up to 800 px) of two columns of cards, each a miniature terminal in that theme's own colors (prompt, passed/failed, warning and file-color lines, and its palette). The chosen card glows; arrow keys move across the grid (← → only while the search box is empty); rounded All / Dark / Light filters and a bigger search box.
+
 ## 0.18.1
 
 - Theme picker (⇧⌘T, "Choose theme…" in the palette, "Choose Theme…" in the menu): all themes, built-in and your own, in one searchable list. Each row is drawn in its own colors (a sample and its palette), with All / Dark / Light filters. ↑/↓ previews the theme on the whole window, Enter keeps it, Esc restores the one you had.

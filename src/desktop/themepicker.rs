@@ -82,34 +82,47 @@ impl Desktop {
     }
 
     pub(super) fn theme_picker_ui(&mut self, ctx: &egui::Context) {
+        const COLS: usize = 2;
         let committed = self.committed_theme.name.clone();
         let shown = visible(
             &self.theme_picker.items,
             &self.theme_picker.query,
             self.theme_picker.filter,
         );
-        let (down, up, enter, esc) = ctx.input(|i| {
+        let (down, up, left, right, enter, esc) = ctx.input(|i| {
             (
                 i.key_pressed(Key::ArrowDown),
                 i.key_pressed(Key::ArrowUp),
+                i.key_pressed(Key::ArrowLeft),
+                i.key_pressed(Key::ArrowRight),
                 i.key_pressed(Key::Enter),
                 i.key_pressed(Key::Escape),
             )
         });
         let tp = &mut self.theme_picker;
         let mut pos = shown.iter().position(|i| *i == tp.sel).unwrap_or(0);
-        if down && pos + 1 < shown.len() {
-            pos += 1;
-            tp.scroll = true;
+        let last = shown.len().saturating_sub(1);
+        // ←/→ move by one only while the search box is empty (otherwise they move its caret).
+        let before = pos;
+        if down {
+            pos = (pos + COLS).min(last);
         }
-        if up && pos > 0 {
-            pos -= 1;
+        if up {
+            pos = pos.saturating_sub(COLS);
+        }
+        if right && tp.query.is_empty() {
+            pos = (pos + 1).min(last);
+        }
+        if left && tp.query.is_empty() {
+            pos = pos.saturating_sub(1);
+        }
+        if pos != before {
             tp.scroll = true;
         }
         if let Some(i) = shown.get(pos) {
             tp.sel = *i;
         }
-        // The selected row is previewed on the whole window; closing without choosing reverts it.
+        // The selected theme is previewed on the whole window; closing without choosing reverts it.
         let preview = shown.get(pos).map(|i| tp.items[*i].theme.clone());
         if let Some(p) = preview {
             if p.name != self.theme.name {
@@ -118,18 +131,39 @@ impl Desktop {
         }
         let t = self.theme.clone();
         let mut choose: Option<String> = None;
-        let mut close = esc;
+        let screen = ctx.screen_rect();
+        let width = (screen.width() - 80.).clamp(340., 800.);
+        let list_h = (screen.height() - 230.).clamp(180., 600.);
+        let cols = if width >= 640. { COLS } else { 1 };
         egui::Window::new("themes")
             .title_bar(false)
             .resizable(false)
-            .anchor(egui::Align2::CENTER_TOP, [0., 70.])
-            .fixed_size([480., 0.])
+            .anchor(egui::Align2::CENTER_TOP, [0., 40.])
+            .fixed_size([width, 0.])
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .corner_radius(egui::CornerRadius::same(14))
+                    .inner_margin(egui::Margin::same(18)),
+            )
             .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Choose a theme").size(20.).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} themes", shown.len()))
+                                .size(12.)
+                                .color(color(t.muted)),
+                        );
+                    });
+                });
+                ui.add_space(8.);
                 ui.horizontal(|ui| {
                     let edit = ui.add(
                         egui::TextEdit::singleline(&mut self.theme_picker.query)
-                            .hint_text("Search themes…")
-                            .desired_width(300.),
+                            .hint_text("Search…")
+                            .font(FontId::proportional(15.))
+                            .margin(egui::Margin::symmetric(10, 7))
+                            .desired_width((width - 36.) - 210.),
                     );
                     edit.request_focus();
                     if edit.changed() {
@@ -137,103 +171,61 @@ impl Desktop {
                         self.theme_picker.scroll = true;
                     }
                     for (label, f) in [("All", Filter::All), ("Dark", Filter::Dark), ("Light", Filter::Light)] {
-                        if ui
-                            .selectable_label(self.theme_picker.filter == f, label)
-                            .clicked()
-                        {
+                        let on = self.theme_picker.filter == f;
+                        let chip = egui::Button::new(RichText::new(label).size(13.).color(if on {
+                            color(t.background)
+                        } else {
+                            color(t.foreground)
+                        }))
+                        .fill(if on { color(t.accent) } else { color(mix(t.panel, t.foreground, 0.08)) })
+                        .corner_radius(egui::CornerRadius::same(14))
+                        .min_size(Vec2::new(54., 30.));
+                        if ui.add(chip).clicked() {
                             self.theme_picker.filter = f;
                             self.theme_picker.sel = usize::MAX;
                             self.theme_picker.scroll = true;
                         }
                     }
                 });
-                ui.add_space(6.);
-                egui::ScrollArea::vertical().max_height(380.).show(ui, |ui| {
-                    for (row, idx) in shown.iter().enumerate() {
-                        let it = &self.theme_picker.items[*idx];
-                        let selected = row == pos;
-                        let (rect, resp) = ui
-                            .allocate_exact_size(Vec2::new(ui.available_width(), 34.), Sense::click());
-                        if selected {
-                            ui.painter()
-                                .rect_filled(rect, 6., color(t.accent).gamma_multiply(0.3));
-                            if self.theme_picker.scroll {
-                                resp.scroll_to_me(None);
+                ui.add_space(12.);
+                egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::splat(12.);
+                    let gap = 12.;
+                    let card_w = (ui.available_width() - gap * (cols as f32 - 1.)) / cols as f32;
+                    for chunk in shown.chunks(cols).enumerate().map(|(n, c)| (n, c.to_vec())) {
+                        let (n, chunk) = chunk;
+                        ui.horizontal(|ui| {
+                            for (k, idx) in chunk.iter().enumerate() {
+                                let row = n * cols + k;
+                                let it = &self.theme_picker.items[*idx];
+                                let selected = row == pos;
+                                let (rect, resp) = ui.allocate_exact_size(
+                                    Vec2::new(card_w, 142.),
+                                    Sense::click(),
+                                );
+                                if selected && self.theme_picker.scroll {
+                                    resp.scroll_to_me(None);
+                                }
+                                paint_card(ui, rect, it, selected, resp.hovered(), it.theme.name == committed, &t);
+                                if resp.clicked() {
+                                    choose = Some(it.id.clone());
+                                }
                             }
-                        } else if resp.hovered() {
-                            ui.painter().rect_filled(
-                                rect,
-                                6.,
-                                color(mix(t.panel, t.foreground, 0.1)),
-                            );
-                        }
-                        // The theme in its own colors: "Aa" and a strip of its palette.
-                        let tile = Rect::from_min_size(
-                            rect.left_top() + Vec2::new(6., 4.),
-                            Vec2::new(150., 26.),
-                        );
-                        let th = &it.theme;
-                        ui.painter().rect_filled(tile, 5., color(th.background));
-                        ui.painter().text(
-                            tile.left_center() + Vec2::new(8., 0.),
-                            egui::Align2::LEFT_CENTER,
-                            "Aa",
-                            FontId::monospace(13.),
-                            color(th.foreground),
-                        );
-                        let dots = [
-                            th.accent,
-                            th.success,
-                            th.warning,
-                            th.ansi[1],
-                            th.ansi[4],
-                            th.ansi[5],
-                            th.ansi[6],
-                        ];
-                        for (n, c) in dots.iter().enumerate() {
-                            ui.painter().circle_filled(
-                                tile.left_center() + Vec2::new(40. + n as f32 * 15., 0.),
-                                5.,
-                                color(*c),
-                            );
-                        }
-                        ui.painter().text(
-                            rect.left_center() + Vec2::new(170., 0.),
-                            egui::Align2::LEFT_CENTER,
-                            &th.name,
-                            FontId::proportional(13.),
-                            color(t.foreground),
-                        );
-                        let tag = if th.name == committed {
-                            "✓ current"
-                        } else if it.dark {
-                            "dark"
-                        } else {
-                            "light"
-                        };
-                        ui.painter().text(
-                            rect.right_center() - Vec2::new(10., 0.),
-                            egui::Align2::RIGHT_CENTER,
-                            tag,
-                            FontId::proportional(11.),
-                            color(t.muted),
-                        );
-                        if resp.clicked() {
-                            choose = Some(it.id.clone());
-                        }
+                        });
                     }
                     if shown.is_empty() {
+                        ui.add_space(20.);
                         ui.label(
                             RichText::new("No theme matches.")
-                                .size(12.)
+                                .size(13.)
                                 .color(color(t.muted)),
                         );
                     }
                 });
-                ui.add_space(4.);
+                ui.add_space(10.);
                 ui.label(
-                    RichText::new("↑↓ preview · Enter use it · Esc cancel")
-                        .size(11.)
+                    RichText::new("↑ ↓ ← → preview live   ·   Enter use it   ·   Esc cancel")
+                        .size(12.)
                         .color(color(t.muted)),
                 );
             });
@@ -244,11 +236,96 @@ impl Desktop {
         if let Some(id) = choose {
             self.theme_picker.open = false;
             self.run_action(ActionKind::Theme(id));
-        } else if close {
+        } else if esc {
             self.theme_picker.open = false;
-            close = false;
         }
-        let _ = close;
+    }
+}
+
+/// Text in several colors on one line starting at `pos`; returns where it ended.
+fn segments(painter: &egui::Painter, mut pos: Pos2, font: &FontId, parts: &[(&str, Color32)]) {
+    for (text, c) in parts {
+        let galley = painter.layout_no_wrap((*text).to_string(), font.clone(), *c);
+        let w = galley.size().x;
+        painter.galley(pos, galley, *c);
+        pos.x += w;
+    }
+}
+
+/// One theme as a small terminal: its background, a few lines in its colors, and its palette.
+fn paint_card(ui: &egui::Ui, rect: Rect, it: &Item, selected: bool, hovered: bool, current: bool, ui_theme: &Theme) {
+    let th = &it.theme;
+    let p = ui.painter();
+    let radius = egui::CornerRadius::same(12);
+    if selected {
+        p.rect_filled(
+            rect.expand(4.),
+            egui::CornerRadius::same(15),
+            color(ui_theme.accent).gamma_multiply(0.30),
+        );
+    }
+    p.rect_filled(rect, radius, color(th.background));
+    let edge = if selected {
+        Stroke::new(2.5_f32, color(ui_theme.accent))
+    } else if hovered {
+        Stroke::new(1.5_f32, color(mix(th.background, th.foreground, 0.45)))
+    } else {
+        Stroke::new(1_f32, color(mix(th.background, th.foreground, 0.2)))
+    };
+    p.rect_stroke(rect, radius, edge, egui::StrokeKind::Inside);
+    let fg = color(th.foreground);
+    let mono = FontId::monospace(12.5);
+    let x = rect.left() + 16.;
+    p.text(
+        Pos2::new(x, rect.top() + 14.),
+        egui::Align2::LEFT_TOP,
+        &th.name,
+        FontId::proportional(15.),
+        fg,
+    );
+    let tag = if current {
+        "✓ current"
+    } else if it.dark {
+        "dark"
+    } else {
+        "light"
+    };
+    p.text(
+        Pos2::new(rect.right() - 16., rect.top() + 16.),
+        egui::Align2::RIGHT_TOP,
+        tag,
+        FontId::proportional(11.),
+        color(mix(th.background, th.foreground, 0.6)),
+    );
+    let y = rect.top() + 42.;
+    let lh = 17.;
+    segments(p, Pos2::new(x, y), &mono, &[("❯ ", color(th.accent)), ("cargo test", fg)]);
+    segments(
+        p,
+        Pos2::new(x, y + lh),
+        &mono,
+        &[("✓ ", color(th.success)), ("12 passed  ", fg), ("✗ ", color(th.ansi[1])), ("1 failed", fg)],
+    );
+    segments(
+        p,
+        Pos2::new(x, y + lh * 2.),
+        &mono,
+        &[("warning: ", color(th.warning)), ("unused variable", fg)],
+    );
+    segments(
+        p,
+        Pos2::new(x, y + lh * 3.),
+        &mono,
+        &[("src/ ", color(th.ansi[4])), ("Cargo.toml ", color(th.ansi[6])), ("run.sh", color(th.ansi[2]))],
+    );
+    // The palette along the bottom edge.
+    let dots = [th.accent, th.success, th.warning, th.ansi[1], th.ansi[2], th.ansi[3], th.ansi[4], th.ansi[5], th.ansi[6]];
+    for (n, c) in dots.iter().enumerate() {
+        p.circle_filled(
+            Pos2::new(rect.right() - 20. - (dots.len() - 1 - n) as f32 * 14., rect.bottom() - 14.),
+            4.5,
+            color(*c),
+        );
     }
 }
 
