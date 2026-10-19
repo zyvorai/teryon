@@ -30,6 +30,7 @@ destination = "susant@mini.local"
 # gradient_angle = 135.0
 # tab_active_bg = "#82aaff"        # also tab_bar_bg, tab_active_fg, tab_inactive_bg, tab_inactive_fg
 # tab_bar = "bottom"              # with chrome = "none": a strip of tabs and a clock along the bottom
+# maximized = true                # open windows filling the screen
 # initial_cols = 124               # open windows this size (set both), instead of the last size
 # initial_rows = 42
 # scrollbar = "auto"               # auto: only while scrolled back | always: its size shows how much history there is

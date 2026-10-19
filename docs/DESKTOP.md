@@ -162,6 +162,7 @@ binding using `teryon config --keys`.
 | `cursor_style`, `cursor_blink` | block, false | Cursor shape |
 | `window_opacity` | 1.0 | 0.3 to 1.0; turning transparency on needs a restart |
 | `window_blur` | 0 | 0 to 100: blur behind a transparent window (macOS; needs `window_opacity` below 1.0) |
+| `maximized` | false | open windows filling the screen (below the menu bar) |
 | `text_gamma` | 0.55 | 0.3 (heavy) to 1.0 (thin) text weight; lower is closer to WezTerm's heavier look |
 | `cursor_color` | theme accent | `#RRGGBB` |
 | `background_gradient` | none | two or more `#RRGGBB` stops painted across the terminal |

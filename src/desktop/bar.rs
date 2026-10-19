@@ -79,6 +79,7 @@ impl Desktop {
         let hover_bg = color(t.border);
         let hover_fg = color(t.foreground);
         let mut pick = None;
+        let mut close = None;
         let mut new_tab = false;
         egui::TopBottomPanel::bottom("teryon-tab-strip")
             .show_separator_line(false)
@@ -92,30 +93,60 @@ impl Desktop {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.;
                     // One rounded chip: `fill` and `ink` at rest, the hover pair under the pointer.
+                    // A closable chip ends in a dim ×; the bool returned says it was the × clicked.
                     let chip = |ui: &mut egui::Ui,
                                 text: String,
                                 on: bool,
+                                closable: bool,
                                 fill: Color32,
                                 ink: Color32,
-                                hover: (Color32, Color32)| {
+                                hover: (Color32, Color32)|
+                     -> (egui::Response, bool) {
                         let galley = ui
                             .painter()
                             .layout_no_wrap(text, FontId::monospace(13.), ink);
-                        let size = Vec2::new(galley.size().x + 20., TAB_STRIP_HEIGHT - 4.);
+                        let close_w = if closable { 22. } else { 0. };
+                        let size =
+                            Vec2::new(galley.size().x + 20. + close_w, TAB_STRIP_HEIGHT - 4.);
                         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+                        let x_zone = Rect::from_min_max(
+                            Pos2::new(rect.right() - close_w - 4., rect.top()),
+                            rect.right_bottom(),
+                        );
+                        let over_x = closable
+                            && ui
+                                .input(|i| i.pointer.hover_pos())
+                                .is_some_and(|p| x_zone.contains(p));
                         let hovered = response.hovered() && !on;
                         let (fill, ink) = if hovered { hover } else { (fill, ink) };
                         ui.painter()
                             .rect_filled(rect, egui::CornerRadius::same(8), fill);
-                        let origin = rect.center() - galley.size() / 2.;
+                        let origin =
+                            Pos2::new(rect.left() + 10., rect.center().y - galley.size().y / 2.);
                         ui.painter().galley(origin, galley.clone(), ink);
                         if on {
                             // A second strike a hair to the right reads as bold.
                             ui.painter()
                                 .galley(origin + Vec2::new(0.6, 0.), galley, ink);
                         }
-                        response
+                        if closable {
+                            let mark = if over_x {
+                                ink
+                            } else {
+                                ink.gamma_multiply(0.45)
+                            };
+                            ui.painter().text(
+                                Pos2::new(rect.right() - 14., rect.center().y),
+                                egui::Align2::CENTER_CENTER,
+                                "\u{d7}",
+                                FontId::monospace(14.),
+                                mark,
+                            );
+                        }
+                        let clicked_x = response.clicked() && over_x;
+                        (response, clicked_x)
                     };
+                    let many = self.tabs.len() > 1;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let on = i == self.active;
                         let name = match self.panes.get(&self.focus) {
@@ -133,7 +164,11 @@ impl Desktop {
                         } else {
                             (idle_bg, idle_fg)
                         };
-                        if chip(ui, text, on, fill, ink, (hover_bg, hover_fg)).clicked() {
+                        let (response, clicked_x) =
+                            chip(ui, text, on, many, fill, ink, (hover_bg, hover_fg));
+                        if clicked_x {
+                            close = Some(i);
+                        } else if response.clicked() {
                             pick = Some(i);
                         }
                     }
@@ -141,10 +176,12 @@ impl Desktop {
                         ui,
                         "+".into(),
                         false,
+                        false,
                         Color32::TRANSPARENT,
                         active_bg,
                         (active_bg, strip),
                     )
+                    .0
                     .on_hover_text("New tab")
                     .clicked()
                     {
@@ -161,7 +198,10 @@ impl Desktop {
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
-        if let Some(i) = pick {
+        if let Some(i) = close {
+            self.activate(i);
+            self.close_tab();
+        } else if let Some(i) = pick {
             self.activate(i);
         }
         if new_tab {

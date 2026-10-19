@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop: a `maximized` start option, a WezTerm-style accent scrollbar flush with the right edge, and a × on every tab of the bottom strip.
+
 - Desktop: ⌘T opens a new shell tab at once when `fresh_window` is on (closing it ends its shell); `text_gamma` sets text weight (uses a patched `vendor/egui_glow`).
 
 - Desktop: `cursor_color`, `window_blur` (macOS background blur) and `background_gradient` with `gradient_angle`.

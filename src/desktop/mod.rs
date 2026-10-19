@@ -1753,7 +1753,11 @@ pub fn run(
         settings.width.unwrap_or(1180.),
         settings.height.unwrap_or(760.),
     );
-    if let (Some(cols), Some(rows)) = (app.cfg.initial_cols, app.cfg.initial_rows) {
+    if let (Some(cols), Some(rows), false) = (
+        app.cfg.initial_cols,
+        app.cfg.initial_rows,
+        app.cfg.maximized,
+    ) {
         // A first guess so the window opens close to its size; the first frame sets it exactly.
         app.pending_cells = Some((cols, rows));
         (width, height) = app.cells_to_window(f32::from(cols) * app.font_size * 0.6, rows);
@@ -1762,12 +1766,14 @@ pub fn run(
         app.toast("Press ⌘K for everything, ⌘/ for shortcuts");
     }
     app.saved = settings;
+    let maximized = app.cfg.maximized;
     eframe::egui_glow::set_font_gamma(app.cfg.text_gamma);
     eframe::run_native(
         "TERYON — Your Mac mini. Wherever you work.",
         eframe::NativeOptions {
             viewport: merged_titlebar(egui::ViewportBuilder::default(), app.cfg.chrome)
                 .with_transparent(transparent)
+                .with_maximized(maximized)
                 .with_icon(egui::IconData {
                     rgba: include_bytes!("../../docs/brand/teryon-icon-128.rgba").to_vec(),
                     width: 128,

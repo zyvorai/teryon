@@ -268,6 +268,8 @@ pub struct DesktopConfig {
     pub tab_active_fg: Option<String>,
     pub tab_inactive_bg: Option<String>,
     pub tab_inactive_fg: Option<String>,
+    /// Open windows maximized (it wins over `initial_cols`/`initial_rows`).
+    pub maximized: bool,
     /// Open windows this many columns by rows wide (both or neither), instead of the last size.
     pub initial_cols: Option<u16>,
     pub initial_rows: Option<u16>,
@@ -314,6 +316,7 @@ impl Default for DesktopConfig {
             pane_titles: PaneTitles::Auto,
             chrome: Chrome::Full,
             tab_bar: TabBar::Off,
+            maximized: false,
             tab_bar_bg: None,
             tab_active_bg: None,
             tab_active_fg: None,

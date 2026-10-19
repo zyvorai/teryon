@@ -1242,9 +1242,10 @@ impl Desktop {
         }
         let history = p.info.top_line.saturating_sub(p.info.first_line) as f32;
         let frac = f32::from(rows) / (history + f32::from(rows)).max(1.);
+        // Like WezTerm's: a solid accent strip flush with the right edge.
         let track = Rect::from_min_max(
-            Pos2::new(rect.right() - 6., rect.top() + 4.),
-            Pos2::new(rect.right() - 3., rect.bottom() - 4.),
+            Pos2::new(rect.right() - 7., rect.top()),
+            Pos2::new(rect.right(), rect.bottom()),
         );
         let height = (track.height() * frac).max(12.).min(track.height());
         painter.rect_filled(
@@ -1252,8 +1253,8 @@ impl Desktop {
                 Pos2::new(track.left(), track.bottom() - height),
                 track.right_bottom(),
             ),
-            2.,
-            color(t.muted).gamma_multiply(0.45),
+            0.,
+            color(t.accent),
         );
     }
     /// A faint mark and three shortcuts in a lone pane that has barely printed anything yet.
