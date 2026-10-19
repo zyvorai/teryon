@@ -26,8 +26,8 @@ pub struct RecipePane {
     pub command: Option<String>,
     /// Name of a pane that must be ready before this pane's command is typed.
     pub after: Option<String>,
-    /// This pane is ready once this text shows up in its output. A line that is just the command
-    /// as typed does not count, but the text should still be something the command prints.
+    /// This pane is ready once this text shows up in its output. If the command itself contains the
+    /// text, its echo is accounted for, but the text should still be something the command prints.
     pub ready_text: Option<String>,
     /// This pane is ready once its processes listen on this TCP port.
     pub ready_port: Option<u16>,
@@ -200,14 +200,9 @@ fn is_ready(
     id: u64,
 ) -> Result<bool> {
     if let Some(text) = &spec.ready_text {
-        // The shell echoes the command that was typed, so a line holding the whole command line
-        // proves nothing (the text may well be in the command itself).
-        let echoed = spec.command.as_deref().unwrap_or("\u{0}");
         match call(Request::Capture { pane: id })? {
             Response::Captured { text: shown, .. }
-                if shown
-                    .lines()
-                    .any(|l| l.contains(text.as_str()) && !l.contains(echoed)) => {}
+                if ready_text_seen(&shown, text, spec.command.as_deref()) => {}
             _ => return Ok(false),
         }
     }
@@ -226,6 +221,25 @@ fn is_ready(
         }
     }
     Ok(true)
+}
+
+/// Whether `text` appears in the pane's output (`shown` is the pane's text). The shell echoes the
+/// command that was typed, perhaps more than once (prompt themes redraw it), perhaps only partway
+/// while it is still being typed, and the text may be in the command itself. Output only comes after
+/// the last echo, so when the command is on screen only what follows it counts; when the command
+/// contains the text but is not fully on screen yet, nothing counts. Whitespace is ignored so a
+/// command or text that wraps across rows still matches.
+fn ready_text_seen(shown: &str, text: &str, command: Option<&str>) -> bool {
+    let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let (shown, text) = (squash(shown), squash(text));
+    let command = command.map(squash).filter(|c| !c.is_empty());
+    let Some(command) = command else {
+        return shown.contains(&text);
+    };
+    match shown.rfind(&command) {
+        Some(at) => shown[at + command.len()..].contains(&text),
+        None => !command.contains(&text) && shown.contains(&text),
+    }
 }
 
 fn describe_wait(spec: &RecipePane) -> String {
@@ -390,6 +404,46 @@ mod tests {
         // Without dependencies the order is as written.
         let plain = parse("[[pane]]\n[[pane]]\n[[pane]]\n").unwrap();
         assert_eq!(start_order(&plain).unwrap(), [0, 1, 2]);
+    }
+    #[test]
+    fn the_echo_of_a_command_never_counts_as_its_ready_text() {
+        let cmd = Some("sleep 2; echo DB-IS-READY; sleep 30");
+        // Nothing yet, a partly typed echo, the whole echo, the echo twice (a prompt theme redraws
+        // it), and the echo wrapped over rows: all still waiting.
+        for shown in [
+            "% ",
+            "% sleep 2; echo DB-IS-READY",
+            "% sleep 2; echo DB-IS-READY; sleep 30\n",
+            "sleep 2; echo DB-IS-READY; sleep 30\n\n~/proj\n> sleep 2; echo DB-IS-READY; sleep 30",
+            "> sleep 2; echo DB-IS-\nREADY; sleep 30\n",
+        ] {
+            assert!(!ready_text_seen(shown, "DB-IS-READY", cmd), "{shown:?}");
+        }
+        // The output comes after the last echo.
+        for shown in [
+            "% sleep 2; echo DB-IS-READY; sleep 30\nDB-IS-READY\n",
+            "sleep 2; echo DB-IS-READY; sleep 30\n\n> sleep 2; echo DB-IS-READY; sleep 30\nDB-IS-READY\n",
+            "> sleep 2; echo DB-IS-\nREADY; sleep 30\nDB-IS-READY\n",
+        ] {
+            assert!(ready_text_seen(shown, "DB-IS-READY", cmd), "{shown:?}");
+        }
+        // A command that prints its own text: the output after the echo still counts.
+        assert!(ready_text_seen("> echo hi\nhi\n", "hi", Some("echo hi")));
+        assert!(!ready_text_seen("> echo hi\n", "hi", Some("echo hi")));
+        // A command that does not contain the text needs only the text, even if its echo has
+        // scrolled away; a text with spaces matches across a wrap.
+        assert!(ready_text_seen(
+            "ready on :3000",
+            "ready on",
+            Some("npm start")
+        ));
+        assert!(ready_text_seen(
+            "old stuff\nready\non :3000",
+            "ready on",
+            Some("npm start")
+        ));
+        assert!(!ready_text_seen("starting", "ready on", Some("npm start")));
+        assert!(ready_text_seen("ready on", "ready on", None));
     }
     #[test]
     fn the_workspace_name_comes_from_the_flag_the_recipe_or_the_directory() {
