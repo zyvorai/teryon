@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.1
+
+- Daemon notifications: with a `[notify]` section (ntfy, webhook or macOS) the daemon tells you when an AI agent needs you or finishes, and when a long command ends, in any workspace with no client attached. Messages carry the agent or program name only. It needs `curl` for ntfy and webhooks. Restart the daemon (`teryon stop`) after updating.
+
 ## 0.17.0
 
 - The shell integration sends each command line with its `133;C` mark (zsh, bash, fish), so the desktop app knows what ran. New palette actions: "Copy last command" and "Re-run last command". Re-source `teryon shell-init` in existing shells to get it.

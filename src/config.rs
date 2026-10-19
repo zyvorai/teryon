@@ -30,6 +30,59 @@ pub struct Config {
     /// Zsh integration switches (`[shell]`).
     #[serde(default)]
     pub shell: ShellConfig,
+    /// Push notifications from the daemon while no client is attached (`[notify]`).
+    #[serde(default)]
+    pub notify: NotifyConfig,
+}
+/// `[notify]`: where the daemon sends "an agent needs you" and "a command finished" while a
+/// workspace has no client attached. Messages name the agent or program, never screen text.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotifyConfig {
+    /// A macOS notification on the machine running the daemon.
+    pub macos: bool,
+    /// An ntfy topic URL (`https://ntfy.sh/your-topic`); the message is POSTed as the body.
+    pub ntfy_url: Option<String>,
+    /// A webhook that receives `{"title","message","event","workspace","pane"}` as JSON.
+    pub webhook_url: Option<String>,
+    /// Tell me when an AI agent needs me or finishes.
+    pub agents: bool,
+    /// Tell me when a command that ran at least `after_seconds` finishes (needs shell integration).
+    pub commands: bool,
+    pub after_seconds: u32,
+}
+impl Default for NotifyConfig {
+    fn default() -> Self {
+        Self {
+            macos: false,
+            ntfy_url: None,
+            webhook_url: None,
+            agents: true,
+            commands: true,
+            after_seconds: 30,
+        }
+    }
+}
+impl NotifyConfig {
+    /// Whether any sink is configured.
+    pub fn active(&self) -> bool {
+        self.macos || self.ntfy_url.is_some() || self.webhook_url.is_some()
+    }
+    pub fn validate(&self) -> Result<()> {
+        for (name, url) in [("ntfy_url", &self.ntfy_url), ("webhook_url", &self.webhook_url)] {
+            if let Some(url) = url {
+                if !(url.starts_with("https://") || url.starts_with("http://"))
+                    || url.chars().any(|c| c.is_control() || c.is_whitespace())
+                {
+                    bail!("notify.{name} must be an http:// or https:// URL without spaces");
+                }
+            }
+        }
+        if self.after_seconds == 0 || self.after_seconds > 86_400 {
+            bail!("notify.after_seconds = {} is outside 1..86400", self.after_seconds);
+        }
+        Ok(())
+    }
 }
 /// `[shell]`: which parts of the zsh integration `teryon shell-init zsh` turns on. Every switch
 /// can still be overridden per shell with its `TERYON_*` environment variable.
@@ -517,6 +570,7 @@ pub fn load() -> Result<Config> {
             start: StartMode::Tui,
             ai: AiConfig::default(),
             shell: ShellConfig::default(),
+            notify: NotifyConfig::default(),
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -537,7 +591,31 @@ pub fn load_desktop_theme() -> Result<(DesktopConfig, String)> {
     let cfg = load()?;
     cfg.desktop.validate()?;
     cfg.ai.validate()?;
+    cfg.notify.validate()?;
     Ok((cfg.desktop, cfg.theme))
+}
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+    #[test]
+    fn notify_section_parses_and_is_validated() {
+        let cfg: Config = toml::from_str(
+            "[notify]\nntfy_url = \"https://ntfy.sh/mine\"\nafter_seconds = 60\n",
+        )
+        .unwrap();
+        assert!(cfg.notify.active() && cfg.notify.agents);
+        cfg.notify.validate().unwrap();
+        assert!(!Config::default().notify.active());
+        for bad in [
+            "[notify]\nwebhook_url = \"ftp://x\"\n",
+            "[notify]\nntfy_url = \"https://a b\"\n",
+            "[notify]\nafter_seconds = 0\n",
+        ] {
+            let cfg: Config = toml::from_str(bad).unwrap();
+            assert!(cfg.notify.validate().is_err(), "{bad}");
+        }
+        assert!(toml::from_str::<Config>("[notify]\nbogus = 1\n").is_err());
+    }
 }
 /// Concrete `Host` aliases from OpenSSH config text; wildcards, negations and `Match` blocks are skipped.
 pub fn ssh_hosts(content: &str) -> Vec<String> {

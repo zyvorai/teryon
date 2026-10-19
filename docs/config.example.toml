@@ -94,3 +94,13 @@ destination = "susant@mini.local"
 # tab = true
 # jump = true        # z and zi
 # prompt = false     # two-line prompt with git state
+
+# Push notifications from the daemon while a workspace has no client attached (an attached
+# desktop app notifies for itself). Messages name the agent or program, never screen text.
+# [notify]
+# ntfy_url = "https://ntfy.sh/your-private-topic"
+# webhook_url = "https://example.com/hook"   # receives {"title","message","event","workspace","pane"}
+# macos = false            # a macOS notification on the machine running the daemon
+# agents = true            # an AI agent needs you or finished
+# commands = true          # a command that ran at least after_seconds finished (needs shell integration)
+# after_seconds = 30

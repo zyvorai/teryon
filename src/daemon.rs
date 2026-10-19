@@ -729,6 +729,107 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
     result
 }
 
+/// Tell the configured sinks when an agent needs you or a long command ends in a workspace that
+/// has no client attached (an attached client notifies for itself).
+fn watch_panes(state: &Mutex<State>) {
+    use crate::notify::{clean, send, Note};
+    use crate::watch::{Event, Tracker, TICK};
+    let mut trackers: HashMap<(String, u64), Tracker> = HashMap::new();
+    let mut cfg = crate::config::NotifyConfig::default();
+    let mut cfg_loaded: Option<Instant> = None;
+    loop {
+        thread::sleep(TICK);
+        let now = Instant::now();
+        if cfg_loaded.is_none_or(|t| now.duration_since(t) > Duration::from_secs(15)) {
+            cfg_loaded = Some(now);
+            cfg = crate::config::load()
+                .ok()
+                .filter(|c| c.notify.validate().is_ok())
+                .map(|c| c.notify)
+                .unwrap_or_default();
+        }
+        if !cfg.active() {
+            trackers.clear();
+            continue;
+        }
+        let snapshot: Vec<(String, bool, Vec<Arc<Pane>>)> = {
+            let st = state.lock().unwrap();
+            st.workspaces
+                .iter()
+                .map(|(name, w)| {
+                    (
+                        name.clone(),
+                        w.controller.is_none(),
+                        w.panes.values().cloned().collect(),
+                    )
+                })
+                .collect()
+        };
+        let mut alive = std::collections::HashSet::new();
+        for (ws, detached, panes) in snapshot {
+            for pane in panes {
+                let key = (ws.clone(), pane.id);
+                alive.insert(key.clone());
+                let (rev, exited, marks) = {
+                    let st = pane.state.lock().unwrap();
+                    (
+                        st.revision,
+                        st.exited.is_some(),
+                        st.parser.callbacks().log.marks.clone(),
+                    )
+                };
+                let fg = pane.foreground_command(exited).unwrap_or_default();
+                let title = pane.title.lock().unwrap().clone();
+                let fg = if fg.is_empty() { title } else { fg };
+                let tracker = trackers.entry(key).or_insert_with(|| Tracker::new(now));
+                let rows = || {
+                    let st = pane.state.lock().unwrap();
+                    let screen = st.parser.screen();
+                    let (_, cols) = screen.size();
+                    screen.rows(0, cols).collect::<Vec<String>>()
+                };
+                let long_ms = u64::from(cfg.after_seconds) * 1000;
+                let events = tracker.observe(now, rev, &fg, exited, rows, &marks, long_ms);
+                if !detached {
+                    continue;
+                }
+                for event in events {
+                    let (name, message) = match event {
+                        Event::AgentNeedsYou(k) if cfg.agents => (
+                            "agent_needs_you",
+                            format!("{} needs you in {ws} (pane {})", k.name(), pane.id),
+                        ),
+                        Event::AgentDone(k) if cfg.agents => (
+                            "agent_done",
+                            format!("{} finished in {ws} (pane {})", k.name(), pane.id),
+                        ),
+                        Event::CommandDone { program, exit, secs } if cfg.commands => (
+                            "command_done",
+                            format!(
+                                "{} finished in {secs} s (exit {}) in {ws}",
+                                clean(&program, 40),
+                                exit.map_or("?".to_string(), |c| c.to_string())
+                            ),
+                        ),
+                        _ => continue,
+                    };
+                    send(
+                        &cfg,
+                        Note {
+                            event: name,
+                            title: "TERYON".into(),
+                            message: clean(&message, 200),
+                            workspace: ws.clone(),
+                            pane: pane.id,
+                        },
+                    );
+                }
+            }
+        }
+        trackers.retain(|k, _| alive.contains(k));
+    }
+}
+
 pub fn run() -> Result<()> {
     let dir = util::runtime_dir()?;
     let lock = OpenOptions::new()
@@ -748,6 +849,10 @@ pub fn run() -> Result<()> {
         instance: util::nonce()?,
         workspaces: HashMap::new(),
     }));
+    {
+        let state = state.clone();
+        thread::spawn(move || watch_panes(&state));
+    }
     loop {
         let stream = listener.accept()?;
         let state = state.clone();
