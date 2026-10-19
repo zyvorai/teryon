@@ -1090,16 +1090,22 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         }) else {
             panic!("no state")
         };
+        // What crossed the wire: the JSON of the whole reply, as the daemon wrote it.
+        bytes_d += serde_json::to_string(&panes).unwrap().len();
         for p in &panes {
             known_d.insert(p.id.to_string(), p.revision);
-            if let Some(b) = &p.screen {
-                bytes_d += b.len();
+            assert!(p.screen.is_none(), "a diff client is sent the compact form");
+            let bytes = p
+                .screen_b64
+                .as_deref()
+                .map(|t| teryon::inlineimg::decode_base64(t).unwrap());
+            if let Some(b) = &bytes {
                 diffs_seen += usize::from(p.diff_from.is_some());
                 match mirrors.apply(
                     p.id,
                     p.revision,
                     (p.rows, p.cols),
-                    p.screen.as_deref(),
+                    Some(b),
                     p.diff_from,
                     p.digest,
                 ) {
@@ -1115,10 +1121,10 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         }) else {
             panic!("no state")
         };
+        bytes_w += serde_json::to_string(&panes).unwrap().len();
         for p in &panes {
             known_w.insert(p.id.to_string(), p.revision);
             if let Some(b) = &p.screen {
-                bytes_w += b.len();
                 full_w = Some(b.clone());
             }
         }
@@ -1138,11 +1144,11 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         diffs_seen > 5,
         "the viewer should have been sent diffs, saw {diffs_seen}"
     );
-    eprintln!("scrolling pane: {bytes_d} bytes as diffs, {bytes_w} as whole screens");
+    eprintln!("scrolling pane: {bytes_d} bytes of JSON as diffs, {bytes_w} as whole screens");
     assert!(a.contains("line") && b.contains("line"));
     assert_eq!(a, b, "diffs rebuild exactly what whole snapshots show");
     assert!(
-        bytes_d * 2 < bytes_w,
+        bytes_d * 3 < bytes_w,
         "diffs sent {bytes_d} bytes against {bytes_w} for whole screens"
     );
 }
