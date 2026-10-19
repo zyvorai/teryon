@@ -159,7 +159,7 @@ binding using `teryon config --keys`.
 | `font_family` | SF Mono | Family or file name in the font folders, or an absolute path |
 | `font_size`, `line_height`, `padding` | 13, 1.45, 8 | Terminal text metrics |
 | `pane_inset` | 10 | Space around the pane cards; 0 runs panes edge to edge |
-| `cursor_style`, `cursor_blink` | block, false | Cursor shape |
+| `cursor_style`, `cursor_blink` | block, true | Cursor shape (blinks with an eased fade) |
 | `window_opacity` | 1.0 | 0.3 to 1.0; turning transparency on needs a restart |
 | `window_blur` | 0 | 0 to 100: blur behind a transparent window (macOS; needs `window_opacity` below 1.0) |
 | `maximized` | false | open windows filling the screen (below the menu bar) |
@@ -167,7 +167,7 @@ binding using `teryon config --keys`.
 | `corner_radius` | 0 | round a bare window's corners (points, 0 to 24) and draw a hairline edge with a faint top highlight |
 | `background_noise` | 0 | fine grain over the background, 0 to 100 (WezTerm's `noise = 10`) |
 | `text_gamma` | 0.55 | 0.3 (heavy) to 1.0 (thin) text weight; lower is closer to WezTerm's heavier look |
-| `cursor_color` | theme accent | `#RRGGBB` |
+| `cursor_color` | orange `#D97757` | `#RRGGBB` |
 | `background_gradient` | none | two or more `#RRGGBB` stops painted across the terminal |
 | `gradient_angle` | 135 | degrees as in CSS and WezTerm: 90 left to right, 180 top to bottom, 135 toward the bottom right |
 | `tab_bar` | `off` | `bottom` adds a strip of rounded tabs and a clock under a `chrome = "none"` window |

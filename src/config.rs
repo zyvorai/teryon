@@ -228,7 +228,7 @@ pub struct DesktopConfig {
     pub pane_inset: f32,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
-    /// `#RRGGBB` cursor color (default: the theme's accent).
+    /// `#RRGGBB` cursor color (default: orange `#D97757`).
     pub cursor_color: Option<String>,
     /// Text weight: coverage gamma of the glyph atlas, 0.3 (heavy) to 1.0 (thin); 0.55 is egui's own.
     pub text_gamma: f32,
@@ -304,7 +304,7 @@ impl Default for DesktopConfig {
             padding_bottom: None,
             pane_inset: 10.,
             cursor_style: CursorStyle::Block,
-            cursor_blink: false,
+            cursor_blink: true,
             cursor_color: None,
             text_gamma: 0.55,
             window_blur: 0,

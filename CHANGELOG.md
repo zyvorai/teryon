@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Desktop: the cursor is orange (`#D97757`) and blinks by default; set `cursor_color` / `cursor_blink = false` to change it.
+
 ## 0.16.1
 
 - Desktop keys follow WezTerm: ⇧PageUp/⇧PageDown scroll, ⌘⇧[ / ⌘⇧] and Ctrl+Tab switch tabs (new `tab_next` / `tab_prev` actions), and the `'` key can be bound.

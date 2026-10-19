@@ -1166,7 +1166,13 @@ impl Desktop {
                     .cursor_color
                     .as_deref()
                     .and_then(triggers::parse_hex)
-                    .unwrap_or_else(|| color(if self.online { t.accent } else { t.warning }));
+                    .unwrap_or_else(|| {
+                        if self.online {
+                            Color32::from_rgb(0xD9, 0x77, 0x57)
+                        } else {
+                            color(t.warning)
+                        }
+                    });
                 if !active {
                     painter.rect_stroke(
                         cell_rect,
