@@ -40,6 +40,7 @@ mod relink;
 mod restore;
 mod snippets;
 mod style;
+mod themepicker;
 mod term;
 mod triggers;
 mod welcome;
@@ -257,6 +258,7 @@ pub struct Desktop {
     tx: SyncSender<Command>,
     rx: Receiver<Update>,
     palette: bool,
+    theme_picker: themepicker::ThemePicker,
     command: String,
     history: Option<String>,
     query: String,
@@ -424,6 +426,7 @@ impl Desktop {
             tx,
             rx,
             palette: false,
+            theme_picker: Default::default(),
             command: String::new(),
             history: None,
             query: String::new(),
@@ -769,6 +772,7 @@ impl Desktop {
         }
         if (wants_focus && !terminal_focus)
             || self.palette
+            || self.theme_picker.open
             || self.draft_open
             || self.history.is_some()
             || self.confirm_close
@@ -937,6 +941,7 @@ impl Desktop {
             // overlay owns the keyboard), so the next key reaches the shell.
             let term = egui::Id::new(("teryon-terminal", self.focus));
             let owned = self.palette
+                || self.theme_picker.open
                 || self.draft_open
                 || self.history.is_some()
                 || self.confirm_close
@@ -957,6 +962,7 @@ impl Desktop {
         }
         if self.theme.name != self.committed_theme.name
             && !self.palette
+            && !self.theme_picker.open
             && !ctx.memory(|m| m.any_popup_open())
         {
             self.theme = self.committed_theme.clone();
@@ -1195,6 +1201,9 @@ impl Desktop {
         if self.palette {
             self.palette_ui(ctx);
         }
+        if self.theme_picker.open {
+            self.theme_picker_ui(ctx);
+        }
         if self.cheatsheet {
             self.cheatsheet_ui(ctx);
         }
@@ -1337,6 +1346,7 @@ impl Desktop {
         self.palette = false;
         match kind {
             ActionKind::Palette => self.palette = true,
+            ActionKind::ThemePicker => self.open_theme_picker(),
             ActionKind::NewPane => {
                 let cwd = self.focus_cwd();
                 self.send(Command::New(cwd));

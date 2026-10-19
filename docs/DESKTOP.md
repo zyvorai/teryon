@@ -209,6 +209,7 @@ role of ⌘ (so ⇧ variants are not available there).
 | ⌘O | Open a workspace (new tab, any host) |
 | ⌘/ | Shortcut cheat sheet |
 | ⌘K | Command palette (fuzzy search of every action; ↑/↓ over a theme previews it) |
+| ⇧⌘T | Theme picker: every theme in one list, drawn in its own colors; type to search, All / Dark / Light filter, ↑/↓ previews it live, Enter keeps it, Esc puts the old one back (also under View in the top bar menu) |
 | ⌘D / ⇧⌘D | New pane to the right / below |
 | ⌥⌘ arrows | Focus the pane in that direction |
 | ⌃⌘ arrows, ⌃⌘= | Resize the focused pane, equalize all |

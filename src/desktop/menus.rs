@@ -379,6 +379,14 @@ pub(super) fn menu_body(ui: &mut egui::Ui, cx: &Cx, st: &MenuState) -> Option<Me
             entry(
                 ui,
                 cx,
+                "Choose Theme…",
+                MenuPick::Act(A::ThemePicker),
+                true,
+                &mut out,
+            );
+            entry(
+                ui,
+                cx,
                 "Next Theme",
                 MenuPick::Act(A::NextTheme),
                 true,

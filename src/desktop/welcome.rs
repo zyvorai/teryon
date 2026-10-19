@@ -54,6 +54,7 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
         "View",
         &[
             ("Command palette", "palette"),
+            ("Choose theme", "theme_picker"),
             ("Ask AI", "ai"),
             ("File browser", "files"),
             ("Agents overview", "agents"),

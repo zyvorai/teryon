@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.1
+
+- Theme picker (⇧⌘T, "Choose theme…" in the palette, "Choose Theme…" in the menu): all themes, built-in and your own, in one searchable list. Each row is drawn in its own colors (a sample and its palette), with All / Dark / Light filters. ↑/↓ previews the theme on the whole window, Enter keeps it, Esc restores the one you had.
+
 ## 0.18.0
 
 - `teryon agents [HOST...] [--all]` lists the AI agents in every workspace and whether each is working or waiting.
