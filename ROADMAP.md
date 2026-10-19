@@ -12,7 +12,7 @@ Prioritized feature additions based on current limitations (`docs/LIMITATIONS.md
 - Improve controller heartbeat and force-takeover.
 
 ### 2. Mouse protocol forwarding + richer terminal compatibility
-- Full mouse reporting (for Vim, TUI apps, Claude Code, etc.).
+- Mouse reporting already works in the desktop app; remaining: TUI parity and a compatibility suite (Vim, Neovim, tmux, Claude Code).
 - Kitty graphics protocol and/or Sixel support.
 - Hyperlinks, better inline images, complete modern terminal queries.
 - Configurable font fallbacks.
@@ -25,8 +25,7 @@ Prioritized feature additions based on current limitations (`docs/LIMITATIONS.md
 ## P1 — Power-user and reliability
 
 ### 4. Arbitrary pane layouts
-- Full pane tree (not just vertical / 2×2).
-- Drag-to-resize splits, horizontal splits.
+- Full pane tree (today: single, columns, rows or grid with draggable dividers).
 - Multi-monitor workspace support.
 - Cross-window tab dragging.
 
@@ -36,8 +35,7 @@ Prioritized feature additions based on current limitations (`docs/LIMITATIONS.md
 - Better layout restore semantics.
 
 ### 6. Automatic port discovery and one-click forwarding
-- Surface listening ports from the pane process tree in the UI.
-- One-click local forward + open in browser.
+- Listening ports are already detected and can be opened from the palette; remaining: one-click local forward and health checks.
 - Failure and permission tests.
 
 ### 7. Persistent command history + secret redaction
