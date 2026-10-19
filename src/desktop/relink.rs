@@ -248,13 +248,13 @@ impl Desktop {
                         );
                         ui.add_space(4.);
                         ui.label(
-                            weighted(ctx, "Your shells are still running.", "semibold", 20.)
+                            weighted(ctx, "Connection lost.", "semibold", 20.)
                                 .color(color(t.foreground)),
                         );
                         ui.add_space(4.);
                         ui.label(
                             RichText::new(format!(
-                                "The connection dropped, not the work. teryond on {} is holding every PTY; you'll land exactly where you left off.",
+                                "The link to teryond on {} dropped. The panes below are the last state seen; whether they are still running is confirmed when the link returns, and nothing typed meanwhile is replayed.",
                                 self.host
                             ))
                             .size(13.)
@@ -265,7 +265,7 @@ impl Desktop {
                             let state = match (pane.info.exited, self.agent_status_of(*id)) {
                                 (Some(_), _) => ("exited", t.warning),
                                 (None, Some(s)) => (s, t.warning),
-                                (None, None) => ("alive", t.success),
+                                (None, None) => ("last seen running", t.success),
                             };
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("●").size(10.).color(color(state.1)));
