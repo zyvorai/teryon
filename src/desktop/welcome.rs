@@ -55,6 +55,9 @@ const CHEAT: [(&str, &[(&str, &str)]); 5] = [
         &[
             ("Command palette", "palette"),
             ("Choose theme", "theme_picker"),
+            ("Choose font", "font_picker"),
+            ("Settings", "settings"),
+            ("Edit keyboard shortcuts", "key_editor"),
             ("Ask AI", "ai"),
             ("File browser", "files"),
             ("Agents overview", "agents"),
@@ -168,6 +171,31 @@ impl Desktop {
                         }
                     }
                 });
+            }
+            if !stalled || self.online {
+                ui.add_space(18.);
+                ui.label(RichText::new("Make it yours").size(12.).color(color(t.muted)));
+                ui.add_space(4.);
+                let mut pick: Option<ActionKind> = None;
+                ui.horizontal(|ui| {
+                    // Centered: the row is as wide as its buttons.
+                    ui.add_space((ui.available_width() / 2. - 150.).max(0.));
+                    for (label, kind) in [
+                        ("🎨  Theme", ActionKind::ThemePicker),
+                        ("𝐀  Font", ActionKind::FontPicker),
+                        ("⚙  Settings", ActionKind::Settings),
+                    ] {
+                        let b = egui::Button::new(RichText::new(label).size(13.))
+                            .corner_radius(egui::CornerRadius::same(10))
+                            .min_size(Vec2::new(92., 30.));
+                        if ui.add(b).clicked() {
+                            pick = Some(kind);
+                        }
+                    }
+                });
+                if let Some(kind) = pick {
+                    self.run_action(kind);
+                }
             }
             ui.add_space(14.);
             ui.label(

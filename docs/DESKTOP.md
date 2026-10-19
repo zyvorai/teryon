@@ -146,6 +146,16 @@ output, pane title bars show `✓ 0.4 s` / `✗ 1 · 12 s` / `running…`, long 
 is in the background raise a notification (`notify_after_seconds`), and new panes start in the focused
 pane's directory. Without the integration everything else keeps working and ⌘↑/⌘↓ just scroll a page.
 
+* **Font picker** ("Choose font…" in the palette or Settings): the monospaced fonts installed on your Mac, each
+  shown in its own typeface; Enter writes `font_family` to your config. **Keyboard shortcuts…** lists every action
+  with its key: Change, then press the new keys (a ⌘, ⌃ or ⌥ is required so typing still reaches the shell);
+  clashes are refused. **Window look…** is a small panel with opacity, dimming, font size and line height.
+* **Right-click a command** (needs shell integration): when the click lands on a command or its output, the menu
+  starts with Copy command, Copy output, Run it again and Ask AI about it for that block.
+* **Tab marks**: a background tab shows `●` when its panes printed something and `▲` when an AI agent in it needs
+  you; looking at the tab clears it.
+* **Config problems** show as a banner with the parser's message, an Open config file button and Try again,
+  and your previous settings stay in force.
 * **Command gutter** (`command_gutter`, on by default): a thin bar beside each command and its output: red when
   it failed, the accent color while it runs, faint green when it succeeded.
 * **Palette actions** for the last command: "Copy last command", "Re-run last command" and "Ask AI about last
@@ -209,6 +219,8 @@ role of ⌘ (so ⇧ variants are not available there).
 | ⌘O | Open a workspace (new tab, any host) |
 | ⌘/ | Shortcut cheat sheet |
 | ⌘K | Command palette (fuzzy search of every action; ↑/↓ over a theme previews it) |
+| ⌘, | Settings window: Look, Text, Window, Behavior and Alerts, with sliders and switches that apply live and are written to `config.toml` (comments kept); search box; buttons for the theme, font and shortcut editors; ↺ puts an option back to its default |
+| ⇧⌘Z | Reopen the pane you just closed (its shell keeps running for 30 seconds after you close it) |
 | ⇧⌘T | Theme picker: every theme in one list, drawn in its own colors; type to search, All / Dark / Light filter, ↑/↓ previews it live, Enter keeps it, Esc puts the old one back (also under View in the top bar menu) |
 | ⌘D / ⇧⌘D | New pane to the right / below |
 | ⌥⌘ arrows | Focus the pane in that direction |

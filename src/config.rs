@@ -597,6 +597,9 @@ pub fn path() -> Result<PathBuf> {
     Ok(util::home()?.join(".config/teryon/config.toml"))
 }
 /// Pre-rename (ZYLINK) location, read only when no TERYON config exists.
+pub(crate) fn legacy_text() -> Option<String> {
+    std::fs::read_to_string(legacy_path().ok()?).ok()
+}
 fn legacy_path() -> Result<PathBuf> {
     Ok(util::home()?.join(".config/zylink/config.toml"))
 }

@@ -454,7 +454,19 @@ struct Workspace {
     controller: Option<String>,
     next_id: u64,
     last_seq: u64,
+    /// Panes closed with `SoftClose`, newest last, still running until their grace period ends.
+    graveyard: Vec<(std::time::Instant, Arc<Pane>)>,
 }
+/// How long a soft-closed pane can still be reopened (`TERYON_UNDO_SECS` shortens it for tests).
+fn undo_window() -> Duration {
+    Duration::from_secs(
+        std::env::var("TERYON_UNDO_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30),
+    )
+}
+const MAX_GRAVEYARD: usize = 5;
 struct State {
     started: std::time::Instant,
     instance: String,
@@ -528,7 +540,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             if live && !force {
                 bail!("workspace contains live processes; removal requires --force");
             }
-            for p in ws.panes.values() {
+            for p in ws.panes.values().chain(ws.graveyard.iter().map(|(_, p)| p)) {
                 if p.state.lock().unwrap().exited.is_none() {
                     p.kill()?;
                 }
@@ -540,10 +552,15 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             os: std::env::consts::OS.into(),
             arch: std::env::consts::ARCH.into(),
             sessions: state.workspaces.len(),
-            panes: state.workspaces.values().map(|w| w.panes.len()).sum(),
+            panes: state
+        .workspaces
+        .values()
+        .map(|w| w.panes.len() + w.graveyard.len())
+        .sum(),
             pid: std::process::id(),
             uptime: state.started.elapsed().as_secs(),
             stats: Some(host_stats()),
+            undo: true,
         }),
         Request::Attach {
             workspace,
@@ -573,6 +590,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         controller: None,
                         next_id: 2,
                         last_seq: 0,
+                        graveyard: Vec::new(),
                     },
                 );
             }
@@ -606,7 +624,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 bail!("{live} live panes; refusing shutdown without --force");
             }
             for w in state.workspaces.values() {
-                for p in w.panes.values() {
+                for p in w.panes.values().chain(w.graveyard.iter().map(|(_, p)| p)) {
                     let _ = p.kill();
                 }
             }
@@ -697,6 +715,29 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         .unwrap() = title;
                     Ok(Response::Ack { seq: None })
                 }
+                Request::SoftClose { pane } => {
+                    if ws.panes.len() == 1 {
+                        bail!("cannot remove the last pane; exit its shell instead");
+                    }
+                    let p = ws.panes.remove(&pane).context("pane not found")?;
+                    ws.graveyard.push((Instant::now(), p));
+                    while ws.graveyard.len() > MAX_GRAVEYARD {
+                        let (_, old) = ws.graveyard.remove(0);
+                        let _ = old.kill();
+                    }
+                    Ok(Response::Ack { seq: None })
+                }
+                Request::Reopen => {
+                    while let Some((at, p)) = ws.graveyard.pop() {
+                        if at.elapsed() < undo_window() {
+                            let id = p.id;
+                            ws.panes.insert(id, p);
+                            return Ok(Response::Created { pane: id });
+                        }
+                        let _ = p.kill();
+                    }
+                    bail!("no closed pane to reopen")
+                }
                 Request::Close { pane } => {
                     if ws.panes.len() == 1 {
                         bail!("cannot remove the last pane; exit its shell instead");
@@ -781,6 +822,20 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
 
 /// Tell the configured sinks when an agent needs you or a long command ends in a workspace that
 /// has no client attached (an attached client notifies for itself).
+/// End the shells of soft-closed panes whose grace period is over.
+fn reap_graveyards(state: &Mutex<State>) {
+    let mut st = state.lock().unwrap();
+    for w in st.workspaces.values_mut() {
+        let (expired, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut w.graveyard)
+            .into_iter()
+            .partition(|(at, _)| at.elapsed() >= undo_window());
+        w.graveyard = keep;
+        for (_, p) in expired {
+            let _ = p.kill();
+        }
+    }
+}
+
 fn watch_panes(state: &Mutex<State>) {
     use crate::notify::{clean, send, Note};
     use crate::watch::{Event, Tracker, TICK};
@@ -791,6 +846,7 @@ fn watch_panes(state: &Mutex<State>) {
     let mut cfg_loaded: Option<Instant> = None;
     loop {
         thread::sleep(TICK);
+        reap_graveyards(state);
         let now = Instant::now();
         if cfg_loaded.is_none_or(|t| now.duration_since(t) > Duration::from_secs(15)) {
             cfg_loaded = Some(now);

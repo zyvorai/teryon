@@ -5,12 +5,14 @@ pub mod agents;
 pub mod ai;
 pub mod brand;
 pub mod config;
+pub mod configedit;
 pub mod copymode;
 pub mod daemon;
 pub mod dashboard;
 #[cfg(feature = "desktop")]
 pub mod desktop;
 pub mod files;
+pub mod fontscan;
 pub mod frecent;
 pub mod highlight;
 pub mod history;

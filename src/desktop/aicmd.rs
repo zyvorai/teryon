@@ -223,6 +223,23 @@ impl Desktop {
         }
     }
 
+    /// Ask the assistant about one command block: its command, exit status and (redacted) output.
+    pub(super) fn ai_ask_block(&mut self, id: u64, cmd: &str, exit: Option<i32>, output: &str) {
+        let tail: Vec<&str> = output.lines().collect();
+        let tail = tail[tail.len().saturating_sub(60)..].join("\n");
+        let cwd = self.panes.get(&id).map(|p| p.info.cwd.clone()).unwrap_or_default();
+        let prompt = format!(
+            "About this command in pane {id}: `{}`{}. Host: {}, directory: {cwd}. Explain what it did and what its output means; if something went wrong propose a fix with suggest_command.\n\n{}",
+            redact::untrusted(cmd),
+            exit.map_or(String::new(), |c| format!(" (exit status {c})")),
+            self.host,
+            redact::untrusted(&tail)
+        );
+        self.ai.open = true;
+        self.ai.focus_input = true;
+        self.ai_send(&prompt);
+    }
+
     /// Ask the assistant about the last command in `id` (what it was and what it printed), whether or not it failed.
     pub(super) fn ai_ask_last(&mut self, id: u64) {
         let Some(p) = self.panes.get(&id) else { return };

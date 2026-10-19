@@ -174,6 +174,7 @@ impl Desktop {
                                 tab_label(&sess.panes, sess.focus, &tab.name, now)
                             }
                         };
+                        let text = format!("{}{text}", tab.activity.prefix());
                         spinning |= text.starts_with(|c| ('\u{2800}'..='\u{28ff}').contains(&c));
                         // Tabs cross-fade between idle and active colors when focus moves.
                         let k = ctx.animate_bool_with_time(
@@ -286,9 +287,9 @@ impl Desktop {
                             .enumerate()
                             .map(|(i, tab)| {
                                 let label = if many_hosts {
-                                    format!("{}/{}", tab.host, tab.name)
+                                    format!("{}{}/{}", tab.activity.prefix(), tab.host, tab.name)
                                 } else {
-                                    tab.name.clone()
+                                    format!("{}{}", tab.activity.prefix(), tab.name)
                                 };
                                 (i, label)
                             })

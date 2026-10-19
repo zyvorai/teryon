@@ -3453,7 +3453,7 @@ dependencies = [
 
 [[package]]
 name = "teryon"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3470,6 +3470,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
+ "toml_edit 0.22.27",
  "vt100",
 ]
 

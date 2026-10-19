@@ -104,6 +104,11 @@ pub(crate) enum Command {
     Resize(u16, u16),
     New(Option<String>),
     Close(u64),
+    /// Close a pane but keep it for a while so it can be reopened.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    SoftClose(u64),
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    Reopen,
     Rename(u64, String),
     Capture(u64, CapturePurpose),
     /// Fetch an inline image's bytes for a pane (desktop only).
@@ -179,14 +184,17 @@ pub(crate) fn worker(
                 attempt = 0;
                 let _ = tx.send(Update::Online);
                 let mut info_at = Instant::now();
+                let mut undo_ok = false;
                 if let Ok(Response::Info {
                     os,
                     arch,
                     uptime,
                     stats,
+                    undo,
                     ..
                 }) = rpc.call(Request::Info)
                 {
+                    undo_ok = undo;
                     let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
                 }
                 if previous_instance
@@ -237,6 +245,16 @@ pub(crate) fn worker(
                                         cols: size.1,
                                     },
                                     Command::Close(pane) => Request::Close { pane },
+                                    // A daemon from before this existed just closes the pane for good.
+                                    Command::SoftClose(pane) if undo_ok => Request::SoftClose { pane },
+                                    Command::SoftClose(pane) => Request::Close { pane },
+                                    Command::Reopen if undo_ok => Request::Reopen,
+                                    Command::Reopen => {
+                                        let _ = tx.send(Update::Message(
+                                            "This host's TERYON is too old to reopen panes; update it".into(),
+                                        ));
+                                        continue;
+                                    }
                                     Command::Rename(pane, title) => Request::Rename { pane, title },
                                     // Big reads run on their own read-only connection so typing and
                                     // polling never wait behind a 15000-line capture.

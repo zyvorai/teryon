@@ -135,6 +135,24 @@ pub(super) fn font_definitions(
     fonts
 }
 
+/// The normal fonts plus each of `picks` as its own family (`pick-0`, `pick-1`, ...), so the font
+/// picker can draw every candidate in its own typeface at once.
+pub(super) fn install_picker_fonts(ctx: &egui::Context, picks: &[Vec<u8>]) {
+    let mut fonts = font_definitions(|path| std::fs::read(path).ok(), None);
+    for (i, bytes) in picks.iter().enumerate() {
+        let key = format!("pick-{i}");
+        fonts.font_data.insert(
+            key.clone(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
+        );
+        fonts.families.insert(
+            egui::FontFamily::Name(key.clone().into()),
+            vec![key, "nerd-symbols".into()],
+        );
+    }
+    ctx.set_fonts(fonts);
+}
+
 pub(super) fn install_fonts(ctx: &egui::Context, family: Option<&str>) {
     let user = family.and_then(find_user_font);
     ctx.set_fonts(font_definitions(|path| std::fs::read(path).ok(), user));

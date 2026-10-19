@@ -48,6 +48,12 @@ pub enum Request {
         pane: u64,
         title: String,
     },
+    /// Close a pane but keep its shell alive for a short while, so `Reopen` can bring it back.
+    SoftClose {
+        pane: u64,
+    },
+    /// Bring back the pane closed last with `SoftClose`, if it is still within the grace period.
+    Reopen,
     Close {
         pane: u64,
     },
@@ -175,6 +181,9 @@ pub enum Response {
         /// Load, memory and thermal state of the daemon's machine; old daemons send none.
         #[serde(default)]
         stats: Option<crate::hoststats::HostStats>,
+        /// The daemon understands `SoftClose` and `Reopen`.
+        #[serde(default)]
+        undo: bool,
     },
     Ack {
         seq: Option<u64>,

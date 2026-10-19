@@ -296,6 +296,22 @@ pub fn labels(n: usize) -> Vec<String> {
 }
 
 /// Open a URL with the platform opener; arguments are passed without a shell.
+/// Open a file in a text editor (macOS: TextEdit via `open -t`; elsewhere the default handler).
+pub fn open_in_editor(path: &std::path::Path) {
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg("-t");
+        c
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    let _ = cmd
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
 pub fn open_url(url: &str) {
     let opener = if cfg!(target_os = "macos") {
         "open"

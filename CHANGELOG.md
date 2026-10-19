@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0
+
+- Settings window (⌘,): sliders, switches and choices for the common `[desktop]` options, applied live and saved to `config.toml` with your comments kept, with search, per-option reset, and a "restart" tag on the few that need one. "Window look…" is a small panel with opacity, dimming, font size and line height.
+- Font picker: the monospaced fonts installed on your Mac, each shown in its own typeface.
+- Keyboard shortcuts editor: every action with its key; click Change and press the new keys. Clashes are refused, and a ⌘, ⌃ or ⌥ is required so typing still reaches the shell.
+- Closing a pane is undoable: its shell keeps running for 30 seconds and ⇧⌘Z (or "Reopen closed pane") brings it back. Older daemons just close it for good. The close confirmation is gone.
+- Right-click a command or its output for Copy command, Copy output, Run it again and Ask AI about it.
+- Background tabs show `●` for new output and `▲` when an AI agent in them needs you.
+- A config file that cannot be loaded shows a banner with the message, Open config file and Try again, instead of a toast.
+- The welcome card has Theme, Font and Settings buttons.
+
 ## 0.18.2
 
 - Theme picker redesigned: a larger window (up to 800 px) of two columns of cards, each a miniature terminal in that theme's own colors (prompt, passed/failed, warning and file-color lines, and its palette). The chosen card glows; arrow keys move across the grid (← → only while the search box is empty); rounded All / Dark / Light filters and a bigger search box.

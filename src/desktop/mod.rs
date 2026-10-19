@@ -25,21 +25,26 @@ mod ai;
 mod aicmd;
 mod away;
 mod bar;
+mod blockmenu;
 mod blur;
 mod cmdhist;
 mod dropzone;
 mod files;
 mod find;
+mod fontpicker;
 mod floating;
 mod hints;
+mod keyeditor;
 mod icons;
 mod menus;
 mod panes;
 mod portfwd;
 mod relink;
+mod settingsui;
 mod restore;
 mod snippets;
 mod style;
+mod tabs;
 mod themepicker;
 mod term;
 mod triggers;
@@ -126,6 +131,8 @@ struct Tab {
     host: String,
     name: String,
     state: Option<Session>,
+    /// Whether this tab, while in the background, has news for you.
+    activity: tabs::Activity,
 }
 pub struct Desktop {
     host: String,
@@ -259,6 +266,16 @@ pub struct Desktop {
     rx: Receiver<Update>,
     palette: bool,
     theme_picker: themepicker::ThemePicker,
+    font_picker: fontpicker::FontPicker,
+    settings_win: settingsui::SettingsWindow,
+    appearance_open: bool,
+    /// The command block under the last right-click, offered in the pane's context menu.
+    block_menu: Option<blockmenu::BlockRef>,
+    /// The command and exit status waiting for a block's output before it goes to the assistant.
+    block_ask: Option<(String, Option<i32>)>,
+    /// Why `config.toml` could not be loaded; shown as a banner until it loads again or is dismissed.
+    config_error: Option<String>,
+    key_editor: keyeditor::KeyEditor,
     command: String,
     history: Option<String>,
     query: String,
@@ -328,6 +345,7 @@ impl Desktop {
             tabs: vec![Tab {
                 host: host.clone(),
                 name: workspace.clone(),
+                activity: Default::default(),
                 state: None,
             }],
             host,
@@ -427,6 +445,13 @@ impl Desktop {
             rx,
             palette: false,
             theme_picker: Default::default(),
+            font_picker: Default::default(),
+            settings_win: Default::default(),
+            appearance_open: false,
+            block_menu: None,
+            block_ask: None,
+            config_error: None,
+            key_editor: Default::default(),
             command: String::new(),
             history: None,
             query: String::new(),
@@ -477,7 +502,18 @@ impl Desktop {
         for i in (0..self.tabs.len()).filter(|i| *i != home) {
             self.activate(i);
             self.updates();
+            self.agents_update();
+            let revisions: u64 = self.panes.values().map(|p| p.info.revision).sum();
+            let waiting = self
+                .panes
+                .values()
+                .any(|p| p.track.status == Some(crate::agents::Status::NeedsYou));
             self.activate(home);
+            self.tabs[i].activity.observe(revisions, waiting);
+        }
+        // The tab on screen is being looked at.
+        if let Some(t) = self.tabs.get_mut(home) {
+            t.activity.seen();
         }
         self.notice = notice;
     }
@@ -515,6 +551,7 @@ impl Desktop {
         self.tabs.push(Tab {
             host: host.into(),
             name: name.into(),
+            activity: Default::default(),
             state: Some(Session {
                 extra: SessionExtra::default(),
                 host: host.into(),
@@ -735,7 +772,7 @@ impl Desktop {
             .unwrap_or((command.trim(), ""));
         match name{
         "new"=>self.send(Command::New(if arg.is_empty(){None}else{Some(arg.into())})),
-        "rename"=>self.send(Command::Rename(self.focus,arg.into())),"close"=>self.confirm_close=true,
+        "rename"=>self.send(Command::Rename(self.focus,arg.into())),"close"=>self.close_focused_pane(),
         "split"=>self.layout = if self.layout == LayoutMode::Single { LayoutMode::Vertical } else { LayoutMode::Single },
         "layout"=>match LayoutMode::parse(arg){Some(m)=>self.layout=m,None=>self.notice="Usage: layout single|vertical|horizontal|grid".into()},
         "theme"=>match Theme::load_native(arg){Ok(t)=>{self.committed_theme=t.clone();self.theme=t}Err(e)=>self.notice=e.to_string()},
@@ -773,6 +810,9 @@ impl Desktop {
         if (wants_focus && !terminal_focus)
             || self.palette
             || self.theme_picker.open
+            || self.font_picker.open
+            || self.settings_win.open
+            || self.key_editor.open
             || self.draft_open
             || self.history.is_some()
             || self.confirm_close
@@ -942,6 +982,9 @@ impl Desktop {
             let term = egui::Id::new(("teryon-terminal", self.focus));
             let owned = self.palette
                 || self.theme_picker.open
+                || self.font_picker.open
+                || self.settings_win.open
+                || self.key_editor.open
                 || self.draft_open
                 || self.history.is_some()
                 || self.confirm_close
@@ -963,6 +1006,7 @@ impl Desktop {
         if self.theme.name != self.committed_theme.name
             && !self.palette
             && !self.theme_picker.open
+            && !self.font_picker.open
             && !ctx.memory(|m| m.any_popup_open())
         {
             self.theme = self.committed_theme.clone();
@@ -978,7 +1022,10 @@ impl Desktop {
         for cmd in self.pending.drain(..) {
             ctx.send_viewport_cmd(cmd);
         }
-        if self.persist && self.applied_font.as_ref() != Some(&self.cfg.font_family) {
+        if self.persist
+            && !self.font_picker.open
+            && self.applied_font.as_ref() != Some(&self.cfg.font_family)
+        {
             install_fonts(ctx, self.cfg.font_family.as_deref());
             self.applied_font = Some(self.cfg.font_family.clone());
         }
@@ -1204,6 +1251,21 @@ impl Desktop {
         if self.theme_picker.open {
             self.theme_picker_ui(ctx);
         }
+        if self.font_picker.open {
+            self.font_picker_ui(ctx);
+        }
+        if self.settings_win.open {
+            self.settings_ui(ctx);
+        }
+        if self.key_editor.open {
+            self.key_editor_ui(ctx);
+        }
+        if self.appearance_open {
+            self.appearance_ui(ctx);
+        }
+        if self.config_error.is_some() {
+            self.config_error_ui(ctx);
+        }
         if self.cheatsheet {
             self.cheatsheet_ui(ctx);
         }
@@ -1308,20 +1370,6 @@ impl Desktop {
                 });
             self.draft_open = open;
         }
-        if self.confirm_close {
-            egui::Window::new("Terminate pane?")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.label("The pane process will be terminated. This cannot be undone.");
-                    if ui.button("Terminate pane").clicked() {
-                        self.send(Command::Close(self.focus));
-                        self.confirm_close = false;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.confirm_close = false;
-                    }
-                });
-        }
         // A new tab's panes fade in over the old picture instead of cutting.
         if let Some(at) = self.tab_fade_at {
             let k = at.elapsed().as_secs_f32() / 0.14;
@@ -1342,11 +1390,37 @@ impl Desktop {
     }
 }
 impl Desktop {
+    /// Close the focused pane. Its shell keeps running for a moment, so ⇧⌘Z (or the palette) brings it back.
+    fn close_focused_pane(&mut self) {
+        if self.readonly {
+            self.toast("Read only");
+            return;
+        }
+        if self.panes.len() < 2 {
+            self.toast("This is the last pane; exit its shell to end the workspace");
+            return;
+        }
+        let id = self.focus;
+        self.send(Command::SoftClose(id));
+        let hint = self.keymap.hint("reopen_pane");
+        self.toast(if hint.is_empty() {
+            "Pane closed · \"Reopen closed pane\" in the palette brings it back".to_string()
+        } else {
+            format!("Pane closed · {hint} brings it back")
+        });
+    }
     fn run_action(&mut self, kind: ActionKind) {
         self.palette = false;
         match kind {
             ActionKind::Palette => self.palette = true,
             ActionKind::ThemePicker => self.open_theme_picker(),
+            ActionKind::FontPicker => self.open_font_picker(),
+            ActionKind::Settings => self.open_settings(),
+            ActionKind::Appearance => {
+                self.appearance_open = !self.appearance_open;
+                self.palette = false;
+            }
+            ActionKind::KeyEditor => self.open_key_editor(),
             ActionKind::NewPane => {
                 let cwd = self.focus_cwd();
                 self.send(Command::New(cwd));
@@ -1370,7 +1444,11 @@ impl Desktop {
             ActionKind::Equalize => self.weights.equalize(),
             ActionKind::NextPane => self.cycle_pane(false),
             ActionKind::PrevPane => self.cycle_pane(true),
-            ActionKind::ClosePane => self.confirm_close = true,
+            ActionKind::ClosePane => self.close_focused_pane(),
+            ActionKind::ReopenPane => {
+                self.send(Command::Reopen);
+                self.toast("Reopening the pane you closed…");
+            }
             ActionKind::RenamePane => {
                 self.renaming = self
                     .panes
@@ -1747,11 +1825,10 @@ impl Desktop {
                 if changed {
                     self.run_action(ActionKind::Theme(theme));
                 }
+                self.config_error = None;
                 self.toast("Config reloaded");
             }
-            Err(e) => self.toast(format!(
-                "Config error: {e:#} (keeping the previous settings)"
-            )),
+            Err(e) => self.config_error = Some(format!("{e:#}")),
         }
     }
     fn config_stamp() -> Option<std::time::SystemTime> {
@@ -2022,7 +2099,7 @@ pub fn run(
             app.config_theme = Some(theme);
             app.notify_cfg = config::load().map(|c| c.notify).unwrap_or_default();
         }
-        Err(e) => app.toast(format!("Config error: {e:#}")),
+        Err(e) => app.config_error = Some(format!("{e:#}")),
     }
     app.persist = true;
     app.discard_workspace = discard && !readonly;
@@ -2315,6 +2392,7 @@ mod tests {
         app.tabs.push(Tab {
             host: "m".into(),
             name: "b".into(),
+            activity: Default::default(),
             state: Some(Session {
                 extra: SessionExtra::default(),
                 host: "m".into(),
@@ -2351,6 +2429,62 @@ mod tests {
         );
         app.close_tab();
         assert_eq!(app.tabs.len(), 1);
+    }
+    #[test]
+    fn a_background_tab_gets_a_mark_when_its_panes_change_and_loses_it_when_opened() {
+        let (tx, _rx) = mpsc::sync_channel(4);
+        let (_utx, urx) = mpsc::sync_channel(4);
+        let mut app = Desktop::new("mini".into(), "a".into(), false, Theme::load("nord").unwrap(), tx, urx);
+        let (btx, _brx) = mpsc::sync_channel(4);
+        let (butx, burx) = mpsc::sync_channel(8);
+        app.tabs.push(Tab {
+            host: "m".into(),
+            name: "b".into(),
+            activity: Default::default(),
+            state: Some(Session {
+                extra: SessionExtra::default(),
+                host: "m".into(),
+                target: None,
+                workspace: "b".into(),
+                online: false,
+                notice: String::new(),
+                panes: BTreeMap::new(),
+                focus: 1,
+                layout: LayoutMode::Single,
+                tx: btx,
+                rx: burx,
+                history: None,
+                query: String::new(),
+                last_size: (0, 0),
+            }),
+        });
+        let view = |revision| PaneView { id: 1, title: "sh".into(), rows: 5, cols: 20, revision, screen: Some(Vec::new()), ..Default::default() };
+        butx.send(Update::State(vec![view(1)])).unwrap();
+        app.pump_background();
+        assert_eq!(app.tabs[1].activity.prefix(), "", "the first look is a baseline");
+        butx.send(Update::State(vec![view(2)])).unwrap();
+        app.pump_background();
+        assert_eq!(app.tabs[1].activity.prefix(), "● ");
+        app.activate(1);
+        app.pump_background();
+        assert_eq!(app.tabs[1].activity.prefix(), "", "the tab on screen is seen");
+    }
+    #[test]
+    fn closing_a_pane_hides_it_with_an_undo_and_the_last_pane_is_kept() {
+        let (mut app, rx) = app_with_screen("");
+        app.close_focused_pane();
+        assert!(drain(&rx).is_empty(), "a single pane is never closed");
+        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("last pane")));
+        app.add_test_pane(2);
+        app.focus = 2;
+        app.run_action(ActionKind::ClosePane);
+        assert!(matches!(&drain(&rx)[..], [Command::SoftClose(2)]));
+        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("brings it back")));
+        app.run_action(ActionKind::ReopenPane);
+        assert!(matches!(&drain(&rx)[..], [Command::Reopen]));
+        app.readonly = true;
+        app.close_focused_pane();
+        assert!(drain(&rx).is_empty(), "read only attachments cannot close panes");
     }
     pub(super) fn app_for_extras() -> (Desktop, mpsc::Receiver<Command>) {
         app_with_screen("")
@@ -2429,6 +2563,7 @@ mod tests {
             app.tabs.push(Tab {
                 host: "m".into(),
                 name: name.into(),
+                activity: Default::default(),
                 state: Some(Session {
                     extra: SessionExtra::default(),
                     host: "m".into(),
@@ -2806,6 +2941,7 @@ mod tests {
         app.tabs.push(Tab {
             host: "m".into(),
             name: "b".into(),
+            activity: Default::default(),
             state: Some(Session {
                 extra: SessionExtra::default(),
                 host: "m".into(),

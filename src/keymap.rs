@@ -10,6 +10,7 @@ pub const ACTION_NAMES: &[&str] = &[
     "new_pane_right",
     "new_pane_below",
     "close_pane",
+    "reopen_pane",
     "rename_pane",
     "zoom",
     "focus_left",
@@ -56,6 +57,10 @@ pub const ACTION_NAMES: &[&str] = &[
     "fullscreen",
     "always_on_top",
     "theme_picker",
+    "font_picker",
+    "settings",
+    "appearance",
+    "key_editor",
     "next_theme",
     "prev_theme",
     "random_theme",
@@ -103,6 +108,8 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("cmd+b", "files"),
     ("cmd+shift+a", "agents"),
     ("cmd+shift+t", "theme_picker"),
+    ("cmd+shift+z", "reopen_pane"),
+    ("cmd+,", "settings"),
     ("cmd+shift+k", "ai_command"),
     ("cmd+shift+h", "command_history"),
     ("cmd+f", "find"),
@@ -229,6 +236,22 @@ impl Chord {
         }
         let key = key.ok_or_else(|| format!("no key in \"{text}\""))?;
         Ok(Self { mods, key })
+    }
+    /// The text form `parse` reads back, e.g. `cmd+shift+d`.
+    pub fn text(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        for (on, name) in [
+            (self.mods.cmd, "cmd"),
+            (self.mods.ctrl, "ctrl"),
+            (self.mods.alt, "alt"),
+            (self.mods.shift, "shift"),
+        ] {
+            if on {
+                parts.push(name);
+            }
+        }
+        parts.push(&self.key);
+        parts.join("+")
     }
     /// Display form with macOS symbols, e.g. `⇧⌘D`.
     pub fn pretty(&self) -> String {

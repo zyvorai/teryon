@@ -12,6 +12,8 @@ pub(super) enum Then {
     /// Scroll so this absolute line is at the top.
     Jump(u64),
     LastOutput,
+    /// The output between these two absolute lines (a command block's `C` and `D`), to copy or to ask about.
+    Block(u64, u64, bool),
 }
 
 /// Retained history of one pane, shown instead of the live screen while scrolled back.
@@ -230,6 +232,11 @@ impl Desktop {
                 self.scrollback.remove(&id);
                 self.deliver_output(text);
             }
+            Some(Then::Block(c, d, ask)) => {
+                let text = self.block_text(id, c, d);
+                self.scrollback.remove(&id);
+                self.deliver_block(id, text, ask);
+            }
             None if sb.offset == 0 => {
                 self.scrollback.remove(&id);
             }
@@ -315,7 +322,7 @@ impl Desktop {
             }
         }
     }
-    fn loading_view(then: Option<Then>) -> Scrollback {
+    pub(super) fn loading_view(then: Option<Then>) -> Scrollback {
         Scrollback {
             lines: Vec::new(),
             offset: 0,
@@ -326,6 +333,29 @@ impl Desktop {
             buf: Vec::new(),
             first_line: 0,
         }
+    }
+    /// The retained text between absolute lines `c` (first output line) and `d` (the next prompt).
+    pub(super) fn block_text(&self, id: u64, c: u64, d: u64) -> Result<String, &'static str> {
+        let sb = self
+            .scrollback
+            .get(&id)
+            .filter(|s| !s.loading)
+            .ok_or("history not loaded")?;
+        if c < sb.first_line {
+            return Err("That command's output is no longer retained");
+        }
+        let start = usize::try_from(c - sb.first_line).unwrap_or(0);
+        let end = usize::try_from(d.saturating_sub(sb.first_line))
+            .unwrap_or(0)
+            .min(sb.lines.len());
+        if start >= end {
+            return Err("That command printed nothing");
+        }
+        let mut lines: Vec<&str> = sb.lines[start..end].iter().map(String::as_str).collect();
+        while lines.last().is_some_and(|l| l.trim().is_empty()) {
+            lines.pop();
+        }
+        Ok(lines.join("\n"))
     }
     /// The output lines of the last finished command, from `id`'s marks and loaded history.
     fn last_output_from(&self, id: u64) -> Result<String, &'static str> {
@@ -574,7 +604,7 @@ impl Desktop {
                 .max_rect(inner)
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
-        if icon_button(&mut icons, &t, Icon::Close, "Terminate pane").clicked() {
+        if icon_button(&mut icons, &t, Icon::Close, "Close pane (undo with the Reopen action)").clicked() {
             out = Some(PaneAction::Close(id));
         }
         if icon_button(&mut icons, &t, Icon::Zoom, "Zoom / restore").clicked() {
@@ -697,6 +727,12 @@ impl Desktop {
             full: false,
         };
         let mut picked = None;
+        let mut block_pick: Option<blockmenu::BlockPick> = None;
+        if response.secondary_clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                self.note_block_click(id, pos, rect);
+            }
+        }
         // Right-click menu; programs that track the mouse keep the right button (Shift+right-click still opens it).
         if self
             .panes
@@ -705,6 +741,7 @@ impl Desktop {
             || ui.input(|i| i.modifiers.shift)
         {
             response.context_menu(|ui| {
+                block_pick = self.block_menu_items(ui, &t);
                 picked = menus::menu_body(
                     ui,
                     &menus::Cx {
@@ -718,6 +755,9 @@ impl Desktop {
         }
         if let Some(p) = picked {
             self.menu_pick = Some((id, p));
+        }
+        if let Some(p) = block_pick {
+            self.run_block_pick(p);
         }
         let font = FontId::monospace(self.font_size);
         let cw = ui.fonts(|f| f.glyph_width(&font, 'M'));

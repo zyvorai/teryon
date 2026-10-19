@@ -51,7 +51,7 @@ impl Desktop {
             }
             Some(PaneAction::Close(pane)) => {
                 self.focus = pane;
-                self.confirm_close = true;
+                self.close_focused_pane();
             }
             None => {}
         }
