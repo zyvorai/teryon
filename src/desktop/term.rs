@@ -867,20 +867,30 @@ impl Desktop {
         let bg_default = color(t.background);
         let card = self.cfg.pane_inset > 0.;
         let radius = if card { 10. } else { 6. };
-        painter.rect_filled(
-            rect,
-            if bar_h > 0. {
-                egui::CornerRadius {
-                    nw: 0,
-                    ne: 0,
-                    sw: radius as u8,
-                    se: radius as u8,
-                }
-            } else {
-                egui::CornerRadius::same(radius as u8)
-            },
-            bg_default.gamma_multiply(opacity),
-        );
+        let stops: Vec<Color32> = self
+            .cfg
+            .background_gradient
+            .iter()
+            .filter_map(|c| triggers::parse_hex(c))
+            .collect();
+        if stops.len() >= 2 && bar_h <= 0. {
+            paint_gradient(&painter, rect, &stops, self.cfg.gradient_angle, opacity);
+        } else {
+            painter.rect_filled(
+                rect,
+                if bar_h > 0. {
+                    egui::CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: radius as u8,
+                        se: radius as u8,
+                    }
+                } else {
+                    egui::CornerRadius::same(radius as u8)
+                },
+                bg_default.gamma_multiply(opacity),
+            );
+        }
         if card {
             // A hairline edge, and a soft accent ring on the focused pane when there are several.
             let ring = id == self.focus && self.pane_rects.len() > 1;
@@ -1112,7 +1122,12 @@ impl Desktop {
                 let wide = screen.cell(r, c).is_some_and(|cell| cell.is_wide());
                 let cell_rect =
                     Rect::from_min_size(pos, Vec2::new(cw * if wide { 2. } else { 1. }, ch));
-                let ink = color(if self.online { t.accent } else { t.warning });
+                let ink = self
+                    .cfg
+                    .cursor_color
+                    .as_deref()
+                    .and_then(triggers::parse_hex)
+                    .unwrap_or_else(|| color(if self.online { t.accent } else { t.warning }));
                 if !active {
                     painter.rect_stroke(
                         cell_rect,
@@ -1303,4 +1318,38 @@ impl Desktop {
             );
         }
     }
+}
+
+/// Fill `rect` with a linear gradient through `stops`, running at `angle` degrees (0 = left to
+/// right, 90 = top to bottom), as a coarse vertex-colored mesh.
+fn paint_gradient(painter: &egui::Painter, rect: Rect, stops: &[Color32], angle: f32, alpha: f32) {
+    const N: usize = 24;
+    let (dy, dx) = angle.to_radians().sin_cos();
+    let span = (rect.width() * dx.abs() + rect.height() * dy.abs()).max(1.);
+    let at = |t: f32| {
+        let x = t.clamp(0., 1.) * (stops.len() - 1) as f32;
+        let i = (x as usize).min(stops.len() - 2);
+        stops[i].lerp_to_gamma(stops[i + 1], x - i as f32)
+    };
+    let mut mesh = egui::Mesh::default();
+    for row in 0..=N {
+        for col in 0..=N {
+            let p = Pos2::new(
+                rect.left() + rect.width() * col as f32 / N as f32,
+                rect.top() + rect.height() * row as f32 / N as f32,
+            );
+            let d = p - rect.center();
+            let t = 0.5 + (d.x * dx + d.y * dy) / span;
+            mesh.colored_vertex(p, at(t).gamma_multiply(alpha));
+        }
+    }
+    let w = (N + 1) as u32;
+    for row in 0..N as u32 {
+        for col in 0..N as u32 {
+            let i = row * w + col;
+            mesh.add_triangle(i, i + 1, i + w);
+            mesh.add_triangle(i + 1, i + w + 1, i + w);
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
 }

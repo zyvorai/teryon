@@ -3466,6 +3466,7 @@ dependencies = [
  "libc",
  "portable-pty",
  "ratatui",
+ "raw-window-handle",
  "regex",
  "serde",
  "serde_json",

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Desktop: `cursor_color`, `window_blur` (macOS background blur) and `background_gradient` with `gradient_angle`.
+
 - Desktop: `tab_bar = "bottom"` adds a WezTerm-style tab strip (tab pills, a new-tab button and a clock) under a bare `chrome = "none"` window.
 
 - **Zsh power features** in `teryon shell-init zsh`, no plugins needed: history in `~/.teryon/history.jsonl`, ghost-text suggestions, syntax highlighting, a fuzzy picker for Ctrl-R (history with status, duration and directory), Ctrl-T (files) and Alt-C (directories), fuzzy Tab completion, `z`/`zi` directory jump and an opt-in two-line prompt with git state. `[shell]` in `config.toml` switches each on or off; `teryon-features` shows what is active. See `docs/SHELL-INTEGRATION.md`.

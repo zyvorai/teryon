@@ -228,6 +228,15 @@ pub struct DesktopConfig {
     pub pane_inset: f32,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
+    /// `#RRGGBB` cursor color (default: the theme's accent).
+    pub cursor_color: Option<String>,
+    /// Blur what shows through a transparent window, 0 (off) to 100 (macOS only; needs
+    /// `window_opacity` below 1.0 and a restart).
+    pub window_blur: u32,
+    /// Two or more `#RRGGBB` colors painted across the terminal instead of the flat background.
+    pub background_gradient: Vec<String>,
+    /// Gradient direction in degrees: 0 runs left to right, 90 top to bottom.
+    pub gradient_angle: f32,
     /// Window transparency, 0.3 (see-through) to 1.0 (opaque).
     pub window_opacity: f32,
     /// Brightness of unfocused panes, 0.2 (dim) to 1.0 (no dimming).
@@ -279,6 +288,10 @@ impl Default for DesktopConfig {
             pane_inset: 10.,
             cursor_style: CursorStyle::Block,
             cursor_blink: false,
+            cursor_color: None,
+            window_blur: 0,
+            background_gradient: Vec::new(),
+            gradient_angle: 135.,
             window_opacity: 1.,
             unfocused_opacity: 0.82,
             copy_on_select: false,
@@ -336,6 +349,20 @@ impl DesktopConfig {
         check("pane_inset", self.pane_inset, 0., 32.)?;
         check("window_opacity", self.window_opacity, 0.3, 1.)?;
         check("unfocused_opacity", self.unfocused_opacity, 0.2, 1.)?;
+        check("window_blur", self.window_blur as f32, 0., 100.)?;
+        check("gradient_angle", self.gradient_angle, -360., 360.)?;
+        let is_hex = |c: &str| {
+            c.strip_prefix('#')
+                .is_some_and(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+        };
+        for c in self.cursor_color.iter().chain(&self.background_gradient) {
+            if !is_hex(c) {
+                bail!("desktop colors must look like #RRGGBB, not {c:?}");
+            }
+        }
+        if self.background_gradient.len() == 1 {
+            bail!("desktop.background_gradient needs at least two colors");
+        }
         match (self.initial_cols, self.initial_rows) {
             (None, None) => {}
             (Some(c), Some(r)) if (20..=500).contains(&c) && (5..=200).contains(&r) => {}
@@ -717,5 +744,24 @@ mod ai_tests {
             toml::from_str::<Config>("[ai]\nkey = \"sk-ant-x\"\n").is_err(),
             "a key must never be stored in config"
         );
+    }
+    #[test]
+    fn colors_blur_and_gradient_are_validated() {
+        let ok = parse_desktop(
+            "[desktop]\ncursor_color = \"#82aaff\"\nwindow_blur = 40\nbackground_gradient = [\"#16161e\", \"#2a2b3b\"]\n",
+        )
+        .unwrap();
+        assert_eq!((ok.window_blur, ok.background_gradient.len()), (40, 2));
+        for bad in [
+            "cursor_color = \"blue\"",
+            "window_blur = 101",
+            "background_gradient = [\"#16161e\"]",
+            "background_gradient = [\"#16161e\", \"nope\"]",
+        ] {
+            assert!(
+                parse_desktop(&format!("[desktop]\n{bad}\n")).is_err(),
+                "{bad}"
+            );
+        }
     }
 }

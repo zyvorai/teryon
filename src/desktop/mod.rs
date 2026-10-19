@@ -25,6 +25,7 @@ mod ai;
 mod aicmd;
 mod away;
 mod bar;
+mod blur;
 mod cmdhist;
 mod dropzone;
 mod files;
@@ -1763,6 +1764,9 @@ pub fn run(
         },
         Box::new(move |cc| {
             install_fonts(&cc.egui_ctx, family.as_deref());
+            if app.cfg.window_blur > 0 && transparent {
+                blur::apply(cc, app.cfg.window_blur);
+            }
             Ok(Box::new(app))
         }),
     )

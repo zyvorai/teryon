@@ -161,6 +161,11 @@ binding using `teryon config --keys`.
 | `pane_inset` | 10 | Space around the pane cards; 0 runs panes edge to edge |
 | `cursor_style`, `cursor_blink` | block, false | Cursor shape |
 | `window_opacity` | 1.0 | 0.3 to 1.0; turning transparency on needs a restart |
+| `window_blur` | 0 | 0 to 100: blur behind a transparent window (macOS; needs `window_opacity` below 1.0) |
+| `cursor_color` | theme accent | `#RRGGBB` |
+| `background_gradient` | none | two or more `#RRGGBB` stops painted across the terminal |
+| `gradient_angle` | 135 | degrees: 0 runs left to right, 90 top to bottom |
+| `tab_bar` | `off` | `bottom` adds a strip of tabs and a clock under a `chrome = "none"` window |
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |
 | `copy_on_select` | false | Copy a selection when it is finished |
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
@@ -211,7 +216,7 @@ rename, copy visible screen, offline draft, always on top.
 ## What it does not do
 
 * Font ligatures and complex text shaping (the renderer lays glyphs out one by one).
-* Window background blur; plain `window_opacity` transparency is supported.
+* Window background blur uses a private macOS call and may stop working in a future macOS release.
 * The kitty graphics and keyboard protocols, and OSC 8 hyperlinks (the terminal parser ignores them;
   plain-text URLs still open with ⌘-click).
 * Shell-integration features such as jumping between prompts (TERYON does not inject into your shell).

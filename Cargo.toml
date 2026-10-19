@@ -22,10 +22,11 @@ eframe = { version = "0.31", default-features = false, features = ["default_font
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 clap_complete = "4.5"
 regex = "1"
+raw-window-handle = { version = "0.6", optional = true }
 
 [features]
 default = []
-desktop = ["dep:eframe", "dep:image"]
+desktop = ["dep:eframe", "dep:image", "dep:raw-window-handle"]
 
 [dev-dependencies]
 tempfile = "3"
