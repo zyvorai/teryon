@@ -11,6 +11,7 @@ pub mod dashboard;
 #[cfg(feature = "desktop")]
 pub mod desktop;
 pub mod files;
+pub mod highlight;
 pub mod history;
 pub mod ipc;
 pub mod keymap;

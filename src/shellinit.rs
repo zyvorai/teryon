@@ -20,9 +20,10 @@ if [[ -z "$__teryon_integrated" ]]; then
   add-zsh-hook precmd __teryon_precmd
   add-zsh-hook preexec __teryon_preexec
 fi
-# History and autosuggestions. Set TERYON_PLUS=0 before this line to turn them off.
+# History, autosuggestions and syntax highlighting. Set TERYON_PLUS=0 before this line to turn them off.
 if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
-  typeset -g __teryon_plus=1 __teryon_hint= __teryon_hl=
+  typeset -g __teryon_plus=1 __teryon_hint=
+  typeset -ga __teryon_hls; __teryon_hls=()
   __teryon_record() {
     [[ -n "$__teryon_cmd" && -n "$__teryon_t0" ]] || return
     local -i ms=$(( (EPOCHREALTIME - __teryon_t0) * 1000 ))
@@ -32,18 +33,34 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   __teryon_clear_hint() {
     POSTDISPLAY=
     __teryon_hint=
-    if [[ -n "$__teryon_hl" ]]; then region_highlight=("${(@)region_highlight:#$__teryon_hl}"); __teryon_hl=; fi
+    local h
+    for h in "${__teryon_hls[@]}"; do region_highlight=("${(@)region_highlight:#$h}"); done
+    __teryon_hls=()
+  }
+  __teryon_highlight() {
+    [[ -z "$ZSH_HIGHLIGHT_VERSION" && -n "$BUFFER" && "${#BUFFER}" -le 500 && "$BUFFER" != *$'\n'* ]] || return
+    local line w; local -a f
+    for line in "${(@f)$(command teryon highlight -- "$BUFFER" 2>/dev/null)}"; do
+      f=(${=line}); [[ "${#f}" -eq 3 ]] || continue
+      if [[ "$f[3]" == '?' ]]; then
+        w=${BUFFER:$f[1]:$(( f[2] - f[1] ))}
+        if [[ -n "${aliases[$w]+x}${functions[$w]+x}" ]]; then f[3]=fg=green; else f[3]=fg=red; fi
+      fi
+      __teryon_hls+=("$f[1] $f[2] $f[3]")
+    done
+    region_highlight+=("${__teryon_hls[@]}")
   }
   __teryon_suggest() {
-    __teryon_clear_hint
-    [[ -n "$BUFFER" && "$CURSOR" -eq "${#BUFFER}" && "$BUFFER" != *$'\n'* ]] || return
+    [[ -z "$ZSH_AUTOSUGGEST_STRATEGY" && -n "$BUFFER" && "$CURSOR" -eq "${#BUFFER}" && "$BUFFER" != *$'\n'* ]] || return
     local s; s=$(command teryon hist suggest --cwd "$PWD" -- "$BUFFER" 2>/dev/null) || return
     [[ -n "$s" && "$s" == "$BUFFER"?* ]] || return
     __teryon_hint=$s
     POSTDISPLAY=${s#"$BUFFER"}
-    __teryon_hl="${#BUFFER} $(( ${#BUFFER} + ${#POSTDISPLAY} )) fg=8"
-    region_highlight+=("$__teryon_hl")
+    local h="${#BUFFER} $(( ${#BUFFER} + ${#POSTDISPLAY} )) fg=8"
+    __teryon_hls+=("$h")
+    region_highlight+=("$h")
   }
+  __teryon_redraw() { __teryon_clear_hint; __teryon_highlight; __teryon_suggest; }
   __teryon_accept_all() {
     if [[ -n "$__teryon_hint" && "$CURSOR" -eq "${#BUFFER}" ]]; then
       BUFFER=$__teryon_hint; CURSOR=${#BUFFER}; __teryon_clear_hint
@@ -58,13 +75,12 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       local rest=${__teryon_hint#"$BUFFER"} lead tail
       lead=${rest%%[![:space:]]*}; tail=${rest#"$lead"}
       BUFFER+=$lead${tail%%[[:space:]]*}; CURSOR=${#BUFFER}
-      __teryon_suggest
     else
       zle .forward-word
     fi
   }
   autoload -Uz add-zle-hook-widget
-  add-zle-hook-widget line-pre-redraw __teryon_suggest
+  add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint
   zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
   bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
@@ -213,6 +229,7 @@ mod tests {
             "hist add",
             "hist suggest",
             "line-pre-redraw",
+            "teryon highlight",
             "TERYON_PLUS",
             "__teryon_forward_word",
         ] {

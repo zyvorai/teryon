@@ -193,6 +193,12 @@ enum Commands {
     /// Command history behind the shell integration (used by the zsh widgets).
     #[command(hide = true, subcommand)]
     Hist(HistCommand),
+    /// Colour spans for a command line, as `START END STYLE` lines (used by the zsh widgets).
+    #[command(hide = true)]
+    Highlight {
+        #[arg(last = true)]
+        line: Vec<String>,
+    },
     /// Guided first-run setup: tools, SSH hosts, reachability, theme.
     Setup {
         /// Accept every default without asking.
@@ -929,6 +935,16 @@ fn run() -> Result<i32> {
             let entries = teryon::history::load_tail();
             if let Some(s) = teryon::history::suggest(&entries, &prefix.join(" "), &cwd) {
                 println!("{s}");
+            }
+        }
+        Commands::Highlight { line } => {
+            let line = line.join(" ");
+            for span in teryon::highlight::spans(
+                &line,
+                &teryon::highlight::is_command,
+                &teryon::highlight::path_exists,
+            ) {
+                println!("{} {} {}", span.start, span.end, span.kind.style());
             }
         }
         Commands::Setup { yes } => {
