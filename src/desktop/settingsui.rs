@@ -237,6 +237,12 @@ pub(super) const SECTIONS: &[(&str, &[Setting])] = &[
                 Ctl::Bool,
             ),
             s(
+                "check_updates",
+                "Check for updates",
+                "Once a day, ask GitHub whether a newer TERYON is out (never installs anything).",
+                Ctl::Bool,
+            ),
+            s(
                 "agent_sandbox",
                 "Sandbox new agents",
                 "Agents you start here can only write to their repository and cannot read ~/.ssh or cloud credentials.",
@@ -278,7 +284,7 @@ macro_rules! accessors {
 }
 accessors! {
     bool: [cursor_blink, status_line, file_browser, maximized, fullscreen, confirm_quit, confirm_end_shells,
-           copy_on_select, command_gutter, fresh_window, agent_notifications, agent_quick_approve, agent_sandbox];
+           copy_on_select, command_gutter, fresh_window, agent_notifications, agent_quick_approve, agent_sandbox, check_updates];
     float: [window_opacity, unfocused_opacity, corner_radius, background_noise, pane_inset,
             font_size, line_height, padding, text_gamma];
     uint: [window_blur, scrollback_lines, notify_after_seconds];

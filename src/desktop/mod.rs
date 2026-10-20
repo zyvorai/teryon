@@ -49,6 +49,7 @@ mod term;
 mod themepicker;
 mod tree;
 mod triggers;
+mod updates;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
 use find::FindQuery;
@@ -155,6 +156,12 @@ pub struct Desktop {
     weights: Weights,
     /// Set while panes are laid out as a tree of splits instead of the grid layouts.
     tree: Option<tree::PaneTree>,
+    /// A check for a newer release running in the background, and whether the user asked for it.
+    update_auto_done: bool,
+    update_check: Option<(
+        mpsc::Receiver<anyhow::Result<Option<crate::update::Release>>>,
+        bool,
+    )>,
     /// Where each visible pane was drawn last frame (for directional focus).
     pane_rects: BTreeMap<u64, Rect>,
     /// How much unfocused panes are dimmed (0 = not at all).
@@ -379,6 +386,8 @@ impl Desktop {
             target: None,
             weights: Weights::default(),
             tree: None,
+            update_check: None,
+            update_auto_done: false,
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
             wake_set: false,
@@ -1078,6 +1087,7 @@ impl Desktop {
             crate::ui::set_wake(move || repaint.request_repaint());
             self.wake_set = true;
         }
+        self.update_tick(ctx);
         let previous_focus = self.focus;
         {
             // Terminal first: after Tab, an arrow or Esc, or when nothing has focus (unless an
@@ -1654,6 +1664,7 @@ impl Desktop {
                 let cwd = self.focus_cwd();
                 self.send(Command::New(cwd));
             }
+            ActionKind::CheckUpdates => self.check_updates(true),
             ActionKind::SplitRight => self.split_focused(true),
             ActionKind::SplitDown => self.split_focused(false),
             ActionKind::NewPaneRight if self.tree.is_some() => self.split_focused(true),

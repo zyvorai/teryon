@@ -47,6 +47,7 @@ pub mod themeimport;
 pub mod transport;
 pub mod ui;
 pub mod uikit;
+pub mod update;
 pub mod util;
 pub mod wake;
 pub mod watch;

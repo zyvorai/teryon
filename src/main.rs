@@ -320,6 +320,13 @@ enum Commands {
         #[arg(long)]
         workspace: Option<String>,
     },
+    /// Say whether a newer TERYON release is out (it never installs anything: get the signed
+    /// `.dmg`/`.pkg` from the release page, which `--open` opens).
+    Update {
+        /// Open the release page in the browser when there is a newer release.
+        #[arg(long)]
+        open: bool,
+    },
     /// Wake a sleeping host with a wake-on-LAN packet (set `mac` on the host in the config).
     Wake {
         /// A configured host alias.
@@ -884,6 +891,20 @@ fn run() -> Result<i32> {
                 ids.len()
             );
         }
+        Commands::Update { open } => match teryon::update::check()? {
+            Some(r) => {
+                println!(
+                    "TERYON {} is available (this is {}): {}",
+                    r.version,
+                    env!("CARGO_PKG_VERSION"),
+                    r.url
+                );
+                if open {
+                    teryon::uikit::open_url(&r.url);
+                }
+            }
+            None => println!("TERYON {} is up to date.", env!("CARGO_PKG_VERSION")),
+        },
         Commands::Wake { host } => {
             let cfg = config::load()?;
             let h = cfg
