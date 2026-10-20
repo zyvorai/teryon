@@ -34,7 +34,7 @@ impl Desktop {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let home = std::env::var("HOME").unwrap_or_default();
-        let entries = history::load_all();
+        let entries = history::load_with_hosts();
         let items = picker::history_items(&entries, &cwd, &home, now);
         let runs = picker::history_runs(&entries, &cwd, &home, now);
         if items.is_empty() {

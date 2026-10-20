@@ -63,6 +63,33 @@ impl Target {
             .map(|s| util::shell_quote(s))
             .unwrap_or_else(|| "\"$HOME/.local/bin/teryon\"".into())
     }
+    /// Run `teryon ARGS` on the remote host and return what it prints. `args` is a shell fragment
+    /// written by this program, never user text.
+    pub fn run_remote(&self, args: &str) -> Result<String> {
+        if self.local() {
+            bail!("that is this machine");
+        }
+        let out = self
+            .ssh()
+            .arg(format!("exec {} {args}", self.remote_executable()))
+            .stdin(Stdio::null())
+            .output()
+            .context("start OpenSSH")?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            let last = err
+                .lines()
+                .rev()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("");
+            bail!(
+                "{} said: {} (is teryon installed and up to date there?)",
+                self.host,
+                last.chars().take(300).collect::<String>()
+            );
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
     pub fn connect(&self) -> Result<Rpc> {
         let mut rpc = if self.local() {
             daemon::ensure()?;

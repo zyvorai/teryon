@@ -255,6 +255,7 @@ mod tests {
             ms: 0,
             at,
             branch: None,
+            host: None,
         };
         let mut dirs = from_history(&[e("/a", 1), e("/a", 9), e("/b", 3), e("relative", 4)]);
         dirs.sort_by(|a, b| a.path.cmp(&b.path));

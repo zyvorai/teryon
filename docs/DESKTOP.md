@@ -60,6 +60,12 @@ The same filter words work here and in Ctrl-R: `is:failed`, `is:ok`, `exit:N`, `
 `branch:PART`, combined with ordinary text (`cargo is:failed dir:api`). Each command is recorded with the Git branch it ran
 on, read from `.git/HEAD` (commands recorded before that have none and never match a `branch:` filter).
 
+Other machines' history can be copied here with `teryon hist pull HOST` (over SSH, using the same host names and
+`--remote-bin` as the rest of teryon; run it again to refresh). Those commands show up in Ctrl-R and ⌘⇧H marked
+`@HOST`, and `host:NAME` narrows to one machine (`host:local` is this one). They are kept apart in
+`~/.teryon/history-hosts/HOST.jsonl` (private, newest 5000), never feed the ghost suggestions or directory jumps, and
+commands with secrets are dropped on both ends. It copies a snapshot; nothing runs in the background.
+
 Commands that contain a recognizable secret (a token, a `--password` flag, a URL with credentials) are not recorded,
 so they are never suggested back or listed. History kept before that can be cleaned with `teryon hist scrub`; a
 command you start with a space is also never recorded.

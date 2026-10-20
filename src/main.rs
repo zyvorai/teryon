@@ -393,6 +393,14 @@ enum HistCommand {
     },
     /// Remove commands that contain a secret from the history file (they are no longer recorded either).
     Scrub,
+    /// Print this machine's recent history as JSON lines (what `hist pull` reads on the other end).
+    Export {
+        #[arg(long, default_value_t = 2000)]
+        limit: usize,
+    },
+    /// Copy HOST's command history here over SSH, so Ctrl-R and the history picker also find what ran
+    /// there (`host:NAME` filters to it). Commands with secrets are left out; run again to refresh.
+    Pull { host: String },
     /// Print the command to ghost after PREFIX (nothing if none).
     Suggest {
         #[arg(long, default_value = "")]
@@ -1141,6 +1149,7 @@ fn run() -> Result<i32> {
                 ms,
                 at,
                 branch,
+                host: None,
             })?;
         }
         Commands::Hist(HistCommand::Scrub) => {
@@ -1148,6 +1157,20 @@ fn run() -> Result<i32> {
             println!(
                 "Removed {n} command{} that contained a secret from the history.",
                 if n == 1 { "" } else { "s" }
+            );
+        }
+        Commands::Hist(HistCommand::Export { limit }) => {
+            print!("{}", teryon::history::export(limit));
+        }
+        Commands::Hist(HistCommand::Pull { host }) => {
+            let t = target(host.clone(), bin)?;
+            let text = t.run_remote("hist export")?;
+            let entries = teryon::history::import(&host, &text);
+            teryon::history::save_host(&host, &entries)?;
+            println!(
+                "Pulled {} command{} from {host}; search them with `host:{host}` in the history picker.",
+                entries.len(),
+                if entries.len() == 1 { "" } else { "s" }
             );
         }
         Commands::Hist(HistCommand::Suggest { cwd, prefix }) => {
@@ -1171,7 +1194,7 @@ fn run() -> Result<i32> {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
                 let home = std::env::var("HOME").unwrap_or_default();
-                let entries = teryon::history::load_all();
+                let entries = teryon::history::load_with_hosts();
                 let here = cwd.to_string_lossy();
                 runs = teryon::picker::history_runs(&entries, &here, &home, now);
                 let items = teryon::picker::history_items(&entries, &here, &home, now);
