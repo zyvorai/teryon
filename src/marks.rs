@@ -22,9 +22,10 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+        if b[i] == b'%' && i + 3 <= b.len() {
+            let hex = |c: u8| (c as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h * 16 + l) as u8);
                 i += 3;
                 continue;
             }
@@ -151,6 +152,13 @@ mod tests {
     use super::*;
     fn osc(s: &str) -> Vec<&[u8]> {
         s.split(';').map(str::as_bytes).collect()
+    }
+    #[test]
+    fn percent_decode_handles_multibyte_and_trailing_escapes() {
+        assert_eq!(percent_decode("%a\u{e9}"), "%a\u{e9}");
+        assert_eq!(percent_decode("/a%41"), "/aA");
+        assert_eq!(percent_decode("%4"), "%4");
+        assert_eq!(percent_decode("%+1"), "%+1");
     }
     #[test]
     fn osc_sequences_parse() {
