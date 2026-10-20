@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.20.0
+
+The largest release so far: a cheaper, more explainable link over SSH, more of the modern terminal protocols, much more for AI agents, and a smarter command history. Restart the daemon (`teryon stop --force`, which ends its shells) to get the daemon-side changes.
+
 - Update notice: "Check for updates" in the palette and `teryon update [--open]` say whether a newer release is out and open its page (where the signed `.dmg`/`.pkg` are); `check_updates = true` does it once a day at start-up. Off by default, and nothing is installed automatically
 - Kitty graphics protocol: `kitten icat`, `chafa -f kitty` and other tools that draw with `ESC _ G` now show images in the desktop app, the same way as iTerm2 images (PNG and raw RGB/RGBA, chunked, transmit/display/put/query/delete). Files, shared memory, zlib, animation and Unicode placeholders are refused with an error. Restart the daemon (`teryon stop --force`) to get it
 - Pane trees: "Split pane right / below (pane tree)" split the focused pane in any direction, as often as you like, with every divider draggable; a closed pane's space goes to its neighbours. The shape is not saved across restarts

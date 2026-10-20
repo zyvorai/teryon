@@ -19,17 +19,25 @@ Counts overlap across compiler/configuration runs; the totals should not be adde
 
 The runner's initial Rust 1.99.1 optimized build produced dependency archive/link errors. Pinning Rust 1.94.0 resolved that release-build issue; the pinned compiler is used by the repository and workflow definitions.
 
-## Latest local run (macOS, 0.16.0)
+## Latest local run (macOS, 0.20.0)
 
-Run on the Apple Silicon Mac the 0.16.0 release was built on (2026-10-19, Rust 1.98.1 rather than the pinned 1.94.0), with the committed lockfile:
+Run on the Apple Silicon Mac the release was prepared on (2026-10-20), with the committed lockfile and the compiler installed there (not the pinned 1.94.0):
 
 | Check | Result |
 |---|---|
-| `cargo test --features desktop` | **259 passed**: 233 library/UI, 2 CLI, 1 history CLI, 2 picker PTY, 16 session, 5 zsh widget |
-| `cargo test --no-default-features` | **196 passed** (the desktop-only UI tests are not built) |
-| `cargo fmt --check`, `cargo clippy --all-targets --features desktop -- -D warnings` | **Passed** |
+| `cargo test --features desktop` | **422 passed**: 379 library/UI, 2 CLI, 5 history/update CLI, 2 picker PTY, 1 recovery, 28 session, 5 zsh widget |
+| `cargo test --no-default-features` | **305 passed** (the desktop-only UI tests are not built) |
+| `cargo fmt --check`, `cargo clippy --all-features --all-targets` | **Passed**, no warnings |
 
-The Linux table above is from the earlier session and its counts are no longer current; the evidence files under `test-results/` were not regenerated. The 0.16.0 `.dmg` and `.pkg` were signed and notarized (accepted by Apple, stapled) and the installed app passes Gatekeeper. Desktop visuals added in 0.16.0 (inline images, command chip, tab icons, fullscreen, gradient, grain) were checked by screenshot on macOS; smooth scrolling, the theme cross-fade and the eased cursor were not.
+Notes on what these do and do not show:
+
+- The session tests start a real daemon and real shells. Two of them (recipe readiness and a recipe start) failed once each on a heavily loaded machine (load average 5 to 7) and passed on every other run, including eight consecutive runs on `main`; they depend on shell start-up time.
+- `teryon sandbox` is tested against the real `sandbox-exec` on macOS (writes outside the repository are denied, a fake `~/.ssh` key is unreadable, the network and `claude --version` still work). The Linux `bwrap` path is only tested for the arguments it would receive; it has not been run.
+- The Kitty graphics tests run a real daemon and check the reserved rows, deletion, the program's reply and the stored bytes; no real `kitten`, `chafa` or `timg` was available, and nothing was looked at in the desktop window.
+- The desktop features added in 0.20 (pane-tree dividers, the agent Changes button, Kitty images, the update toast, diffs in the app) are covered by unit and app-level tests but were not checked in a real window. The one real call to GitHub (`teryon update`) reported 0.19.0 as up to date.
+- The 4x request reduction from quiet-session polling and the roughly 17x and 7x byte reductions from screen diffs are from arithmetic and one scrolling-output test, not from a benchmark against other tools.
+
+The Linux table above is from an earlier session and its counts are no longer current; the evidence files under `test-results/` were not regenerated. The 0.16.0 `.dmg` and `.pkg` were signed and notarized; the 0.20.0 packages are built by hand on the signing Mac after the tag.
 
 ## Real-process coverage
 
@@ -45,6 +53,11 @@ The session tests start a real daemon process and real PTY-backed shells/tasks. 
 - Bounded input backpressure without stalling the whole service.
 - Explicit termination of a job that ignores hangup.
 - Geometry, workspace-name, shutdown and removal validation.
+- Screen diffs: a client that asks for diffs rebuilds a scrolling, colored screen identically, with a full snapshot on a mismatch.
+- Kitty graphics: chunked transmit and display reserve the right rows, delete by id removes only that image, escape text never reaches the screen, and the capability query gets its reply.
+- Kitty keyboard flags are answered, pushed, popped and left with the alternate screen.
+- Recipes: panes start in dependency order, wait for `ready_text` or a listening port, stop with a clear error on a timeout, and refuse to start twice.
+- Controller takeover, the connection recovery inspector's causes, and history `pull` over a stand-in `ssh` with a second home directory.
 
 The test runner blocks Unix socket binding, so the Linux session tests exercised the authenticated loopback fallback. GitHub's Linux/macOS jobs use the same tests and normally exercise the preferred Unix-socket path. Those hosted jobs have not run merely because workflow files are present.
 
@@ -81,6 +94,6 @@ Do not run default-feature rebuilds concurrently with native smoke tests; they s
 
 ## Still requires validation
 
-Broader macOS GUI behavior beyond the one Mac used; laptop/mini sleep and wake; launchd/systemd installation on a real login session; notarized builds on other Macs; the 0.16.0 animations (smooth scroll, theme fade, eased cursor); long-lived reliability, latency and memory benchmarks; nontrivial jump-host/server policies; firewall and network blackhole cases; and compatibility with your exact Vim/Neovim, shell plugins and terminal applications.
+Broader macOS GUI behavior beyond the one Mac used, and every 0.20 desktop feature in a real window (see the notes above); laptop/mini sleep and wake; launchd/systemd installation on a real login session; notarized builds on other Macs; the 0.16.0 animations (smooth scroll, theme fade, eased cursor); long-lived reliability, latency and memory benchmarks; nontrivial jump-host/server policies; firewall and network blackhole cases; and compatibility with your exact Vim/Neovim, shell plugins and terminal applications.
 
 Provided CI, app-bundle and service scripts are source deliverables, not evidence they were deployed to your account or hardware. These tests publish nothing; releases are cut by hand with `scripts/release-macos.sh`.

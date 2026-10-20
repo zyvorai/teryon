@@ -40,6 +40,10 @@ teryon deploy mini --binary ./new-build/teryon
 
 `--force` terminates panes; it is not a zero-downtime session migration operation.
 
+## Finding out about a new release
+
+`teryon update` (or "Check for updates" in the desktop palette) asks GitHub for the latest published release and says whether it is newer than the running version; `--open` opens the release page. `[desktop] check_updates = true` does it once a day at start-up. It never downloads or installs anything: take the signed, notarized `.dmg` or `.pkg` from the release page, or `teryon deploy` a binary you built, and restart the daemon as described above.
+
 ## Optional user services
 
 `scripts/install-service.sh` writes a launchd LaunchAgent on macOS or a systemd user unit on Linux, without sudo. Run it explicitly only if you want service-manager ownership. It refuses to overwrite an existing unit file. Stop the automatically started daemon first, or the service's lock acquisition will fail.

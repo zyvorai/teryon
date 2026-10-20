@@ -31,9 +31,27 @@ First, the local IPC client sends the endpoint token as one JSON string line. Ne
 
 Requests cover hello, list, attach, poll, input, resize, new pane, rename, close, capture, info, remove and shutdown. The definitions in `src/protocol.rs` are authoritative.
 
-Poll requests include previously observed pane revisions. Changed panes return a complete formatted terminal state; unchanged panes return metadata without screen bytes. This deliberately favors recovery simplicity over a sophisticated display-delta protocol. A reconnect resets the client's revision cache, so it obtains fresh full screens.
+Poll requests include previously observed pane revisions. Changed panes return a complete formatted terminal state; unchanged panes return metadata without screen bytes. A client that sends `Poll{diff: true}` (the desktop app over SSH; older daemons ignore the flag) gets the difference from the last screen it received instead, see "Screen diffs" below. A reconnect resets the client's revision cache, so it obtains fresh full screens.
 
 This design is not optimized for 4K video-like terminal output or very high-latency links: request/response polling adds latency and a client that asks (the desktop app over SSH) gets screen diffs instead of whole screens, and its screen bytes travel as base64 text, but other binary fields still travel as JSON number arrays, which is far larger than a binary encoding. It is a safe starting point for measuring and improving the transport.
+
+## Screen diffs
+
+`src/screensync.rs`. The daemon keeps, per connection, a mirror of the last screen it sent each pane. For a client that asked for diffs it sends a scroll hint (equivalent to `CSI n S`, found by best-match over the rows) plus only the changed rows, a digest (FNV over the cells the client can see) and the new cursor. The client applies it to its own copy and verifies the digest; on any mismatch, after a resize, and every 500 updates it asks for a full snapshot, so a bug here degrades to the old behavior instead of corrupting the screen. Screen bytes travel as base64 text for diff clients, and pane details (title, directory, foreground process, ports, line numbers) are sent once and then only when they change. Everything is optional on the wire (`serde` defaults and `skip_serializing_if`), so old and new clients and daemons interoperate.
+
+Idle clients poll less often: after five seconds without input or output the worker polls every 250 ms instead of 60 ms (`quiet_poll_ms`), and input or a screen change brings the 6 ms hot interval back at once.
+
+## Sequences the parser does not see
+
+`vt100` is vendored with small patches (scrollback counters, OSC 8 hyperlinks stored per cell, `advance_rows` to reserve room for an image). Some sequences need more than the parser offers, so the daemon handles them around it:
+
+- **Kitty graphics** (`src/kittygfx.rs`). The parser drops APC strings, so the reader thread first runs the bytes through an `ApcFilter` (a small state machine that survives read boundaries) which splits the stream into plain data and APC bodies. Data goes to the parser; each APC body is queued and a private OSC marker (`OSC 7777`) is fed to the parser, which calls back into `TerminalCallbacks` with the screen at exactly that point in the stream. The command is decoded there, the image is stored (raw RGB/RGBA is re-encoded as PNG), cells are reserved and the program's reply is written to its input.
+- **iTerm2 inline images, marks and the directory** (`OSC 1337`, `OSC 133`, `OSC 7`) arrive through the parser's `unhandled_osc` callback. Placements are sent beside the screen and the client fetches image bytes once (`Request::Image`).
+- **Kitty keyboard protocol** (`src/kittykeys.rs`): the daemon keeps a flag stack per screen and answers `CSI ? u`; the client encodes keys accordingly.
+
+## Client-side layout
+
+The daemon only knows a flat list of panes. Layouts (single, columns, rows, grid, and the pane tree in `src/desktop/tree.rs`) are computed in the desktop client from pane ids. The tree follows the daemon's list: a pane that disappears is removed and its neighbour takes the space, and a new pane is placed next to the focused one. The tree's shape is not saved.
 
 ## Controller leases and input
 
@@ -50,6 +68,14 @@ Acknowledgment means the input was accepted into a bounded per-pane queue. A ded
 The TUI paints terminal cells with Ratatui/Crossterm; the desktop paints them with egui/eframe and an OpenGL renderer. Network operations run on a worker thread. The desktop is native Rust; there is no webview, JavaScript backend, or remote code execution in the UI.
 
 OSC52 clipboard requests are ignored. The remote process cannot silently overwrite the local system clipboard through terminal escape sequences. Local Copy buttons perform explicit copies instead.
+
+## Helper commands that run in a pane
+
+Several features are deliberately small `sh` scripts typed into a pane rather than daemon features, so they work over SSH, with no client attached, and under any user shell: recipe restart policies (`restart = "on-failure"`), agent worktrees and the **Changes** listing. `teryon sandbox -- CMD` (`src/sandbox.rs`) runs a command under `sandbox-exec` (macOS) or `bwrap` (Linux) with writes limited to the Git repository and scratch and settings directories and credential directories hidden; if the tool is missing the command is not started.
+
+## Local history
+
+`teryon hist add` (called by the zsh integration after every command) appends to `~/.teryon/history.jsonl` (mode 0600, compacted at 4 MB) unless the command contains a secret (`src/ai/redact.rs`). `teryon hist pull HOST` copies another machine's `hist export` over SSH into `~/.teryon/history-hosts/HOST.jsonl`; those entries carry their host, appear in the picker but never in suggestions, and are secret-filtered again on import.
 
 ## State durability
 
