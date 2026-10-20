@@ -1,91 +1,59 @@
 # TERYON Roadmap
 
-Prioritized feature additions based on current limitations (`docs/LIMITATIONS.md`), user feedback potential, and alignment with Zyvor’s Mac mini / AI-agent / infrastructure focus.
+What has shipped and what is still open, based on the current limitations (`docs/LIMITATIONS.md`), what users are likely to hit, and the Mac mini / AI-agent / infrastructure focus.
 
-**Status**: Engineering preview v0.19.0. These items move Teryon toward a reliable daily driver.
+**Status**: Engineering preview v0.20.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
 
-## P0 — Daily-driver foundations
+## Shipped in 0.20.0
 
-### 1. Differential / incremental screen transport
-- Replace full changed-screen snapshots with delta encoding.
-- Reduce bandwidth and latency on high-output sessions.
-- Improve controller heartbeat and force-takeover.
+| Area | What |
+|---|---|
+| Transport | Screen diffs over SSH (a scroll plus the changed rows, checksummed, with automatic full resync), compact base64 screen bytes, slim polls that resend pane details only when they change, slower polling for quiet sessions |
+| Remote reliability | Connection recovery inspector (why the link is down and what to do), reconnect jitter, resume-after-sleep detection, controller takeover |
+| Terminal compatibility | OSC 8 hyperlinks, Kitty keyboard protocol (disambiguate flag), Kitty graphics protocol (PNG and raw pixels), iTerm2 inline images |
+| Layouts | Free-form pane tree with draggable dividers, alongside single, columns, rows and grid |
+| Agents | Overview panel with summaries, spawn in a pane or a Git worktree, broadcast a prompt to idle agents, finish notifications, **Changes** view, `teryon sandbox` and `agent_sandbox` |
+| Projects | Recipes start panes in order (`after`, `ready_text`, `ready_port`), and can restart a command (`restart = "on-failure"`) |
+| History | Secrets are never recorded (`hist scrub` for old ones), filter words (`is:failed`, `exit:`, `slow:`, `dir:`, `branch:`, `host:`), the Git branch of each command, `teryon hist pull HOST` for other machines |
+| Safety | Confirmation before a tab or window closes running shells |
+| Away | "While you were away" timeline of finished commands and waiting agents |
+| Updates | `teryon update`, palette "Check for updates", optional daily check (off by default), nothing installed automatically |
 
-### 2. Mouse protocol forwarding + richer terminal compatibility
-- Mouse reporting already works in the desktop app; remaining: TUI parity and a compatibility suite (Vim, Neovim, tmux, Claude Code).
-- Kitty graphics protocol and/or Sixel support.
-- Hyperlinks, better inline images, complete modern terminal queries.
-- Configurable font fallbacks.
+## Still open
 
-### 3. Automated signed/notarized macOS packaging + auto-update
-- CI builds of signed `.dmg` / `.pkg`.
-- Sparkle or equivalent auto-update mechanism.
-- Optional App Store track later.
+### Verification (do first)
+- Real-window check of the 0.20 desktop features, on physical Apple Silicon, with laptop sleep, long builds and real SSH links.
+- Published, reproducible latency, memory and bandwidth measurements against tmux, Zellij, WezTerm and Mosh.
+- A long agent session through `teryon sandbox` on macOS and Linux (the Linux `bwrap` path has never been run).
 
-## P1 — Power-user and reliability
+### Layouts and windows
+- Save the pane-tree shape across restarts.
+- Cross-window tab dragging and multi-monitor workspaces.
 
-### 4. Arbitrary pane layouts
-- Full pane tree (today: single, columns, rows or grid with draggable dividers).
-- Multi-monitor workspace support.
-- Cross-window tab dragging.
+### Terminal fidelity
+- Sixel; Kitty graphics extras (files, shared memory, zlib, animation, Unicode placeholders); the rest of the Kitty keyboard flags; configurable font fallbacks.
 
-### 5. Improved session durability
-- Persist cwd, environment, and recent history across daemon restarts.
-- Optional tmux/Zellij backend for stronger process survival.
-- Better layout restore semantics.
+### Packaging
+- Build the signed macOS packages in CI without putting signing material in the repository.
+- Decide whether the app should ever install updates itself (today it only tells you).
 
-### 6. Automatic port discovery and one-click forwarding
-- Listening ports are already detected and can be opened from the palette; remaining: one-click local forward and health checks.
-- Failure and permission tests.
+### Sessions and operations
+- Persist working directory, environment and recent history across daemon restarts; optional tmux/Zellij backend for stronger process survival.
+- Automatic port discovery with one-click forwarding in the UI (discovery and open-in-browser exist).
+- Host metrics history graphs, a per-process view, Apple Silicon GPU and scheduling hints.
+- Persistent offline drafts on disk.
 
-### 7. Persistent command history + secret redaction
-- Durable, searchable command history store.
-- Robust secret redaction before any external send (AI, notifications).
-- Optional encrypted transcript archive.
+### AI, agents and collaboration
+- Agent workspace presets and richer MCP tools for long-running tasks; test-result views for agents.
+- Multi-user shared workspaces (invitation links, roles, optional screen broadcasting).
+- Bidirectional file sync and editor integration; delivery guarantees and a mobile companion for notifications.
 
-## P2 — AI, agents, and ops
-
-### 8. Deeper MCP and agent tooling
-- Richer tools for long-running tasks, workspace templates.
-- Agent workspace presets (Claude Code, Codex, custom).
-- Integration hooks for FluxVM / Kairon sandboxes.
-
-### 9. Enhanced host metrics dashboard
-- History graphs for load, memory, temperature.
-- Per-process view.
-- Apple Silicon GPU utilization and scheduling hints.
-- Better wake-on-LAN and power management.
-
-### 10. Persistent offline drafts
-- Save unsent drafts to disk (`~/.teryon/drafts/`).
-- Survive client restarts.
-
-## P3 — Reach and collaboration
-
-### 11. Windows client
-- Native desktop via egui (already cross-platform capable).
-- Or high-quality WSL path.
-
-### 12. Multi-user shared workspaces
-- Invitation links.
-- Role-based access (controller / editor / viewer).
-- Optional screen broadcasting.
-
-### 13. Bidirectional file sync and editor integration
-- Continuous or on-demand sync beyond rsync CLI.
-- Inline preview and “open in local editor” flows.
-
-### 14. Mobile companion / stronger notifications
-- Delivery guarantees and retries.
-- Lightweight mobile monitoring for long builds and agents.
-
----
+### Not planned
+- A native Windows client.
 
 ## Implementation notes
 
-- Protocol changes (P0 transport) require careful versioning and backward compatibility.
-- Terminal fidelity work touches `vt100` integration and desktop rendering.
-- Packaging work lives in `scripts/` and `.github/workflows/`.
-- All new features should include tests and updates to `docs/LIMITATIONS.md`.
-
-See also the “Next engineering milestones” section in `docs/LIMITATIONS.md`.
+- Protocol changes need careful versioning and backward compatibility: new fields are optional on the wire and capabilities are negotiated (`Poll{diff}`, `Info{diff}`).
+- Terminal fidelity work touches the vendored `vt100` and the daemon's reader thread; see `docs/ARCHITECTURE.md`.
+- Packaging lives in `scripts/` and `.github/workflows/`.
+- Every new feature includes tests and updates `docs/LIMITATIONS.md`.

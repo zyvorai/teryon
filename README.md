@@ -15,7 +15,7 @@
 
 TERYON separates the life of your shell from the life of your connection. A per-user service on your Mac mini or Linux host owns the terminals; OpenSSH transports the interface. Disconnect, close the client, or put your laptop to sleep, then reconnect to the same live shells.
 
-**Status: 0.19.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
+**Status: 0.20.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
 
 ## Desktop app
 
@@ -104,6 +104,11 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Power tools | Quick select, vi-style copy mode, snippets, broadcast input, regex find, floating panes, drag-and-drop upload, triggers |
 | Shell-aware | Optional shell integration: prompt jumping, last-command output, exit-status chips, long-command notifications |
 | Zsh power features | Built into the shell integration: history suggestions, syntax highlighting, fuzzy Ctrl-R / Ctrl-T / Alt-C / Tab, `z` directory jump and an optional git prompt (`docs/SHELL-INTEGRATION.md`) |
+| Remote transport | Over SSH the desktop app receives screen diffs (a scroll plus changed rows, checksummed, with automatic full resync) as compact text, polls quiet sessions less often, explains why a link is down (Wi-Fi/DNS, host asleep, key refused, changed host key, teryon missing) and can take over the controller seat from another device |
+| Terminal compatibility | OSC 8 hyperlinks (⌘-click), Kitty keyboard protocol (disambiguate flag), Kitty graphics and iTerm2 inline images, mouse reporting; see [LIMITATIONS.md](docs/LIMITATIONS.md) for the gaps |
+| AI agents | Status chips and an overview (⌘⇧A) for Claude Code, Codex, Gemini, aider, Cursor and OpenCode; start one in a pane or its own Git worktree, broadcast a prompt to idle agents, see what it changed, and run it in `teryon sandbox` (writes limited to its repository, credentials hidden) |
+| Command history | Shell integration records each command with its exit status, duration, directory and Git branch, never keeps commands that contain a secret, searches with `is:failed`, `exit:`, `slow:`, `dir:`, `branch:` and `host:` filters, and can pull other hosts' history (`teryon hist pull HOST`) |
+| Updates | `teryon update` and the palette's "Check for updates" say whether a newer release is out; nothing is installed automatically |
 | Easy start | `teryon` picker, `teryon setup`, theme import from iTerm2/Alacritty/Ghostty/Kitty, saved layouts that come back after a reboot |
 | File-type colors | New shells get `CLICOLOR`/`LS_COLORS`/`EZA_COLORS` (only if unset; separate colors for source, config, docs, media, archives), and every theme paints ANSI 0-15, so `ls` directories, executables, symlinks, archives and media look consistent |
 | Terminal UI | Responsive sidebar, pane borders, status bar, help overlay, prefix shortcuts |
@@ -115,7 +120,7 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | File transfers | Resumable rsync uploads/downloads with protected path arguments and no automatic deletion |
 | Ports | Loopback-only OpenSSH local forwarding; optional reconnect loop |
 | Deployment | SCP upload, remote executable verification, atomic same-filesystem binary replacement, remote doctor |
-| Projects | `.teryon.toml` recipes: `teryon up` starts a workspace's panes, directories and commands |
+| Projects | `.teryon.toml` recipes: `teryon up` starts a workspace's panes, directories and commands, in dependency order (`after`, `ready_text`, `ready_port`) and with restart policies |
 | Operations | `dashboard` host overview, `agents` across workspaces, `wake` (wake-on-LAN), `import-ssh` aliases, shell completions, `exec --notify` desktop notifications |
 | Diagnostics | Reachability, actual daemon OS/architecture, process ID and workspace/pane counts |
 | Local IPC | Private Unix socket preferred; authenticated ephemeral loopback TCP fallback in restricted environments |

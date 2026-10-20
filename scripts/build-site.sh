@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the GitHub Pages site into site/dist: inject the theme swatches from themes/*.toml
-# and the repository and site URLs.
+# the version from Cargo.toml, the theme count, and the repository and site URLs.
 # Usage: scripts/build-site.sh [https://github.com/OWNER/REPO] [https://OWNER.github.io/REPO]
 set -eu
 cd "$(dirname "$0")/.."
@@ -25,8 +25,12 @@ cards = "".join(
     + "</span></div>\n"
     for t in themes
 )
-html = open("site/index.template.html").read().replace("<!--SWATCHES-->", cards).replace("__REPO__", repo).replace("__SITE__", site)
+version = next(l.split('"')[1] for l in open("Cargo.toml") if l.startswith("version = "))
+html = (open("site/index.template.html").read().replace("<!--SWATCHES-->", cards)
+        .replace("__REPO__", repo).replace("__SITE__", site)
+        .replace("__VERSION__", version).replace("__THEMES__", str(len(themes))))
 open("site/dist/index.html", "w").write(html)
+open("site/dist/.nojekyll", "w").close()
 open("site/dist/robots.txt", "w").write(f"User-agent: *\nAllow: /\nSitemap: {site}/sitemap.xml\n")
 open("site/dist/sitemap.xml", "w").write(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
