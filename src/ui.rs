@@ -34,6 +34,19 @@ const POLL_HOT: Duration = Duration::from_millis(6);
 /// How long polling stays fast after input or a screen change.
 const HOT_FOR: Duration = Duration::from_millis(400);
 
+/// After this long without input or output, polling slows to `quiet_poll_ms` (see `set_quiet_poll`).
+const QUIET_AFTER: Duration = Duration::from_secs(5);
+/// Default gap between polls of a pane that has been quiet for `QUIET_AFTER`.
+pub(crate) const DEFAULT_QUIET_POLL_MS: u32 = 250;
+static QUIET_POLL_MS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(DEFAULT_QUIET_POLL_MS);
+/// Set the poll gap for quiet sessions in milliseconds; 0 (or anything not above the normal idle gap)
+/// keeps the normal gap. Output that arrives after a quiet spell shows up that much later at worst,
+/// and the first keystroke or screen change brings fast polling back.
+pub(crate) fn set_quiet_poll(ms: u32) {
+    QUIET_POLL_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// A worker loop that comes back after longer than this was suspended (laptop sleep, network
 /// change), so its connection is assumed dead and replaced at once instead of waiting for ssh keepalives.
 const RESUME_GAP: Duration = Duration::from_secs(20);
@@ -50,8 +63,17 @@ pub(crate) fn jittered(wait_ms: u64, seed: u32) -> u64 {
 
 /// How long the worker waits for a command before it polls again.
 pub(crate) fn poll_wait(now: Instant, hot_until: Instant) -> Duration {
+    poll_wait_with(
+        now,
+        hot_until,
+        QUIET_POLL_MS.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+fn poll_wait_with(now: Instant, hot_until: Instant, quiet_ms: u32) -> Duration {
     if now < hot_until {
         POLL_HOT
+    } else if now >= hot_until + QUIET_AFTER {
+        Duration::from_millis(u64::from(quiet_ms)).max(POLL_IDLE)
     } else {
         POLL_IDLE
     }
@@ -1494,6 +1516,33 @@ mod tests {
         assert_eq!(super::poll_wait(now, later), super::POLL_HOT);
         assert_eq!(super::poll_wait(later, now), super::POLL_IDLE);
         assert!(super::POLL_HOT < super::POLL_IDLE);
+    }
+    #[test]
+    fn a_quiet_session_polls_slowly_until_something_happens() {
+        let now = std::time::Instant::now();
+        let secs = std::time::Duration::from_secs;
+        // Just went cool: still the normal idle gap.
+        assert_eq!(
+            super::poll_wait_with(now + secs(2), now, 250),
+            super::POLL_IDLE
+        );
+        // Quiet for a while: slower.
+        assert_eq!(
+            super::poll_wait_with(now + secs(6), now, 250),
+            std::time::Duration::from_millis(250)
+        );
+        // Any input or output makes it hot again, and the gap shrinks at once.
+        assert_eq!(
+            super::poll_wait_with(now + secs(6), now + secs(7), 250),
+            super::POLL_HOT
+        );
+        // 0 and values below the idle gap turn the slowdown off.
+        for off in [0, 10] {
+            assert_eq!(
+                super::poll_wait_with(now + secs(60), now, off),
+                super::POLL_IDLE
+            );
+        }
     }
     use super::*;
     #[test]

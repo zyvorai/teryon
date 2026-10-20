@@ -2021,6 +2021,7 @@ impl Desktop {
         let (keymap, problems) = Keymap::build(&cfg.keys);
         self.keymap = keymap;
         self.unfocused_dim = 1. - cfg.unfocused_opacity;
+        crate::ui::set_quiet_poll(cfg.quiet_poll_ms);
         if cfg.font_size != self.cfg.font_size {
             self.font_size = cfg.font_size;
         }
