@@ -2,11 +2,8 @@
 
 ## Unreleased
 
-
 - Recipe panes can restart their command: `restart = "on-failure"` or `"always"`, with `restart_delay` and `restart_max`; it is a small `sh` loop in the pane (works over SSH and with no client connected), and Ctrl-C stops it
-
 - A **Changes** button on each agent in the ⌘⇧A panel opens a pane in the agent's directory listing the branch, the changed files and the size of each change, with a shell left open for `git diff`; it works on remote hosts too
-
 - `teryon hist pull HOST` copies another machine's command history over SSH, so Ctrl-R and ⌘⇧H also find what you ran there: marked `@HOST`, narrowed with `host:NAME`, kept in a separate private file, never used for ghost suggestions, and secrets are left out on both ends
 - Fixed: a recipe pane could be treated as ready too early when its `ready_text` also appeared in its own command line (the shell echoes the command, and some prompt themes show it twice). Only output after the last echo of the command now counts, and a command or text that wraps across rows still matches.
 - Commands that contain a secret are no longer written to the command history, so they are never suggested back or shown in the history picker. `teryon hist scrub` removes the ones already there. The redaction rules (also used before anything goes to the assistant) now catch `--password`/`--token`/`--api-key` flags, `user:password@` URLs and `Authorization: Basic` headers as well as the key shapes and `NAME=value` secrets they already knew. It is pattern-based and best-effort: a secret typed as a bare argument is not caught.
