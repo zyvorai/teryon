@@ -36,6 +36,11 @@ so the agent's edits stay out of your checkout. When the agent exits, the pane i
 from, and the worktree and branch stay for you to review, merge or remove (`git worktree remove`). Outside a Git
 repository it stops with Git's error before starting anything. The script runs in `sh`, whatever your shell is.
 
+Each row of the Agents panel has a **Changes** button: it opens a new pane in that agent's directory (on the
+same host, so it works over SSH) showing the branch, the changed and untracked files (`git status --short --branch`)
+and the size of each change (`git diff HEAD --stat`), and leaves a shell open there for `git diff`. It reads the
+repository, not the agent, so it shows every change in the directory, including yours. Outside a Git repository it says so.
+
 ## File browser
 
 **⌘B** opens a sidebar listing the focused pane's directory; it follows `cd`, and works the same on a remote host (it runs `ls` and `head` over your SSH connection, nothing extra on the host). Click a row to select it, double-click to open a folder or type a quoted path at the prompt, **Space** for Quick Look (the first 64 KB of a text file), ↑/↓ to move, Enter to open, Backspace to go up, Esc to return to the pane. Right-click offers Quick Look, Insert path, Copy path, cd here and Reveal in Finder (local only). Quick Look also shows PNG and JPEG images. Remote rows add **Download to Downloads** (a file or folder, streamed with `tar` over SSH, never replacing an existing item). **Rename…** and **Move to Trash…** each ask first; a rename never replaces an existing name, and nothing is deleted: items move to the Trash (local) or `~/.teryon-trash` on an SSH host, so they can be put back. Nothing is run for you: paths and `cd` lines are typed without Enter.
