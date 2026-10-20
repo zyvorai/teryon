@@ -200,3 +200,34 @@ fn pulling_a_hosts_history_keeps_it_apart_and_leaves_secrets_behind() {
         ""
     );
 }
+
+#[test]
+fn update_says_whether_a_newer_release_is_out() {
+    let home = tempfile::tempdir().unwrap();
+    let say = |json: &str| {
+        let file = home.path().join("latest.json");
+        std::fs::write(&file, json).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .env("HOME", home.path())
+            .env("TERYON_UPDATE_URL", format!("file://{}", file.display()))
+            .arg("update")
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr),
+        )
+    };
+    let (ok, out) = say(
+        r#"{"tag_name":"v999.0.0","html_url":"https://github.com/zyvorai/teryon/releases/tag/v999.0.0"}"#,
+    );
+    assert!(
+        ok && out.contains("999.0.0 is available") && out.contains("/tag/v999.0.0"),
+        "{out}"
+    );
+    let (ok, out) = say(r#"{"tag_name":"v0.0.1"}"#);
+    assert!(ok && out.contains("up to date"), "{out}");
+    let (ok, out) = say("garbage");
+    assert!(!ok && out.contains("not a release"), "{out}");
+}

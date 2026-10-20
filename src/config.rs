@@ -357,6 +357,10 @@ pub struct DesktopConfig {
     /// read `~/.ssh`, `~/.aws`, `~/.gnupg` or `~/.kube`. Needs `teryon` on the host's PATH and
     /// `sandbox-exec` (macOS) or `bwrap` (Linux) there.
     pub agent_sandbox: bool,
+    /// Once a day at start-up, ask GitHub whether a newer TERYON is out and say so in a toast.
+    /// Off by default: it is the one thing the app does on its own over the network. "Check for
+    /// updates" in the palette asks whenever you like, whatever this is set to.
+    pub check_updates: bool,
     /// A thin bar beside each command block (needs shell integration): red when it failed, the
     /// accent while it runs, faint green when it succeeded.
     pub command_gutter: bool,
@@ -431,6 +435,7 @@ impl Default for DesktopConfig {
             agent_notifications: true,
             agent_quick_approve: false,
             agent_sandbox: false,
+            check_updates: false,
             command_gutter: true,
             file_browser: false,
             theme_light: None,
