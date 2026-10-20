@@ -193,6 +193,16 @@ enum Commands {
     /// Command history behind the shell integration (used by the zsh widgets).
     #[command(hide = true, subcommand)]
     Hist(HistCommand),
+    /// Run COMMAND (an AI agent, say) so it can only write to the Git repository it is started in and
+    /// to scratch and settings directories, and cannot read ~/.ssh, ~/.aws, ~/.gnupg or ~/.kube. The
+    /// network stays open. Uses sandbox-exec on macOS and bwrap on Linux.
+    Sandbox {
+        /// Another directory the command may write to (repeatable).
+        #[arg(long = "allow-write", value_name = "DIR")]
+        allow_write: Vec<PathBuf>,
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
     /// Colour spans for a command line, as `START END STYLE` lines (used by the zsh widgets).
     #[command(hide = true)]
     Highlight {
@@ -1136,6 +1146,12 @@ fn run() -> Result<i32> {
                 print!("{}", teryon::shellinit::preamble(&cfg));
             }
             print!("{script}")
+        }
+        Commands::Sandbox {
+            allow_write,
+            command,
+        } => {
+            teryon::sandbox::exec(&command, &allow_write)?;
         }
         Commands::Hist(HistCommand::Add { exit, ms, cwd, cmd }) => {
             let at = std::time::SystemTime::now()

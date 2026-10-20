@@ -50,6 +50,10 @@ impl Kind {
 /// small `sh`, so it does not depend on the user's shell, and the pane is back in its original
 /// directory when the agent exits. Fails (visibly, before anything starts) outside a Git repository.
 pub fn worktree_command(launch: &str) -> String {
+    worktree_command_running(launch, launch)
+}
+/// Like `worktree_command`, but the name comes from `launch` while `run` is what is started in the worktree.
+pub fn worktree_command_running(launch: &str, run: &str) -> String {
     let tag: String = launch
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
@@ -57,8 +61,13 @@ pub fn worktree_command(launch: &str) -> String {
     format!(
         "sh -c 'set -e; r=$(git rev-parse --show-toplevel); b=agent/{tag}-$(date +%m%d-%H%M%S); \
          w=\"$r-${{b#agent/}}\"; git worktree add -q -b \"$b\" \"$w\"; cd \"$w\"; \
-         echo \"worktree $w on branch $b\"; exec {launch}'"
+         echo \"worktree $w on branch $b\"; exec {run}'"
     )
+}
+
+/// `launch` run inside `teryon sandbox`.
+pub fn sandboxed(launch: &str) -> String {
+    format!("teryon sandbox -- {launch}")
 }
 
 /// A shell command line that lists what changed in the current directory's Git repository: the

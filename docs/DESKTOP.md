@@ -36,6 +36,16 @@ so the agent's edits stay out of your checkout. When the agent exits, the pane i
 from, and the worktree and branch stay for you to review, merge or remove (`git worktree remove`). Outside a Git
 repository it stops with Git's error before starting anything. The script runs in `sh`, whatever your shell is.
 
+`agent_sandbox = true` (also in Settings) starts agents from the overview and the palette inside `teryon sandbox`:
+the agent can write only to the Git repository it starts in (for a worktree, that worktree and the repository's shared
+Git directory, so commits work), to scratch space (`/tmp`, `$TMPDIR`) and to the settings and cache directories agents use
+(`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config`, `~/.cache`, `~/.npm`, …), and it cannot read `~/.ssh`, `~/.aws`,
+`~/.gnupg` or `~/.kube`. The network stays open, since an agent needs its model API. You can use it by hand too:
+`teryon sandbox [--allow-write DIR] -- claude`. It is a guard against mistakes and a leaked-credentials blast radius,
+not a security boundary against a hostile program: macOS uses `sandbox-exec` (which Apple has deprecated but still ships),
+Linux uses `bwrap` (bubblewrap, which must be installed). If that tool is missing the agent is not started, rather than
+started unprotected. It needs `teryon` on the PATH of the host the pane runs on.
+
 Each row of the Agents panel has a **Changes** button: it opens a new pane in that agent's directory (on the
 same host, so it works over SSH) showing the branch, the changed and untracked files (`git status --short --branch`)
 and the size of each change (`git diff HEAD --stat`), and leaves a shell open there for `git diff`. It reads the
