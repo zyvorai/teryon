@@ -64,8 +64,7 @@ command = "cargo run"
 
 All panes are created straight away; only the commands wait. A pane that never becomes ready within its timeout
 stops `up` with an error naming what it waited for, and the panes already started keep running. `after` must name one
-other pane, and panes may not wait on each other in a circle. A line that is just the command as typed never counts
-as ready text, but `ready_text` should still be something the command prints rather than something inside it.
+other pane, and panes may not wait on each other in a circle. Only output after the command's own echo counts as ready text (the shell echoes what was typed, and some prompt themes redraw it), so a command may safely contain its ready text, but `ready_text` should still be something the command prints.
 `ready_port` is read from the pane's process tree, which the daemon refreshes every few seconds, so it can lag by
 that much. Restarting services that die is not part of this.
 
