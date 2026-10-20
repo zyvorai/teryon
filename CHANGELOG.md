@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A **Changes** button on each agent in the ⌘⇧A panel opens a pane in the agent's directory listing the branch, the changed files and the size of each change, with a shell left open for `git diff`; it works on remote hosts too
 - Fixed: a recipe pane could be treated as ready too early when its `ready_text` also appeared in its own command line (the shell echoes the command, and some prompt themes show it twice). Only output after the last echo of the command now counts, and a command or text that wraps across rows still matches.
 - Commands that contain a secret are no longer written to the command history, so they are never suggested back or shown in the history picker. `teryon hist scrub` removes the ones already there. The redaction rules (also used before anything goes to the assistant) now catch `--password`/`--token`/`--api-key` flags, `user:password@` URLs and `Authorization: Basic` headers as well as the key shapes and `NAME=value` secrets they already knew. It is pattern-based and best-effort: a secret typed as a bare argument is not caught.
 - Command history search takes filter words, in Ctrl-R and the desktop's ⌘⇧H alike: `is:failed`, `is:ok`, `exit:N`, `slow:SECONDS`, `dir:PART` and `branch:PART`, mixed with fuzzy text (`cargo is:failed dir:api`). With a filter, every recorded run is searched, not only each command's newest, so a command that failed last week still turns up after it later passed. Commands are now recorded with the Git branch they ran on (read from `.git/HEAD`, no extra process), shown in the list.

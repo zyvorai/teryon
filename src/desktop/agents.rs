@@ -225,13 +225,21 @@ impl Desktop {
     pub(super) fn spawn_agent_worktree(&mut self, kind: Kind) {
         self.spawn_command(agents::worktree_command(kind.launch()));
     }
+    /// Open a new pane in the directory an agent works in, listing what it changed there.
+    pub(super) fn show_agent_changes(&mut self, id: u64) {
+        let cwd = self.panes.get(&id).map(|p| p.info.cwd.clone());
+        self.spawn_command_in(cwd, agents::changes_command());
+    }
     fn spawn_command(&mut self, command: String) {
+        let cwd = self.focus_cwd();
+        self.spawn_command_in(cwd, command);
+    }
+    fn spawn_command_in(&mut self, cwd: Option<String>, command: String) {
         if self.readonly || !self.online {
-            self.toast("Can't start an agent: no writable connection");
+            self.toast("Can't open a pane: no writable connection");
             return;
         }
         self.spawn_cmd = Some(command);
-        let cwd = self.focus_cwd();
         self.send(Command::New(cwd));
     }
     /// A pane that was just created for `spawn_agent` gets its command typed in.
@@ -371,6 +379,8 @@ impl Desktop {
         let mut spawn: Option<Kind> = None;
         let mut prompt_all = false;
         let mut jump = None;
+        let mut changes: Option<u64> = None;
+        let can_open = !self.readonly && self.online;
         let mut answer: Option<(u64, Kind, bool)> = None;
         let quick = self.cfg.agent_quick_approve && !self.readonly;
         let mut open = true;
@@ -389,7 +399,7 @@ impl Desktop {
                     );
                 }
                 for (id, kind, status, title, cwd) in &list {
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 52.), Sense::click());
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 58.), Sense::click());
                     let asking = quick && *status == Status::NeedsYou;
                     if resp.hovered() {
                         ui.painter().rect_filled(rect, 8., color(mix(t.panel, t.foreground, 0.08)));
@@ -422,7 +432,15 @@ impl Desktop {
                     }
                     let label_x = if asking { 150. } else { 10. };
                     ui.painter().text(rect.right_center() - Vec2::new(label_x, 0.), egui::Align2::RIGHT_CENTER, status.label(), FontId::proportional(12.), c);
-                    if asking {
+                    let button = egui::Rect::from_center_size(rect.right_bottom() - Vec2::new(44., 11.), Vec2::new(72., 16.));
+                    let shown = ui.put(button, egui::Button::new(RichText::new("Changes").size(11.)).small());
+                    if shown.clicked() && can_open {
+                        changes = Some(*id);
+                    }
+                    shown.on_hover_text("Open a pane listing the files this agent changed (git status and diff --stat)");
+                    if changes == Some(*id) {
+                        // The button was pressed: do not also treat the click as selecting the row.
+                    } else if asking {
                         let deny = egui::Rect::from_center_size(rect.right_center() - Vec2::new(34., 0.), Vec2::new(60., 24.));
                         let approve = egui::Rect::from_center_size(rect.right_center() - Vec2::new(100., 0.), Vec2::new(60., 24.));
                         let a = ui.put(approve, egui::Button::new("Approve")).on_hover_text("Answers the prompt: yes");
@@ -460,6 +478,10 @@ impl Desktop {
         }
         if prompt_all {
             self.open_agent_prompt();
+        }
+        if let Some(id) = changes {
+            self.show_agent_changes(id);
+            self.agents_open = false;
         }
         if let Some((id, kind, yes)) = answer {
             self.answer_agent(id, kind, yes);
@@ -651,6 +673,26 @@ mod tests {
             app.panes[&2].track.summary.as_deref(),
             Some("Refactored the parser, 12 tests pass")
         );
+    }
+
+    #[test]
+    fn changes_open_a_pane_in_the_agents_directory() {
+        let (mut app, rx) = app_with_screen("");
+        app.online = true;
+        agent_pane(&mut app, 4, Some("claude"), "hi\r\n");
+        app.panes.get_mut(&4).unwrap().info.cwd = "/srv/app".into();
+        app.show_agent_changes(4);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(Some(c))) if c == "/srv/app"));
+        app.run_spawned(9);
+        let Ok(Command::Input { pane: 9, data }) = rx.try_recv() else {
+            panic!("the command is typed into the new pane")
+        };
+        assert!(String::from_utf8(data)
+            .unwrap()
+            .contains("git status --short"));
+        app.readonly = true;
+        app.show_agent_changes(4);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
