@@ -42,6 +42,8 @@ pub struct Meta {
     pub ms: u64,
     pub cwd: String,
     pub branch: Option<String>,
+    /// The other machine it ran on; `None` for this one.
+    pub host: Option<String>,
 }
 impl Item {
     pub fn plain(text: &str) -> Self {
@@ -63,6 +65,7 @@ pub struct Filters {
     exit: Option<i32>,
     dirs: Vec<String>,
     branches: Vec<String>,
+    hosts: Vec<String>,
     slow_ms: Option<u64>,
 }
 impl Filters {
@@ -78,6 +81,13 @@ impl Filters {
                 .dirs
                 .iter()
                 .all(|d| meta.cwd.to_lowercase().contains(d))
+            && self.hosts.iter().all(|h| {
+                meta.host
+                    .as_deref()
+                    .unwrap_or("local")
+                    .to_lowercase()
+                    .contains(h)
+            })
             && self.branches.iter().all(|b| {
                 meta.branch
                     .as_deref()
@@ -110,6 +120,10 @@ pub fn parse_query(query: &str) -> (Filters, String) {
                 .is_some(),
             Some(("dir", v)) if !v.is_empty() => {
                 f.dirs.push(v.to_string());
+                true
+            }
+            Some(("host", v)) if !v.is_empty() => {
+                f.hosts.push(v.to_string());
                 true
             }
             Some(("branch", v)) if !v.is_empty() => {
@@ -350,20 +364,25 @@ fn history_item(e: &history::Entry, cwd: &str, home: &str, now: u64) -> Item {
         .branch
         .as_deref()
         .map_or(String::new(), |b| format!(" ⎇ {b}"));
+    let host = e
+        .host
+        .as_deref()
+        .map_or(String::new(), |h| format!(" @{h}"));
     Item {
         text: e.cmd.clone(),
         detail: format!(
-            "{status} {} {}{branch} {}",
+            "{status} {} {}{branch}{host} {}",
             short_duration(e.ms),
             tilde(&e.cwd, home),
             ago(now, e.at)
         ),
-        local: e.cwd == cwd,
+        local: e.host.is_none() && e.cwd == cwd,
         meta: Some(Meta {
             exit: e.exit,
             ms: e.ms,
             cwd: e.cwd.clone(),
             branch: e.branch.clone(),
+            host: e.host.clone(),
         }),
     }
 }
@@ -704,6 +723,7 @@ mod tests {
             ms: 1500,
             at,
             branch: None,
+            host: None,
         };
         let list = vec![
             e("make", "/h/a", 0, 10),
@@ -753,6 +773,7 @@ mod tests {
             ms,
             at,
             branch: branch.map(str::to_string),
+            host: None,
         }
     }
     #[test]
@@ -836,6 +857,32 @@ mod tests {
         assert!(State::with_all(items, runs, "branch:main ls", true)
             .hits()
             .is_empty());
+    }
+    #[test]
+    fn host_filter_separates_this_machine_from_pulled_ones() {
+        let mk = |cmd: &str, host: Option<&str>| history::Entry {
+            cmd: cmd.into(),
+            cwd: "/srv".into(),
+            exit: 0,
+            ms: 1,
+            at: 10,
+            branch: None,
+            host: host.map(str::to_string),
+        };
+        let entries = vec![mk("uptime", Some("Web1")), mk("ls", None)];
+        let items = history_items(&entries, "/srv", "/home/me", 20);
+        let runs = history_runs(&entries, "/srv", "/home/me", 20);
+        let remote = items.iter().find(|i| i.text == "uptime").unwrap();
+        assert!(remote.detail.contains("@Web1"));
+        assert!(!remote.local, "another machine's directory is never `here`");
+        assert!(items.iter().find(|i| i.text == "ls").unwrap().local);
+        let texts = |q: &str| -> Vec<String> {
+            let st = State::with_all(items.clone(), runs.clone(), q, true);
+            st.hits().iter().map(|&i| st.item(i).text.clone()).collect()
+        };
+        assert_eq!(texts("host:web"), ["uptime"]);
+        assert_eq!(texts("host:local"), ["ls"]);
+        assert_eq!(texts("host:nowhere"), Vec::<String>::new());
     }
     #[test]
     fn lists_that_are_not_history_ignore_filter_words() {

@@ -25,6 +25,10 @@ pub struct Entry {
     /// The Git branch the command ran on (or a short commit id when detached), if `cwd` is in a repository.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// The machine the command ran on, for entries pulled from another host (`teryon hist pull`);
+    /// `None` for commands run here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// The branch checked out at `cwd`, read from `.git/HEAD` without starting a process (this runs after
@@ -99,6 +103,76 @@ pub fn scrub_file() -> Result<usize> {
         util::write_private_atomic(&path, out.as_bytes())?;
     }
     Ok(dropped)
+}
+/// Where the history pulled from other machines is kept: one file per host.
+fn hosts_dir() -> Result<PathBuf> {
+    Ok(util::home()?.join(".teryon/history-hosts"))
+}
+/// The file name for a host: its characters made safe for a path.
+fn host_file(host: &str) -> String {
+    let safe: String = host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("{safe}.jsonl")
+}
+/// Commands kept per host, and the longest command kept.
+const MAX_HOST_ENTRIES: usize = 5_000;
+const MAX_CMD_BYTES: usize = 4_096;
+/// This machine's newest `limit` entries as JSON lines, what `teryon hist pull` reads over SSH.
+/// Entries that contain a secret are left out again, whatever the file holds.
+pub fn export(limit: usize) -> String {
+    let (all, _) = scrubbed(load_all());
+    let skip = all.len().saturating_sub(limit.min(MAX_HOST_ENTRIES));
+    all[skip..]
+        .iter()
+        .filter(|e| e.host.is_none())
+        .filter_map(|e| serde_json::to_string(e).ok())
+        .map(|l| l + "\n")
+        .collect()
+}
+/// The entries in `text` (an `export`), marked as run on `host`. Anything that does not belong in
+/// a history here (secrets, blank or over-long commands) is dropped, whatever the other machine sent.
+pub fn import(host: &str, text: &str) -> Vec<Entry> {
+    let mut list: Vec<Entry> = parse(text)
+        .into_iter()
+        .filter(|e| should_record(&e.cmd) && e.cmd.len() <= MAX_CMD_BYTES)
+        .map(|e| Entry {
+            host: Some(host.to_string()),
+            ..e
+        })
+        .collect();
+    let excess = list.len().saturating_sub(MAX_HOST_ENTRIES);
+    list.drain(..excess);
+    list
+}
+/// Replace what is kept for `host` with `entries`.
+pub fn save_host(host: &str, entries: &[Entry]) -> Result<()> {
+    let text: String = entries
+        .iter()
+        .filter_map(|e| serde_json::to_string(e).ok())
+        .map(|l| l + "\n")
+        .collect();
+    util::write_private_atomic(&hosts_dir()?.join(host_file(host)), text.as_bytes())
+}
+/// Local history together with everything pulled from other hosts, oldest first.
+pub fn load_with_hosts() -> Vec<Entry> {
+    let mut all = load_all();
+    if let Some(files) = hosts_dir().ok().and_then(|d| std::fs::read_dir(d).ok()) {
+        for f in files.filter_map(|f| f.ok()) {
+            if let Ok(text) = std::fs::read_to_string(f.path()) {
+                all.extend(parse(&text).into_iter().filter(|e| e.host.is_some()));
+            }
+        }
+    }
+    all.sort_by_key(|e| e.at);
+    all
 }
 /// Parse file text, oldest first; lines that are not valid entries are skipped.
 pub fn parse(text: &str) -> Vec<Entry> {
@@ -198,6 +272,7 @@ mod tests {
             ms: 5,
             at,
             branch: None,
+            host: None,
         }
     }
     #[test]
@@ -243,6 +318,29 @@ mod tests {
             kept.iter().map(|x| x.cmd.as_str()).collect::<Vec<_>>(),
             ["ls", "git status"]
         );
+    }
+    #[test]
+    fn imported_history_is_marked_with_its_host_and_never_carries_secrets() {
+        let line = |cmd: &str| {
+            format!("{{\"cmd\":{cmd:?},\"cwd\":\"/s\",\"exit\":0,\"ms\":1,\"at\":5}}\n")
+        };
+        let text = [
+            line("uptime"),
+            line("deploy --token=abc123def456"),
+            line("  hidden"),
+            line(&"x".repeat(MAX_CMD_BYTES + 1)),
+            "garbage\n".to_string(),
+        ]
+        .concat();
+        let got = import("web1", &text);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            (got[0].cmd.as_str(), got[0].host.as_deref()),
+            ("uptime", Some("web1"))
+        );
+        // The host name is made safe for a file name.
+        assert_eq!(host_file("me@host:22/../x"), "me_host_22_.._x.jsonl");
+        assert_eq!(host_file("../etc"), ".._etc.jsonl");
     }
     #[test]
     fn suggestion_is_the_newest_longer_match_preferring_this_directory() {

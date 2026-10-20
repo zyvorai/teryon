@@ -122,3 +122,81 @@ fn the_git_branch_is_recorded_with_each_command() {
     assert!(lines[0].contains("\"branch\":\"topic\""), "{}", lines[0]);
     assert!(!lines[1].contains("branch"), "{}", lines[1]);
 }
+
+#[test]
+fn pulling_a_hosts_history_keeps_it_apart_and_leaves_secrets_behind() {
+    use std::os::unix::fs::PermissionsExt;
+    let local = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    // The "remote" machine: its own HOME with teryon installed where the SSH command looks for it.
+    let bin_dir = remote.path().join(".local/bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_teryon"), bin_dir.join("teryon")).unwrap();
+    teryon(
+        remote.path(),
+        &[
+            "hist",
+            "add",
+            "--cwd",
+            "/srv/app",
+            "--",
+            "systemctl restart api",
+        ],
+    );
+    // A secret that reached the remote file some other way must not travel.
+    let file = remote.path().join(".teryon/history.jsonl");
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push_str(
+        "{\"cmd\":\"deploy --token=abc123def456\",\"cwd\":\"/srv\",\"exit\":0,\"ms\":1,\"at\":1}\n",
+    );
+    std::fs::write(&file, text).unwrap();
+    // A stand-in for ssh that runs the command it is given with the remote HOME.
+    let fake = tempfile::tempdir().unwrap();
+    let ssh = fake.path().join("ssh");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\nfor last; do :; done\nHOME=\"$REMOTE_HOME\" exec sh -c \"$last\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    teryon(
+        local.path(),
+        &["hist", "add", "--cwd", "/a", "--", "cargo build"],
+    );
+    let path = format!(
+        "{}:{}",
+        fake.path().display(),
+        std::env::var("PATH").unwrap()
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", local.path())
+        .env("PATH", path)
+        .env("REMOTE_HOME", remote.path())
+        .args(["hist", "pull", "buildbox"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("Pulled 1 command from buildbox"));
+    let kept =
+        std::fs::read_to_string(local.path().join(".teryon/history-hosts/buildbox.jsonl")).unwrap();
+    assert!(kept.contains("systemctl restart api") && kept.contains("\"host\":\"buildbox\""));
+    assert!(!kept.contains("abc123def456"), "{kept}");
+    assert_eq!(
+        std::fs::metadata(local.path().join(".teryon/history-hosts/buildbox.jsonl"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    // The local history is untouched and the ghost suggestion never offers the other machine's command.
+    let own = std::fs::read_to_string(local.path().join(".teryon/history.jsonl")).unwrap();
+    assert!(!own.contains("systemctl"));
+    assert_eq!(
+        teryon(
+            local.path(),
+            &["hist", "suggest", "--cwd", "/srv/app", "--", "systemctl"]
+        ),
+        ""
+    );
+}
