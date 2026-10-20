@@ -23,7 +23,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
 | `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
-| `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout`, see below); refuses a workspace that already exists |
+| `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout` / `restart`, see below); refuses a workspace that already exists |
 | `wake HOST` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
 | `agents [HOST...] [--all]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
@@ -66,7 +66,25 @@ All panes are created straight away; only the commands wait. A pane that never b
 stops `up` with an error naming what it waited for, and the panes already started keep running. `after` must name one
 other pane, and panes may not wait on each other in a circle. Only output after the command's own echo counts as ready text (the shell echoes what was typed, and some prompt themes redraw it), so a command may safely contain its ready text, but `ready_text` should still be something the command prints.
 `ready_port` is read from the pane's process tree, which the daemon refreshes every few seconds, so it can lag by
-that much. Restarting services that die is not part of this.
+that much.
+
+A command that should come back when it dies takes a restart policy:
+
+```toml
+[[pane]]
+name = "api"
+command = "cargo run"
+restart = "on-failure"    # or "always"; default "never"
+restart_delay = 2         # seconds before each restart, default 2, at most 3600
+restart_max = 10          # give up after this many restarts, default 10, at most 1000
+```
+
+`on-failure` runs the command again when it exits with a status other than 0 and stops after a clean exit;
+`always` runs it again either way. The pane prints what it is doing (`[teryon] exit status 1; restart 2 of 10 in 2 s`).
+It is a small `sh` loop typed into the pane, not a supervisor: it keeps working when no client is connected, over SSH,
+and for a command with quotes in it, and **Ctrl-C in the pane stops the loop**. It restarts only the command, not the
+panes that wait on it. After `restart_max` restarts it stops and leaves the shell at its prompt.
+`ready_text` of a restarting pane is still judged against the first run's output.
 
 ## Command palette
 

@@ -33,8 +33,19 @@ pub struct RecipePane {
     pub ready_port: Option<u16>,
     /// Seconds to wait for this pane to become ready (default 60, at most 600).
     pub ready_timeout: Option<u64>,
+    /// Run the command again when it ends: `"on-failure"` (exit status other than 0) or `"always"`.
+    /// Default `"never"`. Ctrl-C in the pane stops the loop.
+    pub restart: Option<String>,
+    /// Seconds to wait before each restart (default 2, at most 3600).
+    pub restart_delay: Option<u64>,
+    /// Give up after this many restarts (default 10, at most 1000).
+    pub restart_max: Option<u32>,
 }
 
+const DEFAULT_RESTART_DELAY: u64 = 2;
+const MAX_RESTART_DELAY: u64 = 3600;
+const DEFAULT_RESTART_MAX: u32 = 10;
+const MAX_RESTART_MAX: u32 = 1000;
 const DEFAULT_READY_SECS: u64 = 60;
 const MAX_READY_SECS: u64 = 600;
 /// How often readiness is checked.
@@ -60,6 +71,7 @@ pub fn parse(text: &str) -> Result<Recipe> {
             ("command", &p.command),
             ("after", &p.after),
             ("ready_text", &p.ready_text),
+            ("restart", &p.restart),
         ] {
             if v.as_deref()
                 .is_some_and(|s| s.chars().any(char::is_control))
@@ -86,6 +98,25 @@ fn check_dependencies(r: &Recipe) -> Result<()> {
             .is_some_and(|s| s == 0 || s > MAX_READY_SECS)
         {
             bail!("ready_timeout must be between 1 and {MAX_READY_SECS} seconds");
+        }
+    }
+    for p in &r.panes {
+        let policy = p.restart.as_deref();
+        if !matches!(policy, None | Some("never" | "on-failure" | "always")) {
+            bail!("restart must be \"never\", \"on-failure\" or \"always\"");
+        }
+        let restarts = matches!(policy, Some("on-failure" | "always"));
+        if restarts && p.command.is_none() {
+            bail!("restart needs a command to run again");
+        }
+        if !restarts && (p.restart_delay.is_some() || p.restart_max.is_some()) {
+            bail!("restart_delay and restart_max need restart = \"on-failure\" or \"always\"");
+        }
+        if p.restart_delay.is_some_and(|s| s > MAX_RESTART_DELAY) {
+            bail!("restart_delay must be at most {MAX_RESTART_DELAY} seconds");
+        }
+        if p.restart_max.is_some_and(|n| n == 0 || n > MAX_RESTART_MAX) {
+            bail!("restart_max must be between 1 and {MAX_RESTART_MAX}");
         }
     }
     for p in &r.panes {
@@ -193,6 +224,37 @@ pub fn up(
     up_with(call, recipe, workspace, base, local, &mut |_| {})
 }
 
+/// `s` as one word for a POSIX shell (and fish, zsh, bash): in single quotes.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// What is typed into the pane for `spec`: its command, or, with a restart policy, a small `sh`
+/// loop that runs the command again after it ends. The loop runs in `sh` whatever the user's shell
+/// is, takes the command as an argument (so quoting inside it is never a problem), says what it is
+/// doing in the pane, and ends on Ctrl-C because it shares the terminal's foreground process group.
+fn typed_command(spec: &RecipePane) -> Option<String> {
+    let cmd = spec.command.as_deref()?;
+    let always = match spec.restart.as_deref() {
+        Some("always") => true,
+        Some("on-failure") => false,
+        _ => return Some(cmd.to_string()),
+    };
+    let delay = spec.restart_delay.unwrap_or(DEFAULT_RESTART_DELAY);
+    let max = spec.restart_max.unwrap_or(DEFAULT_RESTART_MAX);
+    let clean = if always {
+        ""
+    } else {
+        "[ $s -eq 0 ] && { echo \"[teryon] exited cleanly\"; exit 0; }; "
+    };
+    Some(format!(
+        "sh -c 'n=0; while :; do sh -c \"$1\"; s=$?; {clean}n=$((n+1)); \
+         [ $n -gt {max} ] && {{ echo \"[teryon] exit status $s; giving up after {max} restarts\"; exit $s; }}; \
+         echo \"[teryon] exit status $s; restart $n of {max} in {delay} s (Ctrl-C stops)\"; sleep {delay}; done' sh {}",
+        shell_quote(cmd)
+    ))
+}
+
 /// Whether `pane` is ready by its own recipe settings (ready at once when it sets none).
 fn is_ready(
     call: &mut dyn FnMut(Request) -> Result<Response>,
@@ -202,7 +264,7 @@ fn is_ready(
     if let Some(text) = &spec.ready_text {
         match call(Request::Capture { pane: id })? {
             Response::Captured { text: shown, .. }
-                if ready_text_seen(&shown, text, spec.command.as_deref()) => {}
+                if ready_text_seen(&shown, text, typed_command(spec).as_deref()) => {}
             _ => return Ok(false),
         }
     }
@@ -337,8 +399,8 @@ pub fn up_with(
                 }
             }
         }
-        if let Some(cmd) = &p.command {
-            let mut data = cmd.as_bytes().to_vec();
+        if let Some(cmd) = typed_command(p) {
+            let mut data = cmd.into_bytes();
             data.push(b'\r');
             seq += 1;
             call(Request::Input {
@@ -353,6 +415,78 @@ pub fn up_with(
 
 #[cfg(test)]
 mod tests {
+    fn pane(extra: &str) -> RecipePane {
+        parse(&format!("[[pane]]\nname = \"p\"\n{extra}"))
+            .unwrap()
+            .panes
+            .remove(0)
+    }
+    /// Run what would be typed into the pane, in a plain `sh`, and return its output and status.
+    fn run_typed(spec: &RecipePane) -> (String, Option<i32>) {
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(typed_command(spec).unwrap())
+            .output()
+            .unwrap();
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            out.status.code(),
+        )
+    }
+    #[test]
+    fn restart_settings_are_validated() {
+        for bad in [
+            "command = \"x\"\nrestart = \"sometimes\"\n",
+            "restart = \"always\"\n",
+            "command = \"x\"\nrestart_delay = 1\n",
+            "command = \"x\"\nrestart = \"always\"\nrestart_max = 0\n",
+            "command = \"x\"\nrestart = \"always\"\nrestart_delay = 4000\n",
+        ] {
+            assert!(parse(&format!("[[pane]]\n{bad}")).is_err(), "{bad}");
+        }
+        assert!(parse("[[pane]]\ncommand = \"x\"\nrestart = \"on-failure\"\nrestart_delay = 0\nrestart_max = 3\n").is_ok());
+        // Without a policy the command is typed as written.
+        assert_eq!(
+            typed_command(&pane("command = \"ls -l\"\n")).as_deref(),
+            Some("ls -l")
+        );
+        assert_eq!(
+            typed_command(&pane("command = \"ls\"\nrestart = \"never\"\n")).as_deref(),
+            Some("ls")
+        );
+        assert_eq!(typed_command(&pane("")), None);
+    }
+    #[test]
+    fn a_failing_command_is_run_again_until_the_limit() {
+        let spec = pane("command = \"echo run; exit 3\"\nrestart = \"on-failure\"\nrestart_delay = 0\nrestart_max = 2\n");
+        let (out, code) = run_typed(&spec);
+        assert_eq!(out.matches("run\n").count(), 3, "{out}");
+        assert!(
+            out.contains("restart 1 of 2") && out.contains("giving up after 2 restarts"),
+            "{out}"
+        );
+        assert_eq!(code, Some(3));
+    }
+    #[test]
+    fn on_failure_stops_after_a_clean_exit_and_always_does_not() {
+        let ok = pane("command = \"echo hi\"\nrestart = \"on-failure\"\nrestart_delay = 0\n");
+        let (out, code) = run_typed(&ok);
+        assert_eq!(out.matches("hi\n").count(), 1, "{out}");
+        assert!(out.contains("exited cleanly") && code == Some(0), "{out}");
+        let always = pane(
+            "command = \"echo hi\"\nrestart = \"always\"\nrestart_delay = 0\nrestart_max = 2\n",
+        );
+        let (out, _) = run_typed(&always);
+        assert_eq!(out.matches("hi\n").count(), 3, "{out}");
+    }
+    #[test]
+    fn quotes_in_the_command_survive_the_restart_loop() {
+        let spec =
+            pane("command = \"echo \\\"it's $((1+1))\\\" 'a b'\"\nrestart = \"on-failure\"\n");
+        let (out, _) = run_typed(&spec);
+        assert!(out.starts_with("it's 2 a b\n"), "{out}");
+    }
+
     use super::*;
     #[test]
     fn a_recipe_parses_and_is_validated() {
