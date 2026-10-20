@@ -337,6 +337,10 @@ pub struct DesktopConfig {
     /// Show the muted status line (PTYs held, last relink, receive rate) under the panes.
     pub status_line: bool,
     pub copy_on_select: bool,
+    /// Gap in milliseconds between polls of a session that has seen no input or output for 5 seconds
+    /// (250 by default; 0 keeps the normal 60 ms). A longer gap sends far fewer requests over SSH while
+    /// nothing happens; output that arrives after the quiet spell can show up that much later.
+    pub quiet_poll_ms: u32,
     /// In a pane whose program tracks the mouse, a drag selects text locally (and honors
     /// `copy_on_select`); plain clicks and the wheel still reach the program.
     pub drag_selects: bool,
@@ -416,6 +420,7 @@ impl Default for DesktopConfig {
             window_opacity: 1.,
             unfocused_opacity: 0.82,
             copy_on_select: false,
+            quiet_poll_ms: 250,
             drag_selects: false,
             notify_after_seconds: 10,
             agent_notifications: true,
@@ -472,6 +477,12 @@ impl DesktopConfig {
         check("font_size", self.font_size, 6., 72.)?;
         check("line_height", self.line_height, 1., 2.5)?;
         check("padding", self.padding, 0., 48.)?;
+        if self.quiet_poll_ms > 2000 {
+            bail!(
+                "desktop.quiet_poll_ms = {} is above 2000",
+                self.quiet_poll_ms
+            );
+        }
         for (name, v) in [
             ("padding_x", self.padding_x),
             ("padding_top", self.padding_top),
@@ -660,6 +671,15 @@ pub fn load_desktop_theme() -> Result<(DesktopConfig, String)> {
 #[cfg(test)]
 mod notify_tests {
     use super::*;
+    #[test]
+    fn quiet_poll_defaults_on_and_is_bounded() {
+        assert_eq!(Config::default().desktop.quiet_poll_ms, 250);
+        let cfg: Config = toml::from_str("[desktop]\nquiet_poll_ms = 0\n").unwrap();
+        assert_eq!(cfg.desktop.quiet_poll_ms, 0);
+        cfg.desktop.validate().unwrap();
+        let cfg: Config = toml::from_str("[desktop]\nquiet_poll_ms = 5000\n").unwrap();
+        assert!(cfg.desktop.validate().is_err());
+    }
     #[test]
     fn notify_section_parses_and_is_validated() {
         let cfg: Config =

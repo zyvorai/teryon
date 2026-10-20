@@ -227,6 +227,7 @@ binding using `teryon config --keys`.
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |
 | `copy_on_select` | false | Copy a selection when it is finished |
 | `drag_selects` | false | Drag selects locally even when the program tracks the mouse |
+| `quiet_poll_ms` | 250 | Gap between polls of a session with no input or output for 5 s (0 = always 60 ms). About 4× fewer requests while nothing happens; output after a quiet spell can show up this much later (typing and any screen change return to 6 ms polling at once) |
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
 | `notify_after_seconds` | 10 | Notify when a command this long finishes in the background (shell integration; 0 = off) |

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Idle sessions poll less: after 5 seconds without input or output the client polls every 250 ms instead of 60 ms (about 4× fewer requests over SSH), and typing or any screen change returns to fast polling at once. Output that arrives after a quiet spell can show up up to ~190 ms later; `quiet_poll_ms = 0` in `[desktop]` turns it off
 - Recipe panes can restart their command: `restart = "on-failure"` or `"always"`, with `restart_delay` and `restart_max`; it is a small `sh` loop in the pane (works over SSH and with no client connected), and Ctrl-C stops it
 - A **Changes** button on each agent in the ⌘⇧A panel opens a pane in the agent's directory listing the branch, the changed files and the size of each change, with a shell left open for `git diff`; it works on remote hosts too
 - `teryon hist pull HOST` copies another machine's command history over SSH, so Ctrl-R and ⌘⇧H also find what you ran there: marked `@HOST`, narrowed with `host:NAME`, kept in a separate private file, never used for ghost suggestions, and secrets are left out on both ends
