@@ -22,6 +22,7 @@ pub mod inlineimg;
 pub mod ipc;
 pub mod keymap;
 pub mod keys;
+pub mod kittygfx;
 pub mod kittykeys;
 pub mod layout;
 pub mod marks;

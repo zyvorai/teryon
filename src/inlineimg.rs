@@ -175,7 +175,7 @@ pub struct ImageLog {
 }
 impl ImageLog {
     /// Remember an image whose top-left cell is (`line`, `col`).
-    pub fn add(&mut self, bytes: Vec<u8>, line: u64, col: u16, cols: u16, rows: u16) {
+    pub fn add(&mut self, bytes: Vec<u8>, line: u64, col: u16, cols: u16, rows: u16) -> u64 {
         self.next += 1;
         let id = self.next;
         self.kept += bytes.len();
@@ -187,6 +187,12 @@ impl ImageLog {
             cols,
             rows,
         });
+        self.trim(0);
+        id
+    }
+    /// Forget the placements with these ids.
+    pub fn remove(&mut self, ids: &[u64]) {
+        self.placements.retain(|p| !ids.contains(&p.id));
         self.trim(0);
     }
     /// Drop images that scrolled out of the retained history, then the oldest while over budget.

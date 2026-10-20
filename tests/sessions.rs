@@ -1265,3 +1265,75 @@ fn a_recipe_pane_can_be_ready_when_it_listens_on_a_port() {
     teryon::recipe::up(&mut |r| Ok(c.call(r)), &recipe, "recipe-port", base, true).unwrap();
     c.until(2, "CHECK-RAN");
 }
+
+const KITTY_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+fn kitty_pane(c: &mut Client, script: &str) -> u64 {
+    let Response::Created { pane } = c.call(Request::NewPane {
+        cwd: None,
+        command: vec!["/bin/sh".into(), "-c".into(), script.into()],
+        rows: 24,
+        cols: 80,
+    }) else {
+        panic!("no pane")
+    };
+    pane
+}
+
+#[test]
+fn a_kitty_graphics_image_reserves_its_rows_and_can_be_deleted() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("kitty-gfx", false);
+    // Split in two chunks, then displayed; later a second one is shown and the first deleted by id.
+    let (a, b) = KITTY_PNG.split_at(24);
+    let script = format!(
+        "printf 'before\\n'; printf '\\033_Ga=T,f=100,i=7,c=10,q=2,m=1;{a}\\033\\\\'; \
+         printf '\\033_Gm=0;{b}\\033\\\\'; printf '\\nmiddle\\n'; \
+         printf '\\033_Ga=T,f=100,i=8,c=10,q=2;{KITTY_PNG}\\033\\\\'; printf '\\nafter\\n'; \
+         printf '\\033_Ga=d,d=i,i=7\\033\\\\'; printf 'gone\\n'; sleep 6"
+    );
+    let pane = kitty_pane(&mut c, &script);
+    c.until(pane, "gone");
+    let view = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
+    let images = view.images.expect("images are sent with the screen");
+    assert_eq!(images.len(), 1, "image 7 was deleted: {images:?}");
+    // The second picture sits under "middle": before(0), image rows 1-5, middle(6), so the second picture starts on line 7.
+    assert_eq!((images[0].line, images[0].cols, images[0].rows), (7, 10, 5));
+    let text = c.capture(pane);
+    assert!(!text.contains("_G") && !text.contains("Ga="), "{text:?}");
+    let middle = text.lines().position(|l| l.starts_with("middle")).unwrap();
+    let after = text.lines().position(|l| l.starts_with("after")).unwrap();
+    assert_eq!((middle, after), (6, 12), "{text:?}");
+    let Response::ImageData { data, .. } = c.call(Request::Image {
+        pane,
+        id: images[0].id,
+    }) else {
+        panic!("no image")
+    };
+    assert_eq!(
+        teryon::inlineimg::decode_base64(&data).unwrap()[..4],
+        *b"\x89PNG"
+    );
+}
+
+#[test]
+fn a_program_can_ask_whether_kitty_graphics_work_and_gets_an_answer() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    c.attach("kitty-query", false);
+    // Raw mode so the reply reaches `dd` untouched; the 12 bytes are `ESC _ G i=31;OK ESC \`.
+    let script = format!(
+        "stty -icanon -echo; printf '\\033_Ga=q,i=31,f=100;{KITTY_PNG}\\033\\\\'; \
+         r=$(dd bs=1 count=12 2>/dev/null | od -An -tx1 | tr -d ' \\n'); echo \"REPLY:$r\"; sleep 6"
+    );
+    let pane = kitty_pane(&mut c, &script);
+    c.until(pane, "REPLY:");
+    c.until(pane, "1b5f4769");
+    let text = c.capture(pane);
+    assert!(text.contains("REPLY:1b5f4769"), "{text:?}");
+    assert!(
+        text.contains("3d33313b4f4b1b5c"),
+        "i=31;OK ESC \\ : {text:?}"
+    );
+}
