@@ -47,6 +47,7 @@ mod style;
 mod tabs;
 mod term;
 mod themepicker;
+mod tree;
 mod triggers;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
@@ -152,6 +153,8 @@ pub struct Desktop {
     target: Option<Target>,
     /// Row and column shares of the visible layout, set by dragging dividers.
     weights: Weights,
+    /// Set while panes are laid out as a tree of splits instead of the grid layouts.
+    tree: Option<tree::PaneTree>,
     /// Where each visible pane was drawn last frame (for directional focus).
     pane_rects: BTreeMap<u64, Rect>,
     /// How much unfocused panes are dimmed (0 = not at all).
@@ -375,6 +378,7 @@ impl Desktop {
             active: 0,
             target: None,
             weights: Weights::default(),
+            tree: None,
             pane_rects: BTreeMap::new(),
             unfocused_dim: 0.18,
             wake_set: false,
@@ -1267,6 +1271,24 @@ impl Desktop {
                     return;
                 }
                 let ids: Vec<u64> = self.tiled_ids();
+                if self.tree.is_some() && self.layout != LayoutMode::Single {
+                    let area = ui.available_rect_before_wrap();
+                    let rects = self.tree_layout(ui, area, &ids);
+                    self.pane_rects.clear();
+                    let mut drawn = Vec::new();
+                    for (id, r) in &rects {
+                        self.pane_rects.insert(*id, *r);
+                        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(*r));
+                        drawn.push((*id, self.draw_terminal(&mut child, *id, r.height())));
+                    }
+                    ui.advance_cursor_after_rect(area);
+                    for (id, result) in drawn {
+                        if let Some(out) = result {
+                            self.handle_term_out(id, out);
+                        }
+                    }
+                    return;
+                }
                 let shown = visible_ids(&ids, self.tiled_focus(&ids), self.layout);
                 let (grid_rows, grid_cols) = self.layout.dims(shown.len());
                 let dims = (usize::from(grid_rows), usize::from(grid_cols));
@@ -1632,6 +1654,10 @@ impl Desktop {
                 let cwd = self.focus_cwd();
                 self.send(Command::New(cwd));
             }
+            ActionKind::SplitRight => self.split_focused(true),
+            ActionKind::SplitDown => self.split_focused(false),
+            ActionKind::NewPaneRight if self.tree.is_some() => self.split_focused(true),
+            ActionKind::NewPaneBelow if self.tree.is_some() => self.split_focused(false),
             ActionKind::NewPaneRight => {
                 if matches!(self.layout, LayoutMode::Single | LayoutMode::Vertical) {
                     self.layout = LayoutMode::Horizontal;
@@ -1648,7 +1674,12 @@ impl Desktop {
             }
             ActionKind::Focus(dir) => self.focus_dir(dir),
             ActionKind::Resize(dir) => self.resize_focused(dir, 0.02),
-            ActionKind::Equalize => self.weights.equalize(),
+            ActionKind::Equalize => {
+                self.weights.equalize();
+                if let Some(t) = &mut self.tree {
+                    t.equalize();
+                }
+            }
             ActionKind::NextPane => self.cycle_pane(false),
             ActionKind::PrevPane => self.cycle_pane(true),
             ActionKind::ClosePane => self.close_focused_pane(),
@@ -1662,7 +1693,10 @@ impl Desktop {
                     .get(&self.focus)
                     .map(|p| (self.focus, p.info.title.clone()));
             }
-            ActionKind::Layout(mode) => self.layout = mode,
+            ActionKind::Layout(mode) => {
+                self.layout = mode;
+                self.tree = None;
+            }
             ActionKind::Zoom => {
                 if self.layout == LayoutMode::Single {
                     self.layout = self.zoom_prev.take().unwrap_or(LayoutMode::Vertical);

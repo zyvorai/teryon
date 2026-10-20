@@ -125,6 +125,11 @@ terminal's font.
 ## Panes and splits
 
 * Layouts: single, stacked, side-by-side, 2×2 grid. Drag any divider; shares are kept between 12 % and 88 %.
+* **Pane tree**: "Split pane right (pane tree)" and "Split pane below (pane tree)" in the palette (bindable as `split_right` and
+  `split_down`) split the focused pane in two, as often and in any direction as you like, with no limit of four. Every divider
+  drags, Resize and Equalize work on the tree, a closed pane gives its space to its neighbours, and a pane opened from
+  elsewhere is split off the focused one. While a tree is active "New pane to the right / below" split too. Choosing any
+  `Layout:` entry returns to the grid layouts. The shape is not saved: after a restart the panes come back side by side.
 * Directional focus, resize and equalize (see the shortcut table). Unfocused panes are dimmed
   (`unfocused_opacity`) and show a hollow cursor.
 * Pane title bars (double-click the name to rename, zoom and close buttons) appear when more than one
