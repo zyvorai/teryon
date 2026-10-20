@@ -149,6 +149,10 @@ pub(super) fn neighbor(boxes: &[(u64, [f32; 4])], focus: u64, dir: Dir) -> Optio
 impl Desktop {
     /// Move the divider next to the focused pane by `step` of its axis, as Ghostty's resize_split does.
     pub(super) fn resize_focused(&mut self, dir: Dir, step: f32) {
+        if let Some(tree) = &mut self.tree {
+            tree.nudge(self.focus, dir, step);
+            return;
+        }
         let ids: Vec<u64> = self.panes.keys().copied().collect();
         let shown = visible_ids(&ids, self.focus, self.layout);
         let Some(at) = shown.iter().position(|id| *id == self.focus) else {

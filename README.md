@@ -98,7 +98,7 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 | Control | One controller per workspace, multiple server-enforced read-only viewers |
 | Input integrity | Ordered sequence numbers suppress duplicates within one live connection; uncertain input is never automatically replayed |
 | Terminal | ANSI colors, alternate screen, Unicode cells, cursor/application modes, bracketed paste, common function/control keys, cursor/status query responses |
-| Pane management | Create, focus, rename, explicitly terminate; single, vertical, horizontal and 2×2 grid layouts (up to 4 panes visible), zoom, fuzzy pane switcher, optional mouse focus |
+| Pane management | Create, focus, rename, explicitly terminate; single, vertical, horizontal and 2×2 grid layouts (up to 4 panes visible), or a free-form tree of splits, zoom, fuzzy pane switcher, optional mouse focus |
 | Native desktop | GPU canvas, pane navigation, command palette, theme chooser, font size control, copy visible screen |
 | Desktop polish | Bare window with a bottom tab strip (program icons, busy spinner, ×), transparency and macOS background blur, gradient and grain backgrounds, rounded corners, native full screen, accent scrollbar, eased cursor, smooth scroll-back, theme cross-fade, inline images (iTerm2 `OSC 1337` and the Kitty graphics protocol, PNG/JPEG); see [DESKTOP.md](docs/DESKTOP.md) |
 | Power tools | Quick select, vi-style copy mode, snippets, broadcast input, regex find, floating panes, drag-and-drop upload, triggers |
