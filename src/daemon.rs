@@ -39,34 +39,83 @@ struct TerminalCallbacks {
     images: crate::inlineimg::ImageLog,
     /// Kitty keyboard protocol flags the programs in this pane pushed.
     kitty: crate::kittykeys::KittyKeys,
+    /// Kitty graphics protocol images, and the APC bodies waiting for the parser to reach their place.
+    gfx: crate::kittygfx::KittyGfx,
+    apc: std::collections::VecDeque<Vec<u8>>,
+    /// Which pane image (`images`) shows which Kitty image id.
+    shown: Vec<(u64, u32)>,
 }
 impl TerminalCallbacks {
     /// Reserve room for an inline image at the cursor and remember it.
     fn place_image(&mut self, screen: &mut vt100::Screen, request: crate::inlineimg::Request) {
+        self.place(screen, request, true);
+    }
+    /// Show `request` at the cursor, moving the cursor below it when `advance` is set. Returns the
+    /// image's id in the pane's image log.
+    fn place(
+        &mut self,
+        screen: &mut vt100::Screen,
+        request: crate::inlineimg::Request,
+        advance: bool,
+    ) -> Option<u64> {
         // Full-screen programs draw their own pictures; only the shell's scrolling view holds images.
         if screen.alternate_screen() {
-            return;
+            return None;
         }
-        let Some(size) = crate::inlineimg::pixel_size(&request.bytes) else {
-            return;
-        };
+        let size = crate::inlineimg::pixel_size(&request.bytes)?;
         let (screen_rows, screen_cols) = screen.size();
         let (cols, rows) = crate::inlineimg::span(&request, size, screen_cols, screen_rows);
         let (row, col) = screen.cursor_position();
         let top = screen.scrolled_total();
-        self.images
+        let id = self
+            .images
             .add(request.bytes, top + u64::from(row), col, cols, rows);
-        screen.advance_rows(rows.saturating_sub(1));
+        if advance {
+            screen.advance_rows(rows.saturating_sub(1));
+        }
         self.images.trim(
             screen
                 .scrolled_total()
                 .saturating_sub(scrollback_lines() as u64),
         );
+        Some(id)
+    }
+    /// Run the Kitty graphics commands queued for this point in the stream.
+    fn run_graphics(&mut self, screen: &mut vt100::Screen) {
+        while let Some(body) = self.apc.pop_front() {
+            let out = self.gfx.command(&body);
+            if let Some(which) = out.delete {
+                let gone: Vec<u64> = self
+                    .shown
+                    .iter()
+                    .filter(|(_, k)| which.is_none_or(|w| w == *k))
+                    .map(|(b, _)| *b)
+                    .collect();
+                self.shown.retain(|(b, _)| !gone.contains(b));
+                self.images.remove(&gone);
+            }
+            if let Some((request, advance, kitty_id)) = out.place {
+                if let (Some(blob), Some(k)) = (self.place(screen, request, advance), kitty_id) {
+                    self.shown.push((blob, k));
+                }
+            }
+            if let Some(reply) = out.reply {
+                let _ = self.input.try_send(reply.into_bytes());
+            }
+        }
+        // Placements that scrolled out of the history are no longer tracked.
+        let alive: Vec<u64> = self.images.placements.iter().map(|p| p.id).collect();
+        self.shown.retain(|(b, _)| alive.contains(b));
     }
 }
 impl vt100::Callbacks for TerminalCallbacks {
     fn unhandled_osc(&mut self, screen: &mut vt100::Screen, params: &[&[u8]]) {
         use crate::marks::OscEvent;
+        // The marker the reader thread sends where a Kitty graphics command belongs in the stream.
+        if params.first() == Some(&&b"7777"[..]) {
+            self.run_graphics(screen);
+            return;
+        }
         if let Some(request) = crate::inlineimg::parse(params) {
             self.place_image(screen, request);
             return;
@@ -262,6 +311,9 @@ impl Pane {
                     input: input.clone(),
                     log: crate::marks::MarkLog::default(),
                     images: crate::inlineimg::ImageLog::default(),
+                    gfx: Default::default(),
+                    apc: Default::default(),
+                    shown: Vec::new(),
                     kitty: crate::kittykeys::KittyKeys::default(),
                 },
             ),
@@ -291,12 +343,23 @@ impl Pane {
         let read_state = state.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 16384];
+            let mut apc = crate::kittygfx::ApcFilter::default();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
                         let mut st = read_state.lock().unwrap();
-                        st.parser.process(&buf[..n]);
+                        for piece in apc.feed(&buf[..n]) {
+                            match piece {
+                                crate::kittygfx::Piece::Data(data) => st.parser.process(&data),
+                                crate::kittygfx::Piece::Apc(body) => {
+                                    // The parser would drop an APC; a private OSC marker makes it call
+                                    // back with the screen at exactly this point.
+                                    st.parser.callbacks_mut().apc.push_back(body);
+                                    st.parser.process(b"\x1b]7777\x07");
+                                }
+                            }
+                        }
                         if !st.parser.screen().alternate_screen() {
                             st.parser.callbacks_mut().kitty.alt_screen_left();
                         }
