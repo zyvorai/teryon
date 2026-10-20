@@ -2,12 +2,7 @@
 use crate::util;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::OpenOptions,
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -41,20 +36,7 @@ impl DesktopSettings {
     }
     /// Atomically replace the file (temp file with 0600, then rename).
     pub fn save_to(&self, path: &Path) -> Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("toml.tmp");
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(toml::to_string(self)?.as_bytes())?;
-        drop(f);
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        crate::util::write_private_atomic(path, toml::to_string(self)?.as_bytes())
     }
     pub fn save(&self) -> Result<()> {
         self.save_to(&Self::path()?)

@@ -26,9 +26,23 @@ pub fn clean(text: &str, max: usize) -> String {
         .collect()
 }
 
-/// Quote a value for a curl config file; only `\` and `"` need escaping once control characters are gone.
+/// Quote a value for a curl config file. A raw newline would end the line and let the rest be read as
+/// another curl option, so line breaks and tabs use curl's escapes and other control characters are dropped.
 fn quote(v: &str) -> String {
-    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+    let mut out = String::from("\"");
+    for c in v.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// A curl `--config -` body, so the URL (often a secret topic) and the message stay off the command line.
@@ -121,6 +135,20 @@ mod tests {
         assert!(c.contains("url = \"https://ntfy.sh/secret\""));
         assert!(c.contains("header = \"Title: T\""));
         assert!(c.contains(r#"data = "say \"hi\" \\o/""#));
+    }
+    #[test]
+    fn curl_config_cannot_be_injected_through_line_breaks() {
+        let c = curl_config(
+            "https://x/\noutput = \"/tmp/pwn\"",
+            &[("Title", "a\r\nurl = \"http://evil\"".into())],
+            "m\nm",
+        );
+        assert_eq!(c.lines().count(), 4, "{c}");
+        assert!(c
+            .lines()
+            .all(|l| ["url = ", "request = ", "header = ", "data = "]
+                .iter()
+                .any(|p| l.starts_with(p))));
     }
     #[test]
     fn a_webhook_receives_the_note_over_http() {
