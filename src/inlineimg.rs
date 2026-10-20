@@ -200,7 +200,12 @@ impl ImageLog {
         self.placements
             .retain(|p| p.line + u64::from(p.rows) > floor);
         while self.kept > MAX_KEPT && !self.placements.is_empty() {
-            self.placements.remove(0);
+            let gone = self.placements.remove(0).id;
+            if !self.placements.iter().any(|p| p.id == gone) {
+                if let Some(b) = self.blobs.remove(&gone) {
+                    self.kept = self.kept.saturating_sub(b.len());
+                }
+            }
         }
         let live: std::collections::HashSet<u64> = self.placements.iter().map(|p| p.id).collect();
         self.blobs.retain(|id, _| live.contains(id));
@@ -234,6 +239,16 @@ mod tests {
         b.extend(w.to_be_bytes());
         b.extend(h.to_be_bytes());
         b
+    }
+    #[test]
+    fn trim_evicts_only_the_oldest_images_over_budget() {
+        let mut log = ImageLog::default();
+        let third = MAX_KEPT / 2 + 1;
+        let a = log.add(vec![0; third], 0, 0, 1, 1);
+        let b = log.add(vec![0; third], 1, 0, 1, 1);
+        assert_eq!(log.placements.len(), 1);
+        assert_eq!(log.placements[0].id, b);
+        assert!(log.bytes(a).is_none() && log.bytes(b).is_some());
     }
     #[test]
     fn base64_decodes_with_padding_and_line_breaks() {

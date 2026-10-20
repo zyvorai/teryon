@@ -10,7 +10,7 @@ pub(super) fn forward_args(destination: &str, port: u16) -> Vec<String> {
         "-o",
         "BatchMode=yes",
         "-L",
-        &format!("{port}:localhost:{port}"),
+        &format!("127.0.0.1:{port}:localhost:{port}"),
         "--",
         destination,
     ]
@@ -87,7 +87,9 @@ mod tests {
     #[test]
     fn the_tunnel_arguments_forward_one_port_and_never_prompt() {
         let a = forward_args("me@mini", 3000);
-        assert!(a.windows(2).any(|w| w == ["-L", "3000:localhost:3000"]));
+        assert!(a
+            .windows(2)
+            .any(|w| w == ["-L", "127.0.0.1:3000:localhost:3000"]));
         assert!(a.contains(&"BatchMode=yes".to_string()));
         assert_eq!(a.last().unwrap(), "me@mini");
         let dash = forward_args("-oProxyCommand=evil", 1);
