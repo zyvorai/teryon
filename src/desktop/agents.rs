@@ -219,11 +219,21 @@ impl Desktop {
 
     /// Start `kind` in a new pane next to the focused one (same directory).
     pub(super) fn spawn_agent(&mut self, kind: Kind) {
-        self.spawn_command(kind.launch().to_string());
+        let run = self.agent_run(kind);
+        self.spawn_command(run);
+    }
+    /// What is typed to start `kind`: its command, inside the sandbox when that is configured.
+    fn agent_run(&self, kind: Kind) -> String {
+        if self.cfg.agent_sandbox {
+            agents::sandboxed(kind.launch())
+        } else {
+            kind.launch().to_string()
+        }
     }
     /// Start `kind` on its own branch in its own Git worktree next to the repository.
     pub(super) fn spawn_agent_worktree(&mut self, kind: Kind) {
-        self.spawn_command(agents::worktree_command(kind.launch()));
+        let run = self.agent_run(kind);
+        self.spawn_command(agents::worktree_command_running(kind.launch(), &run));
     }
     /// Open a new pane in the directory an agent works in, listing what it changed there.
     pub(super) fn show_agent_changes(&mut self, id: u64) {
@@ -672,6 +682,35 @@ mod tests {
         assert_eq!(
             app.panes[&2].track.summary.as_deref(),
             Some("Refactored the parser, 12 tests pass")
+        );
+    }
+
+    #[test]
+    fn sandboxed_agents_are_started_through_teryon_sandbox() {
+        let (mut app, rx) = app_with_screen("");
+        app.online = true;
+        app.spawn_agent(Kind::Codex);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(_))));
+        app.run_spawned(5);
+        assert!(matches!(rx.try_recv(), Ok(Command::Input { data, .. }) if data == b"codex\r"));
+        app.cfg.agent_sandbox = true;
+        app.spawn_agent(Kind::Codex);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(_))));
+        app.run_spawned(6);
+        assert!(
+            matches!(rx.try_recv(), Ok(Command::Input { data, .. }) if data == b"teryon sandbox -- codex\r")
+        );
+        // In a worktree: named after the agent, running the sandboxed command.
+        app.spawn_agent_worktree(Kind::Claude);
+        assert!(matches!(rx.try_recv(), Ok(Command::New(_))));
+        app.run_spawned(7);
+        let Ok(Command::Input { data, .. }) = rx.try_recv() else {
+            panic!("typed")
+        };
+        let typed = String::from_utf8(data).unwrap();
+        assert!(
+            typed.contains("agent/claude-") && typed.contains("exec teryon sandbox -- claude'"),
+            "{typed}"
         );
     }
 

@@ -352,6 +352,11 @@ pub struct DesktopConfig {
     /// Show Approve and Deny buttons in the agents overview for an agent that is waiting. Off by
     /// default: they type into the agent, so a mis-click answers a real prompt.
     pub agent_quick_approve: bool,
+    /// Start agents from the Agents overview and the palette inside `teryon sandbox`: they can write
+    /// only to the Git repository they start in (plus scratch and settings directories) and cannot
+    /// read `~/.ssh`, `~/.aws`, `~/.gnupg` or `~/.kube`. Needs `teryon` on the host's PATH and
+    /// `sandbox-exec` (macOS) or `bwrap` (Linux) there.
+    pub agent_sandbox: bool,
     /// A thin bar beside each command block (needs shell integration): red when it failed, the
     /// accent while it runs, faint green when it succeeded.
     pub command_gutter: bool,
@@ -425,6 +430,7 @@ impl Default for DesktopConfig {
             notify_after_seconds: 10,
             agent_notifications: true,
             agent_quick_approve: false,
+            agent_sandbox: false,
             command_gutter: true,
             file_browser: false,
             theme_light: None,

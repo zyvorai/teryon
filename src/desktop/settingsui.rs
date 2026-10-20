@@ -236,6 +236,12 @@ pub(super) const SECTIONS: &[(&str, &[Setting])] = &[
                 "Answer an agent's prompt from the Agents overview.",
                 Ctl::Bool,
             ),
+            s(
+                "agent_sandbox",
+                "Sandbox new agents",
+                "Agents you start here can only write to their repository and cannot read ~/.ssh or cloud credentials.",
+                Ctl::Bool,
+            ),
         ],
     ),
 ];
@@ -272,7 +278,7 @@ macro_rules! accessors {
 }
 accessors! {
     bool: [cursor_blink, status_line, file_browser, maximized, fullscreen, confirm_quit, confirm_end_shells,
-           copy_on_select, command_gutter, fresh_window, agent_notifications, agent_quick_approve];
+           copy_on_select, command_gutter, fresh_window, agent_notifications, agent_quick_approve, agent_sandbox];
     float: [window_opacity, unfocused_opacity, corner_radius, background_noise, pane_inset,
             font_size, line_height, padding, text_gamma];
     uint: [window_blur, scrollback_lines, notify_after_seconds];

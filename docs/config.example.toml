@@ -53,6 +53,7 @@ destination = "susant@mini.local"
 # drag_selects = false             # drag selects text even when a program (Claude Code, vim) tracks the mouse; clicks and the wheel still reach it
 # file_browser = false            # open the ⌘B file sidebar at start
 # command_gutter = true            # a thin bar beside each command: red failed, accent running, faint green ok (needs shell integration)
+# agent_sandbox = false             # start agents inside `teryon sandbox`: writes only to their Git repository, ~/.ssh ~/.aws ~/.gnupg ~/.kube hidden, network open
 # agent_quick_approve = false      # Approve / Deny buttons in the agents overview (they type into the agent)
 # agent_notifications = true       # notify when Claude Code, Codex, etc. in a background pane needs you or finishes
 # notify_after_seconds = 10        # notify when a command this long finishes in the background (needs shell integration)
