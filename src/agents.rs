@@ -61,6 +61,15 @@ pub fn worktree_command(launch: &str) -> String {
     )
 }
 
+/// A shell command line that lists what changed in the current directory's Git repository: the
+/// branch and changed files, then the size of each change. It leaves a shell open in the pane so the
+/// full `git diff` is one command away, and says so (instead of failing silently) outside a repository.
+pub fn changes_command() -> String {
+    "sh -c 'git rev-parse --show-toplevel >/dev/null 2>&1 || { echo \"not a Git repository\"; exec \"${SHELL:-sh}\"; }; \
+     git status --short --branch; echo; git diff HEAD --stat 2>/dev/null; exec \"${SHELL:-sh}\"'"
+        .to_string()
+}
+
 /// Interface text that is never the answer: hints, key legends and mode lines.
 const CHROME: [&str; 8] = [
     "esc to",
@@ -255,6 +264,48 @@ pub fn status(rows: &[String], quiet: Duration) -> Status {
 
 #[cfg(test)]
 mod tests {
+    fn run_changes(dir: &std::path::Path) -> String {
+        // `exec $SHELL` would wait for input; point it at `true` so the script ends after printing.
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(changes_command())
+            .current_dir(dir)
+            .env("SHELL", "true")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn the_changes_command_lists_changed_files_and_survives_a_plain_directory() {
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            assert!(ok, "git {args:?}");
+        };
+        let plain = tempfile::tempdir().unwrap();
+        assert!(run_changes(plain.path()).contains("not a Git repository"));
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        std::fs::write(repo.path().join("a.txt"), "one\n").unwrap();
+        git(repo.path(), &["add", "."]);
+        git(repo.path(), &["commit", "-q", "-m", "first"]);
+        std::fs::write(repo.path().join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.path().join("new.txt"), "x\n").unwrap();
+        let text = run_changes(repo.path());
+        assert!(text.contains("## "), "branch line: {text}");
+        assert!(
+            text.contains("M a.txt") && text.contains("?? new.txt"),
+            "{text}"
+        );
+        assert!(text.contains("a.txt |"), "diff stat: {text}");
+    }
+
     use super::*;
 
     #[test]
