@@ -1133,12 +1133,14 @@ fn run() -> Result<i32> {
             let at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
+            let branch = teryon::history::git_branch(&cwd);
             teryon::history::add(&teryon::history::Entry {
                 cmd: cmd.join(" "),
                 cwd,
                 exit,
                 ms,
                 at,
+                branch,
             })?;
         }
         Commands::Hist(HistCommand::Scrub) => {
@@ -1163,17 +1165,16 @@ fn run() -> Result<i32> {
         } => {
             use std::io::Read;
             let cwd = cwd.canonicalize().unwrap_or(cwd);
+            let mut runs = Vec::new();
             let (items, scoped, label) = if history {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
                 let home = std::env::var("HOME").unwrap_or_default();
-                let items = teryon::picker::history_items(
-                    &teryon::history::load_all(),
-                    &cwd.to_string_lossy(),
-                    &home,
-                    now,
-                );
+                let entries = teryon::history::load_all();
+                let here = cwd.to_string_lossy();
+                runs = teryon::picker::history_runs(&entries, &here, &home, now);
+                let items = teryon::picker::history_items(&entries, &here, &home, now);
                 (items, true, "history")
             } else if dirs {
                 (teryon::picker::walk(&cwd, true), false, "directory")
@@ -1187,7 +1188,7 @@ fn run() -> Result<i32> {
                 let items = text.lines().map(teryon::picker::Item::plain).collect();
                 (items, false, "pick")
             };
-            match teryon::picker::run(items, &query, scoped, label)? {
+            match teryon::picker::run(items, runs, &query, scoped, label)? {
                 Some((text, run)) => {
                     println!("{text}");
                     if run {

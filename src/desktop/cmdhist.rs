@@ -34,12 +34,14 @@ impl Desktop {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let home = std::env::var("HOME").unwrap_or_default();
-        let items = picker::history_items(&history::load_all(), &cwd, &home, now);
+        let entries = history::load_all();
+        let items = picker::history_items(&entries, &cwd, &home, now);
+        let runs = picker::history_runs(&entries, &cwd, &home, now);
         if items.is_empty() {
             self.toast("No command history yet: load the shell integration (teryon setup) and run a command");
             return;
         }
-        self.cmdhist.state = Some(picker::State::new(items, "", true));
+        self.cmdhist.state = Some(picker::State::with_all(items, runs, "", true));
         self.cmdhist.input.clear();
         self.cmdhist.pane = self.focus;
         self.cmdhist.focus = true;
