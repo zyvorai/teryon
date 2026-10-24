@@ -2,11 +2,17 @@
 
 ## Unreleased
 
+## 0.21.0
+
+A code viewer in Quick Look, saved pane trees, and two new windows for the host you work on. Desktop only; the daemon and protocol are unchanged, so no daemon restart is needed.
+
 - Quick Look is a code viewer: syntax colors (syntect grammars, drawn with the active theme's palette), line numbers, a Find box that marks and counts matches, JSON re-indented with a Raw toggle, and "Open the whole file" (up to 2 MB). Large files are colored only in their first 256 KB. Adds the `syntect` dependency to the desktop build
 - "Edit in $EDITOR" in the file sidebar's menu types `${EDITOR:-vi} 'path'` at the pane's prompt (no Enter)
 - Pane trees are saved: the split shape and divider positions are stored with the automatic layout and restored with "Restore" (old layout files still load)
 - Ports window (palette): every listening port with Open, Forward / Stop (`ssh -L`) and Copy URL
 - Host health window (palette): load and memory graphs for the last ~30 minutes
+- A layout file saved with a pane-tree shape is not readable by 0.20 or older clients (they reject the new field); older files load in 0.21
+- `scripts/release-macos.sh` builds only the `.dmg` when `SKIP_PKG=1` is set
 
 ## 0.20.0
 

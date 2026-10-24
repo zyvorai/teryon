@@ -19,22 +19,24 @@ Counts overlap across compiler/configuration runs; the totals should not be adde
 
 The runner's initial Rust 1.99.1 optimized build produced dependency archive/link errors. Pinning Rust 1.94.0 resolved that release-build issue; the pinned compiler is used by the repository and workflow definitions.
 
-## Latest local run (macOS, 0.20.0)
+## Latest local run (macOS, 0.21.0)
 
-Run on the Apple Silicon Mac the release was prepared on (2026-10-20), with the committed lockfile and the compiler installed there (not the pinned 1.94.0):
+Run on the Apple Silicon Mac the release was prepared on (2026-10-24), with the committed lockfile and the compiler installed there (not the pinned 1.94.0):
 
 | Check | Result |
 |---|---|
-| `cargo test --features desktop` | **422 passed**: 379 library/UI, 2 CLI, 5 history/update CLI, 2 picker PTY, 1 recovery, 28 session, 5 zsh widget |
-| `cargo test --no-default-features` | **305 passed** (the desktop-only UI tests are not built) |
+| `cargo test --features desktop` | **433 passed**: 390 library/UI, 2 CLI, 5 history/update CLI, 2 picker PTY, 1 recovery, 28 session, 5 zsh widget |
+| `cargo test --no-default-features` | **273 passed** in the library and CLI test binaries (the desktop-only UI tests are not built) |
 | `cargo fmt --check`, `cargo clippy --all-features --all-targets` | **Passed**, no warnings |
 
 Notes on what these do and do not show:
 
+- Run in parallel on a machine with a load average of about 11, three session tests (`a_recipe_starts_named_panes…`, `input_sequence_deduplicates_and_rejects_gaps`, `blocked_pane_input_does_not_stall_the_session_service`) failed across two runs, a different set each time; each passes alone, and the whole session and zsh-widget suites passed with `--test-threads=1`. The daemon was not changed in 0.21.
+
 - The session tests start a real daemon and real shells. Two of them (recipe readiness and a recipe start) failed once each on a heavily loaded machine (load average 5 to 7) and passed on every other run, including eight consecutive runs on `main`; they depend on shell start-up time.
 - `teryon sandbox` is tested against the real `sandbox-exec` on macOS (writes outside the repository are denied, a fake `~/.ssh` key is unreadable, the network and `claude --version` still work). The Linux `bwrap` path is only tested for the arguments it would receive; it has not been run.
 - The Kitty graphics tests run a real daemon and check the reserved rows, deletion, the program's reply and the stored bytes; no real `kitten`, `chafa` or `timg` was available, and nothing was looked at in the desktop window.
-- The desktop features added in 0.20 (pane-tree dividers, the agent Changes button, Kitty images, the update toast, diffs in the app) are covered by unit and app-level tests but were not checked in a real window. The one real call to GitHub (`teryon update`) reported 0.19.0 as up to date.
+- The desktop features added in 0.21 (the Quick Look code viewer, saved pane trees, the Ports and Host health windows) are covered by unit and app-level tests only; none was checked in a real window, and the release binary's size increase from `syntect` was not measured. The desktop features added in 0.20 (pane-tree dividers, the agent Changes button, Kitty images, the update toast, diffs in the app) are covered by unit and app-level tests but were not checked in a real window. The one real call to GitHub (`teryon update`) reported 0.19.0 as up to date.
 - The 4x request reduction from quiet-session polling and the roughly 17x and 7x byte reductions from screen diffs are from arithmetic and one scrolling-output test, not from a benchmark against other tools.
 
 The Linux table above is from an earlier session and its counts are no longer current; the evidence files under `test-results/` were not regenerated. The 0.16.0 `.dmg` and `.pkg` were signed and notarized; the 0.20.0 packages are built by hand on the signing Mac after the tag.

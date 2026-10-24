@@ -15,7 +15,7 @@
 
 TERYON separates the life of your shell from the life of your connection. A per-user service on your Mac mini or Linux host owns the terminals; OpenSSH transports the interface. Disconnect, close the client, or put your laptop to sleep, then reconnect to the same live shells.
 
-**Status: 0.20.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
+**Status: 0.21.0 engineering preview.** This repository contains working code, integration tests, tutorials, and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
 
 ## Desktop app
 
@@ -45,7 +45,7 @@ Persistent terminals for AI agents: `claude mcp add teryon -- teryon mcp --allow
 
 AI assistant: `export ANTHROPIC_API_KEY=…`, then `teryon ai "open Calculator"` or ⌘J in the desktop app ([docs/AI.md](docs/AI.md)).
 
-File browser: ⌘B in the desktop app opens a Finder-like sidebar with Quick Look, local or over SSH ([docs/DESKTOP.md](docs/DESKTOP.md)).
+File browser: ⌘B in the desktop app opens a Finder-like sidebar with a syntax-colored Quick Look, local or over SSH ([docs/DESKTOP.md](docs/DESKTOP.md)).
 
 Or use the Makefile: `make run` (desktop app), `make tui`, `make app` (macOS bundle), `make check`, `make help`.
 
