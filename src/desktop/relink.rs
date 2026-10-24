@@ -25,6 +25,8 @@ pub(super) struct Link {
     hidden: bool,
     /// Load, memory and thermal state of the daemon's machine, when it reports them.
     stats: Option<crate::hoststats::HostStats>,
+    /// Recent load and memory readings, oldest first, for the Host graph.
+    history: std::collections::VecDeque<HostSample>,
     /// Why the link is down, read from the last error, and that error's text.
     diagnosis: Option<(crate::diagnose::Diagnosis, String)>,
     /// Screen bytes received, and a moving rate over about two seconds.
@@ -33,7 +35,20 @@ pub(super) struct Link {
     rx_rate: f64,
 }
 
+/// One reading of the daemon's machine.
+pub(super) struct HostSample {
+    pub at: Instant,
+    pub load: f32,
+    pub mem: Option<u8>,
+}
+/// Readings closer together than this are dropped; with `HISTORY_MAX` this keeps about half an hour.
+const HISTORY_EVERY: Duration = Duration::from_secs(5);
+const HISTORY_MAX: usize = 360;
+
 impl Link {
+    pub(super) fn history(&self) -> &std::collections::VecDeque<HostSample> {
+        &self.history
+    }
     pub(super) fn daemon(
         &mut self,
         platform: String,
@@ -41,6 +56,22 @@ impl Link {
         stats: Option<crate::hoststats::HostStats>,
     ) {
         self.platform = platform;
+        if let Some(s) = &stats {
+            let due = self
+                .history
+                .back()
+                .is_none_or(|h| h.at.elapsed() >= HISTORY_EVERY);
+            if due {
+                if self.history.len() == HISTORY_MAX {
+                    self.history.pop_front();
+                }
+                self.history.push_back(HostSample {
+                    at: Instant::now(),
+                    load: s.load1,
+                    mem: s.mem_used_pct,
+                });
+            }
+        }
         self.stats = stats;
         self.started = Instant::now().checked_sub(Duration::from_secs(uptime));
     }

@@ -9,6 +9,8 @@ use std::process::Stdio;
 
 /// Most bytes a preview reads.
 pub const PREVIEW_BYTES: usize = 64 * 1024;
+/// Most bytes "Open the whole file" reads in Quick Look.
+pub const FULL_BYTES: usize = 2 * 1024 * 1024;
 /// Most entries one listing returns; the sidebar says when it was cut.
 pub const MAX_ENTRIES: usize = 5000;
 
@@ -300,8 +302,13 @@ fn run_remote(target: &Target, script: &str, cap: usize) -> Result<Vec<u8>> {
 
 /// Decide whether `bytes` (the head of a file) is text worth showing.
 pub fn classify(bytes: &[u8]) -> Preview {
-    let truncated = bytes.len() > PREVIEW_BYTES;
-    let head = &bytes[..bytes.len().min(PREVIEW_BYTES)];
+    classify_to(bytes, PREVIEW_BYTES)
+}
+
+/// Like [`classify`], showing at most `limit` bytes of `bytes`.
+pub fn classify_to(bytes: &[u8], limit: usize) -> Preview {
+    let truncated = bytes.len() > limit;
+    let head = &bytes[..bytes.len().min(limit)];
     let sniff = &head[..head.len().min(8192)];
     if sniff.contains(&0) {
         return Preview::Binary { bytes: bytes.len() };

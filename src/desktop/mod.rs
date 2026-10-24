@@ -34,6 +34,7 @@ mod find;
 mod floating;
 mod fontpicker;
 mod hints;
+mod hostgraph;
 mod icons;
 mod keyeditor;
 mod menus;
@@ -50,6 +51,7 @@ mod themepicker;
 mod tree;
 mod triggers;
 mod updates;
+mod viewer;
 mod welcome;
 use actions::{actions, theme_counterpart, theme_step, ActionKind, Scroll, ARG_COMMANDS};
 use find::FindQuery;
@@ -108,6 +110,8 @@ struct SessionExtra {
     /// Titles for panes a restore is about to create, with when they were queued.
     pending_titles: Vec<(String, Instant)>,
     last_layout: Option<crate::layout::Layout>,
+    /// A saved split shape waiting for its restored panes to exist: shape, pane count, since when.
+    pending_shape: Option<(crate::layout::Kid, usize, Instant)>,
     last_layout_save: Option<Instant>,
     /// "While you were away": the card text and the time you last looked; checked once per attach.
     away: Option<(Vec<String>, u64)>,
@@ -222,6 +226,10 @@ pub struct Desktop {
     notify_cfg: crate::config::NotifyConfig,
     /// `ssh -L` tunnels started by "Open listening port", by port; ended when the app closes.
     forwards: HashMap<u16, std::process::Child>,
+    /// The Ports window (palette: "Ports…").
+    ports_open: bool,
+    /// The Host health graphs (palette: "Host health…").
+    host_open: bool,
     config_checked: Instant,
     /// Window commands queued by actions, sent with the egui context on the next frame.
     pending: Vec<egui::ViewportCommand>,
@@ -425,6 +433,8 @@ impl Desktop {
             config_theme: None,
             notify_cfg: Default::default(),
             forwards: HashMap::new(),
+            ports_open: false,
+            host_open: false,
             config_checked: Instant::now(),
             pending: Vec::new(),
             fullscreen: false,
@@ -1181,6 +1191,8 @@ impl Desktop {
         self.ai_panel(ctx);
         self.agents_overview(ctx);
         self.away_ui(ctx);
+        self.ports_ui(ctx);
+        self.host_ui(ctx);
         if let Some(id) = self.explain_req.take() {
             self.ai_explain(id);
         }
@@ -1608,7 +1620,7 @@ impl Desktop {
     }
     /// A shell exited cleanly (`exit`, Ctrl-D): drop its pane, or end the tab or window when it was the last one.
     fn close_exited(&mut self, id: u64) {
-        if self.readonly || !self.panes.get(&id).is_some_and(|p| p.info.exited.is_some()) {
+        if self.readonly || self.panes.get(&id).is_none_or(|p| p.info.exited.is_none()) {
             return;
         }
         if self.panes.len() > 1 {
@@ -1830,6 +1842,8 @@ impl Desktop {
             ActionKind::CopyLastCommand => self.copy_last_command(),
             ActionKind::RerunLastCommand => self.rerun_last_command(),
             ActionKind::OpenPort => self.open_port(),
+            ActionKind::Ports => self.ports_open = !self.ports_open,
+            ActionKind::HostHealth => self.host_open = !self.host_open,
             ActionKind::AskAiLast => {
                 let id = self.focus;
                 self.ai_ask_last(id);
@@ -3918,6 +3932,7 @@ mod tests {
         app.panes.get_mut(&1).unwrap().info.title = "Shell".into();
         app.extra.restore_offer = Some(crate::layout::Layout {
             version: 1,
+            shape: None,
             panes: vec![
                 crate::layout::LayoutPane {
                     title: "editor".into(),

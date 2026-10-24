@@ -1,6 +1,6 @@
 [package]
 name = "teryon"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 rust-version = "1.89"
 description = "Persistent remote workspaces over OpenSSH, built in Rust"
@@ -24,10 +24,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 clap_complete = "4.5"
 regex = "1"
 raw-window-handle = { version = "0.6", optional = true }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"], optional = true }
 
 [features]
 default = []
-desktop = ["dep:eframe", "dep:image", "dep:raw-window-handle"]
+desktop = ["dep:eframe", "dep:image", "dep:raw-window-handle", "dep:syntect"]
 
 [dev-dependencies]
 tempfile = "3"

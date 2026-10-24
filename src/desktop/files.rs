@@ -1,5 +1,6 @@
 //! A Finder-like file sidebar (⌘B): the focused pane's directory as a list, with Quick Look (Space).
 //! Read-only: it lists and previews, and hands paths to the pane; it never changes files.
+use super::viewer::{self, Tok};
 use super::*;
 use crate::files::{self as fs, Entry, Preview};
 
@@ -63,6 +64,13 @@ pub(super) struct Browser {
     look: Option<(String, Option<Result<Shown, String>>)>,
     /// The decoded image of the open Quick Look, with the name it belongs to.
     look_tex: Option<(String, egui::TextureHandle)>,
+    /// The coloured text of the open Quick Look, keyed by file, theme and length.
+    look_job: Option<(String, std::sync::Arc<egui::text::LayoutJob>, usize)>,
+    /// The coloured lines of the open Quick Look (independent of the theme and the search).
+    look_lines: Option<(String, std::sync::Arc<viewer::Lines>)>,
+    /// The Quick Look search box, and whether JSON is shown as written instead of re-indented.
+    look_find: String,
+    look_raw: bool,
     dialog: Option<Dialog>,
     /// A row had keyboard focus last frame, so keys belong to the sidebar and not the pane.
     pub(super) has_focus: bool,
@@ -86,6 +94,10 @@ impl Browser {
             selected: None,
             look: None,
             look_tex: None,
+            look_job: None,
+            look_lines: None,
+            look_find: String::new(),
+            look_raw: false,
             dialog: None,
             has_focus: false,
             tx,
@@ -143,10 +155,19 @@ impl Desktop {
     }
 
     fn files_look(&mut self, name: &str) {
+        self.files_look_to(name, fs::PREVIEW_BYTES);
+    }
+
+    /// Read up to `limit` bytes of a file into Quick Look.
+    fn files_look_to(&mut self, name: &str, limit: usize) {
         let Some(target) = self.target.clone() else {
             return;
         };
         let path = fs::join(&self.files.dir, name);
+        if self.files.look.as_ref().map(|(n, _)| n.as_str()) != Some(name) {
+            self.files.look_find.clear();
+            self.files.look_raw = false;
+        }
         self.files.look = Some((name.to_string(), None));
         let tx = self.files.tx.clone();
         std::thread::spawn(move || {
@@ -155,8 +176,8 @@ impl Desktop {
                     .map_err(|e| e.to_string())
                     .and_then(|b| decode(&b))
             } else {
-                fs::read_head(&target, &path)
-                    .map(|b| Shown::Doc(fs::classify(&b)))
+                fs::read_bytes(&target, &path, limit + 1)
+                    .map(|b| Shown::Doc(fs::classify_to(&b, limit)))
                     .map_err(|e| e.to_string())
             };
             let _ = tx.send(Msg::Previewed(path, result));
@@ -377,6 +398,10 @@ impl Desktop {
                                 for (label, what) in [
                                     ("Quick Look", Some(Row::Look)),
                                     ("Insert path", Some(Row::Insert)),
+                                    (
+                                        if e.dir { "" } else { "Edit in $EDITOR" },
+                                        (!e.dir).then_some(Row::Edit),
+                                    ),
                                     ("Copy path", Some(Row::CopyPath)),
                                     ("Download to Downloads", (!local).then_some(Row::Download)),
                                     ("Rename…", Some(Row::Rename)),
@@ -492,6 +517,7 @@ impl Desktop {
                     let dir = self.files.entries.iter().any(|e| e.name == name && e.dir);
                     self.files.dialog = Some(Dialog::Trash { name, dir });
                 }
+                Row::Edit => self.files_insert(&format!("${{EDITOR:-vi}} {}", quoted(&path))),
                 Row::Cd => self.files_insert(&format!("cd {}", quoted(&path))),
                 Row::Reveal => {
                     let _ = std::process::Command::new("open")
@@ -637,6 +663,7 @@ impl Desktop {
             }
         }
         let tex = self.files.look_tex.clone();
+        let mut full = false;
         egui::Window::new(format!("Quick Look · {name}"))
             .id(egui::Id::new("teryon-quicklook"))
             .open(&mut open)
@@ -671,28 +698,163 @@ impl Desktop {
                     );
                 }
                 Some(Ok(Shown::Doc(Preview::Text { text, truncated }))) => {
-                    if *truncated {
-                        ui.label(
-                            RichText::new(format!("First {} shown", fs::human(fs::PREVIEW_BYTES)))
+                    let pretty = (!*truncated && !self.files.look_raw && name.ends_with(".json"))
+                        .then(|| pretty_json(text))
+                        .flatten();
+                    let json_ok =
+                        !*truncated && name.ends_with(".json") && pretty_json(text).is_some();
+                    let shown: &str = pretty.as_deref().unwrap_or(text);
+                    ui.horizontal(|ui| {
+                        if *truncated {
+                            ui.label(
+                                RichText::new(format!("First {} shown", fs::human(text.len())))
+                                    .size(11.)
+                                    .color(color(t.muted)),
+                            );
+                            if ui.small_button("Open the whole file").clicked() {
+                                full = true;
+                            }
+                        }
+                        if json_ok
+                            && ui
+                                .small_button(if pretty.is_some() { "Raw" } else { "Pretty" })
+                                .clicked()
+                        {
+                            self.files.look_raw = !self.files.look_raw;
+                        }
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.files.look_find)
+                                .hint_text("Find")
+                                .desired_width(140.),
+                        );
+                    });
+                    let lines_key = format!("{name}|{}|{}", shown.len(), pretty.is_some());
+                    if self.files.look_lines.as_ref().map(|(k, _)| k) != Some(&lines_key) {
+                        let lines =
+                            viewer::highlight(&name, shown).unwrap_or_else(|| viewer::plain(shown));
+                        self.files.look_lines =
+                            Some((lines_key.clone(), std::sync::Arc::new(lines)));
+                    }
+                    let key = format!("{lines_key}|{}|{}", t.name, self.files.look_find);
+                    if self.files.look_job.as_ref().map(|(k, ..)| k) != Some(&key) {
+                        if let Some((_, lines)) = &self.files.look_lines {
+                            let (job, n) = code_job(lines, &self.files.look_find, &t);
+                            self.files.look_job = Some((key, std::sync::Arc::new(job), n));
+                        }
+                    }
+                    let found = self
+                        .files
+                        .look_job
+                        .as_ref()
+                        .map(|(_, j, n)| (j.clone(), *n));
+                    if let Some((_, n)) = &found {
+                        if !self.files.look_find.is_empty() {
+                            ui.label(
+                                RichText::new(match n {
+                                    0 => "No matches".to_string(),
+                                    1 => "1 match".to_string(),
+                                    n => format!("{n} matches"),
+                                })
                                 .size(11.)
                                 .color(color(t.muted)),
-                        );
+                            );
+                        }
                     }
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(text).monospace().size(12.))
-                                    .wrap_mode(egui::TextWrapMode::Extend),
-                            );
+                            if let Some((job, _)) = found {
+                                ui.add(
+                                    egui::Label::new((*job).clone())
+                                        .wrap_mode(egui::TextWrapMode::Extend),
+                                );
+                            }
                         });
                 }
             });
+        if full {
+            self.files_look_to(&name, fs::FULL_BYTES);
+        }
         if !open {
             self.files.look = None;
             self.files.look_tex = None;
+            self.files.look_job = None;
+            self.files.look_lines = None;
         }
     }
+}
+
+/// `text` re-indented when it is valid JSON.
+fn pretty_json(text: &str) -> Option<String> {
+    serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(text).ok()?).ok()
+}
+
+/// The preview as colored, line-numbered text, with matches of `find` (any case) marked, and how
+/// many there were. Files with no known grammar are numbered but plain.
+fn code_job(lines: &[Vec<(Tok, String)>], find: &str, t: &Theme) -> (egui::text::LayoutJob, usize) {
+    let font = egui::FontId::monospace(12.);
+    let tint = |tok: Tok| match tok {
+        Tok::Plain => color(t.foreground),
+        Tok::Comment => color(t.muted),
+        Tok::Str => color(t.ansi[2]),
+        Tok::Num | Tok::Const => color(t.ansi[3]),
+        Tok::Keyword => color(t.ansi[5]),
+        Tok::Func => color(t.ansi[4]),
+        Tok::Type => color(t.ansi[6]),
+    };
+    let mark = color(mix(t.background, t.warning, 0.45));
+    let needle = find.to_ascii_lowercase();
+    let width = lines.len().max(1).to_string().len();
+    let mut job = egui::text::LayoutJob::default();
+    let mut count = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let mut add = |s: &str, c: egui::Color32, hit: bool| {
+            let mut f = egui::TextFormat::simple(font.clone(), c);
+            if hit {
+                f.background = mark;
+            }
+            job.append(s, 0., f);
+        };
+        add(&format!("{:>width$}  ", i + 1), color(t.muted), false);
+        // Byte ranges of matches over the whole line, so a match can span coloured runs.
+        let mut hits: Vec<(usize, usize)> = Vec::new();
+        if !needle.is_empty() {
+            let flat: String = line
+                .iter()
+                .map(|(_, s)| s.as_str())
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let mut from = 0;
+            while let Some(p) = flat[from..].find(&needle) {
+                hits.push((from + p, from + p + needle.len()));
+                from += p + needle.len();
+            }
+            count += hits.len();
+        }
+        let mut at = 0;
+        for (tok, run) in line {
+            let end = at + run.len();
+            // Cut the run at each match edge that falls inside it.
+            let mut cuts = vec![0, run.len()];
+            for &(a, b) in &hits {
+                for e in [a, b] {
+                    if e > at && e < end {
+                        cuts.push(e - at);
+                    }
+                }
+            }
+            cuts.sort_unstable();
+            cuts.dedup();
+            for w in cuts.windows(2) {
+                let (x, y) = (w[0], w[1]);
+                let hit = hits.iter().any(|&(a, b)| at + x >= a && at + y <= b);
+                add(&run[x..y], tint(*tok), hit);
+            }
+            at = end;
+        }
+        add("\n", color(t.foreground), false);
+    }
+    (job, count)
 }
 
 enum Row {
@@ -702,6 +864,7 @@ enum Row {
     Open(bool),
     Look,
     Insert,
+    Edit,
     CopyPath,
     Cd,
     Reveal,
@@ -770,6 +933,22 @@ fn file_glyph(name: &str) -> char {
 mod tests {
     use super::*;
     use crate::desktop::tests::app_with_screen;
+
+    #[test]
+    fn find_marks_matches_across_coloured_runs_in_any_case_and_json_is_re_indented() {
+        let (app, _rx) = app_with_screen("");
+        let lines = viewer::highlight("a.rs", "let Name = \"naME\"; // name\n").unwrap();
+        let (job, n) = code_job(&lines, "name", &app.theme);
+        assert_eq!(n, 3);
+        assert_eq!(code_job(&lines, "", &app.theme).1, 0);
+        assert_eq!(code_job(&lines, "zzz", &app.theme).1, 0);
+        // Marking never changes the text itself.
+        assert_eq!(job.text, code_job(&lines, "", &app.theme).0.text);
+        assert!(job.text.starts_with("1  let Name"));
+        let pretty = pretty_json("{\"a\":[1,2]}").unwrap();
+        assert!(pretty.contains("\n  \"a\": ["));
+        assert!(pretty_json("{ not json").is_none());
+    }
 
     #[test]
     fn the_sidebar_lists_the_focused_panes_directory_and_draws() {

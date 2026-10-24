@@ -11,7 +11,9 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
 APP_ID="${MACORA_SIGN_IDENTITY:?set MACORA_SIGN_IDENTITY}"
-PKG_ID="${DEVELOPER_ID_INSTALLER:?set DEVELOPER_ID_INSTALLER}"
+SKIP_PKG="${SKIP_PKG:-}"   # set to 1 to build only the .dmg (the .pkg step needs the GUI session)
+PKG_ID="${DEVELOPER_ID_INSTALLER:-}"
+[ -n "$SKIP_PKG" ] || : "${DEVELOPER_ID_INSTALLER:?set DEVELOPER_ID_INSTALLER (or SKIP_PKG=1)}"
 PROFILE="${NOTARY_PROFILE:?set NOTARY_PROFILE}"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 app=dist/TERYON.app
@@ -35,10 +37,17 @@ codesign --force --timestamp --sign "$APP_ID" "$dmg"
 xcrun notarytool submit "$dmg" --keychain-profile "$PROFILE" --wait
 xcrun stapler staple "$dmg"
 
-# PKG: installs TERYON.app into /Applications.
-pkgbuild --component "$app" --install-location /Applications --sign "$PKG_ID" "$pkg"
-xcrun notarytool submit "$pkg" --keychain-profile "$PROFILE" --wait
-xcrun stapler staple "$pkg"
+if [ -z "$SKIP_PKG" ]; then
+  # PKG: installs TERYON.app into /Applications.
+  pkgbuild --component "$app" --install-location /Applications --sign "$PKG_ID" "$pkg"
+  xcrun notarytool submit "$pkg" --keychain-profile "$PROFILE" --wait
+  xcrun stapler staple "$pkg"
+fi
 
+if [ -n "$SKIP_PKG" ]; then
+  (cd dist && shasum -a 256 "TERYON-$version.dmg" > "SHA256SUMS-macos-$version")
+  echo "Built $dmg"
+  exit 0
+fi
 (cd dist && shasum -a 256 "TERYON-$version.dmg" "TERYON-$version.pkg" > "SHA256SUMS-macos-$version")
 echo "Built $dmg and $pkg"

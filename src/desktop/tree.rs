@@ -4,6 +4,7 @@
 //! disappears and its neighbour takes the space, a pane someone else opens is split off the focused one).
 use super::panes::{drag, spans, Dir, GAP};
 use super::*;
+use crate::layout::{Kid, Shape};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Node {
@@ -194,7 +195,66 @@ fn path_to(node: &Node, id: u64) -> Option<Vec<usize>> {
     }
 }
 
+/// `node` as a saved shape, with each pane as its index in `order`; `None` if a pane is not listed.
+fn to_kid(node: &Node, order: &[u64]) -> Option<Kid> {
+    match node {
+        Node::Leaf(id) => order.iter().position(|o| o == id).map(Kid::Pane),
+        Node::Split { row, kids, w } => Some(Kid::Split(Shape {
+            row: *row,
+            kids: kids
+                .iter()
+                .map(|k| to_kid(k, order))
+                .collect::<Option<_>>()?,
+            w: w.iter()
+                .map(|x| (x * 1000.).round().max(1.) as u32)
+                .collect(),
+        })),
+    }
+}
+
+/// A saved shape as a node, with index `i` becoming pane `ids[i]`; shares are renormalised.
+fn from_kid(kid: &Kid, ids: &[u64]) -> Option<Node> {
+    match kid {
+        Kid::Pane(i) => ids.get(*i).map(|id| Node::Leaf(*id)),
+        Kid::Split(sp) => {
+            let total: f32 = sp.w.iter().map(|&x| x as f32).sum();
+            if sp.kids.len() < 2 || sp.kids.len() != sp.w.len() || total <= 0. {
+                return None;
+            }
+            Some(Node::Split {
+                row: sp.row,
+                kids: sp
+                    .kids
+                    .iter()
+                    .map(|k| from_kid(k, ids))
+                    .collect::<Option<_>>()?,
+                w: sp.w.iter().map(|&x| x as f32 / total).collect(),
+            })
+        }
+    }
+}
+
 impl PaneTree {
+    /// The tree as a saved shape over `order` (the panes, in the saved layout's order). `None`
+    /// unless the tree holds exactly those panes: a stale tree must not be saved.
+    pub fn to_shape(&self, order: &[u64]) -> Option<Kid> {
+        let root = self.root.as_ref()?;
+        let mut have = self.ids();
+        have.sort_unstable();
+        let mut want = order.to_vec();
+        want.sort_unstable();
+        if have != want || !matches!(root, Node::Split { .. }) {
+            return None;
+        }
+        to_kid(root, order)
+    }
+    /// A tree rebuilt from a saved shape: pane `i` of the layout is `ids[i]`.
+    pub fn from_shape(shape: &Kid, ids: &[u64]) -> Option<Self> {
+        Some(Self {
+            root: Some(from_kid(shape, ids)?),
+            pending: None,
+        })
+    }
     /// A tree holding `ids` side by side.
     pub fn new(ids: &[u64]) -> Self {
         let mut t = Self::default();
@@ -390,6 +450,25 @@ mod tests {
             .find(|(i, _)| *i == id)
             .unwrap()
             .1
+    }
+
+    #[test]
+    fn a_tree_saves_as_a_shape_and_comes_back_on_new_pane_ids() {
+        let mut t = PaneTree::new(&[10, 11]);
+        t.pending = Some((11, false));
+        t.sync(&[10, 11, 12], 11);
+        t.drag(&[], 0, 0.2);
+        let shape = t.to_shape(&[10, 11, 12]).expect("a split tree has a shape");
+        // The same shape on other ids lays the panes out identically.
+        let back = PaneTree::from_shape(&shape, &[1, 2, 3]).unwrap();
+        for (old, new) in [(10, 1), (11, 2), (12, 3)] {
+            let (a, b) = (rect_of(&t, old), rect_of(&back, new));
+            assert!((a.min - b.min).length() < 1.5 && (a.size() - b.size()).length() < 1.5);
+        }
+        // A stale tree, a lone pane and a shape for more panes than exist are all refused.
+        assert!(t.to_shape(&[10, 11]).is_none());
+        assert!(PaneTree::new(&[10]).to_shape(&[10]).is_none());
+        assert!(PaneTree::from_shape(&shape, &[1, 2]).is_none());
     }
 
     #[test]

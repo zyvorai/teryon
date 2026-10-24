@@ -27,7 +27,13 @@ impl Desktop {
         if self.extra.restore_offer.is_some() {
             return;
         }
-        let now = Layout::from_panes(&views);
+        self.apply_saved_shape();
+        if self.extra.pending_shape.is_some() {
+            return;
+        }
+        let ids: Vec<u64> = self.panes.keys().copied().collect();
+        let shape = self.tree.as_ref().and_then(|t| t.to_shape(&ids));
+        let now = Layout::from_panes(&views).with_shape(shape);
         let due = self
             .extra
             .last_layout_save
@@ -57,7 +63,31 @@ impl Desktop {
                 .push((p.title.clone(), Instant::now()));
             self.send(Command::New(Some(p.cwd.clone())));
         }
+        if let Some(shape) = saved.shape {
+            self.extra.pending_shape = Some((shape, saved.panes.len(), Instant::now()));
+        }
         self.toast(format!("Restored {} panes", saved.panes.len()));
+    }
+    /// Once every restored pane exists, lay them out as they were split. Gives up after a while
+    /// (a pane that never appeared) and leaves the grid layout in place.
+    fn apply_saved_shape(&mut self) {
+        let Some((shape, n, since)) = self.extra.pending_shape.clone() else {
+            return;
+        };
+        if self.panes.len() < n {
+            if since.elapsed() > Duration::from_secs(20) {
+                self.extra.pending_shape = None;
+            }
+            return;
+        }
+        self.extra.pending_shape = None;
+        let ids: Vec<u64> = self.panes.keys().copied().take(n).collect();
+        if let Some(tree) = tree::PaneTree::from_shape(&shape, &ids) {
+            self.tree = Some(tree);
+            if self.layout == LayoutMode::Single {
+                self.layout = LayoutMode::Grid;
+            }
+        }
     }
     /// A pane was created: give it the next saved title, if one is still fresh.
     pub(super) fn title_new_pane(&mut self, id: u64) {

@@ -80,4 +80,4 @@ scripts/release-macos.sh   # env: MACORA_SIGN_IDENTITY, DEVELOPER_ID_INSTALLER, 
 gh release upload vX.Y.Z dist/TERYON-X.Y.Z.dmg dist/TERYON-X.Y.Z.pkg dist/SHA256SUMS-macos-X.Y.Z
 ```
 
-`pkgbuild --sign` needs a GUI login session; over plain ssh run the script from Terminal.app.
+`pkgbuild --sign` needs a GUI login session; over plain ssh run the script from Terminal.app, or set `SKIP_PKG=1` to build, sign, notarize and staple only the `.dmg` (`DEVELOPER_ID_INSTALLER` is then not needed; upload just the `.dmg` and its checksum file).
