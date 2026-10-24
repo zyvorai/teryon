@@ -25,7 +25,7 @@ Run on the Apple Silicon Mac the release was prepared on (2026-10-24), with the 
 
 | Check | Result |
 |---|---|
-| `cargo test --features desktop` | **433 passed**: 390 library/UI, 2 CLI, 5 history/update CLI, 2 picker PTY, 1 recovery, 28 session, 5 zsh widget |
+| `cargo test --features desktop` | **437 passed**: 394 library/UI, 2 CLI, 5 history/update CLI, 2 picker PTY, 1 recovery, 28 session, 5 zsh widget |
 | `cargo test --no-default-features` | **273 passed** in the library and CLI test binaries (the desktop-only UI tests are not built) |
 | `cargo fmt --check`, `cargo clippy --all-features --all-targets` | **Passed**, no warnings |
 
