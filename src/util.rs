@@ -84,16 +84,22 @@ pub fn write_private_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<()> 
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("tmp");
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&tmp)?;
-    f.write_all(bytes)?;
-    drop(f);
-    fs::rename(tmp, path)?;
+    // A unique, exclusively created temp file: concurrent writers never share one, and a stale file's mode is never reused.
+    let tmp = path.with_extension(format!("{}.tmp", nonce()?));
+    let written = (|| -> Result<()> {
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = written.and_then(|()| Ok(fs::rename(&tmp, path)?)) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
 }
 pub fn private_write(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
@@ -108,6 +114,21 @@ pub fn private_write(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn atomic_write_ignores_a_stale_loose_temp_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("teryon-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f.toml");
+        let stale = path.with_extension("tmp");
+        std::fs::write(&stale, "old").unwrap();
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o666)).unwrap();
+        write_private_atomic(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
     #[test]
     fn quoting_handles_shell_metacharacters() {

@@ -1620,7 +1620,7 @@ impl Desktop {
     }
     /// A shell exited cleanly (`exit`, Ctrl-D): drop its pane, or end the tab or window when it was the last one.
     fn close_exited(&mut self, id: u64) {
-        if self.readonly || !self.panes.get(&id).is_some_and(|p| p.info.exited.is_some()) {
+        if self.readonly || self.panes.get(&id).is_none_or(|p| p.info.exited.is_none()) {
             return;
         }
         if self.panes.len() > 1 {
