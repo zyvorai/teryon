@@ -13,6 +13,43 @@ pub const MAX_PANES: usize = 16;
 pub struct Layout {
     pub version: u32,
     pub panes: Vec<LayoutPane>,
+    /// How the panes were split (desktop pane tree), when they were; absent for the grid layouts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<Kid>,
+}
+/// One split of a pane tree: children side by side (`row`) or stacked, with their shares.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shape {
+    pub row: bool,
+    pub kids: Vec<Kid>,
+    /// Each child's share in thousandths (integers keep `Layout` comparable).
+    pub w: Vec<u32>,
+}
+/// A child of a split: the pane at this index of `Layout::panes`, or a nested split.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Kid {
+    Pane(usize),
+    Split(Shape),
+}
+const MAX_DEPTH: usize = 16;
+
+impl Kid {
+    /// Adds every pane index below this node to `seen`; false on a malformed split, an index out of
+    /// range, one used twice, or nesting deeper than `MAX_DEPTH`.
+    fn check(&self, n: usize, seen: &mut [bool], depth: usize) -> bool {
+        match self {
+            Kid::Pane(i) => *i < n && !std::mem::replace(&mut seen[*i], true),
+            Kid::Split(sp) => {
+                depth < MAX_DEPTH
+                    && sp.kids.len() >= 2
+                    && sp.kids.len() == sp.w.len()
+                    && sp.w.iter().map(|&x| u64::from(x)).sum::<u64>() > 0
+                    && sp.kids.iter().all(|k| k.check(n, seen, depth + 1))
+            }
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,11 +69,22 @@ impl Layout {
                     cwd: p.cwd.clone(),
                 })
                 .collect(),
+            shape: None,
         }
+    }
+    pub fn with_shape(mut self, shape: Option<Kid>) -> Self {
+        self.shape = shape;
+        self
     }
     pub fn validate(&self) -> Result<()> {
         if self.version != 1 || self.panes.is_empty() || self.panes.len() > MAX_PANES {
             bail!("unsupported or oversized layout");
+        }
+        if let Some(shape) = &self.shape {
+            let mut seen = vec![false; self.panes.len()];
+            if !shape.check(self.panes.len(), &mut seen, 0) || seen.contains(&false) {
+                bail!("layout shape does not match its panes");
+            }
         }
         Ok(())
     }
@@ -102,13 +150,15 @@ mod tests {
         );
         assert!(Layout {
             version: 2,
-            panes: l.panes.clone()
+            panes: l.panes.clone(),
+            shape: None
         }
         .validate()
         .is_err());
         assert!(Layout {
             version: 1,
-            panes: vec![]
+            panes: vec![],
+            shape: None
         }
         .validate()
         .is_err());
@@ -120,6 +170,59 @@ mod tests {
         let name = p.file_name().unwrap().to_str().unwrap().to_string();
         assert_eq!(name, "me_mini.local_22-.._etc.json");
         assert!(p.parent().unwrap().ends_with(".teryon/layouts"));
+    }
+    fn split(row: bool, kids: Vec<Kid>) -> Kid {
+        let w = vec![500; kids.len()];
+        Kid::Split(Shape { row, kids, w })
+    }
+    #[test]
+    fn a_shape_round_trips_and_must_cover_each_pane_exactly_once() {
+        let panes = [pane("a", "/"), pane("b", "/"), pane("c", "/")];
+        let good = split(
+            true,
+            vec![Kid::Pane(0), split(false, vec![Kid::Pane(1), Kid::Pane(2)])],
+        );
+        let l = Layout::from_panes(&panes).with_shape(Some(good));
+        l.validate().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        save(&path, &l).unwrap();
+        assert_eq!(load(&path).unwrap(), l);
+        // An old file without a shape still loads.
+        std::fs::write(&path, r#"{"version":1,"panes":[{"title":"a","cwd":"/"}]}"#).unwrap();
+        assert_eq!(load(&path).unwrap().shape, None);
+        for bad in [
+            split(true, vec![Kid::Pane(0), Kid::Pane(1)]),
+            split(
+                true,
+                vec![Kid::Pane(0), Kid::Pane(0), Kid::Pane(1), Kid::Pane(2)],
+            ),
+            split(true, vec![Kid::Pane(0), Kid::Pane(1), Kid::Pane(9)]),
+            split(true, vec![Kid::Pane(0)]),
+            Kid::Split(Shape {
+                row: true,
+                kids: vec![Kid::Pane(0), Kid::Pane(1), Kid::Pane(2)],
+                w: vec![0, 0, 0],
+            }),
+            Kid::Split(Shape {
+                row: true,
+                kids: vec![Kid::Pane(0), Kid::Pane(1), Kid::Pane(2)],
+                w: vec![1, 1],
+            }),
+        ] {
+            assert!(Layout::from_panes(&panes)
+                .with_shape(Some(bad))
+                .validate()
+                .is_err());
+        }
+        let mut deep = split(true, vec![Kid::Pane(0), Kid::Pane(1), Kid::Pane(2)]);
+        for _ in 0..20 {
+            deep = split(false, vec![deep, Kid::Pane(0)]);
+        }
+        assert!(Layout::from_panes(&panes)
+            .with_shape(Some(deep))
+            .validate()
+            .is_err());
     }
     #[test]
     fn only_a_single_untouched_shell_is_fresh() {

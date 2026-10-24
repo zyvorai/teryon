@@ -27,7 +27,6 @@ What has shipped and what is still open, based on the current limitations (`docs
 - A long agent session through `teryon sandbox` on macOS and Linux (the Linux `bwrap` path has never been run).
 
 ### Layouts and windows
-- Save the pane-tree shape across restarts.
 - Cross-window tab dragging and multi-monitor workspaces.
 
 ### Terminal fidelity
@@ -39,14 +38,14 @@ What has shipped and what is still open, based on the current limitations (`docs
 
 ### Sessions and operations
 - Persist working directory, environment and recent history across daemon restarts; optional tmux/Zellij backend for stronger process survival.
-- Automatic port discovery with one-click forwarding in the UI (discovery and open-in-browser exist).
-- Host metrics history graphs, a per-process view, Apple Silicon GPU and scheduling hints.
+- Automatic port forwarding (the Ports window forwards on request).
+- Longer or persistent host metrics history, a per-process view, Apple Silicon GPU and scheduling hints.
 - Persistent offline drafts on disk.
 
 ### AI, agents and collaboration
 - Agent workspace presets and richer MCP tools for long-running tasks; test-result views for agents.
 - Multi-user shared workspaces (invitation links, roles, optional screen broadcasting).
-- Bidirectional file sync and editor integration; delivery guarantees and a mobile companion for notifications.
+- Bidirectional file sync and a richer editor integration (Quick Look and "Edit in $EDITOR" exist); delivery guarantees and a mobile companion for notifications.
 
 ### Not planned
 - A native Windows client.
