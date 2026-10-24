@@ -28,7 +28,7 @@ TERYON separates the life of your shell from the life of your connection. A per-
 |---|---|
 | **Persistent** | Real PTYs on the host. Reattach to the same shells from any client. |
 | **Plain OpenSSH** | Your keys, ports, jump hosts and aliases. No new ports, no new accounts. |
-| **Native desktop** | A GPU window with pane trees, a command palette and a Finder-like file browser. |
+| **Native desktop** | A GPU window with pane trees, a command palette, a Finder-like file browser with a syntax-colored Quick Look, and Ports and Host health windows. |
 | **Built for agents** | Status chips for Claude Code, Codex, Gemini, aider, Cursor and OpenCode; Git worktrees; a sandbox; an MCP server. |
 | **A link that explains itself** | When the connection drops you see the real reason and the next step. |
 | **23 themes** | Apple, Mac27, Tokyo Night, Catppuccin, Dracula, Nord and more, with a WezTerm export. |
@@ -55,6 +55,10 @@ TERYON separates the life of your shell from the life of your connection. A per-
 teryon            # pick a host and workspace (recents, config, ~/.ssh/config)
 teryon setup      # guided first run: tools, SSH hosts, reachability, theme
 ```
+
+## Download
+
+Signed and notarized `TERYON-<version>.dmg` and `.pkg` (macOS) and `tar.gz` archives (macOS arm64, Linux x86_64) are on the [releases page](https://github.com/zyvorai/teryon/releases). Checksums are in the `SHA256SUMS-*` files next to them.
 
 ## Build and try locally
 
