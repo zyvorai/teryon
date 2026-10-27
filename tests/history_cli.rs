@@ -231,3 +231,32 @@ fn update_says_whether_a_newer_release_is_out() {
     let (ok, out) = say("garbage");
     assert!(!ok && out.contains("not a release"), "{out}");
 }
+
+#[test]
+fn zsh_history_is_imported_once_and_secrets_are_left_out() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join(".zsh_history"),
+        ": 1700000000:0;ls -la\n: 1700000009:0;curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123' x\n: 1700000010:0;git status\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .env("HOME", home.path())
+            .args(["hist"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    run(&["import", "--once"]);
+    let first = run(&["export"]);
+    assert!(
+        first.contains("ls -la") && first.contains("git status"),
+        "{first}"
+    );
+    assert!(!first.contains("Bearer"), "{first}");
+    run(&["import", "--once"]);
+    assert_eq!(run(&["export"]), first);
+}

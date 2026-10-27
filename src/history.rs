@@ -261,6 +261,73 @@ pub fn add(entry: &Entry) -> Result<()> {
     Ok(())
 }
 
+/// Commands in a zsh history file (`: 1700000000:0;cmd` with `EXTENDED_HISTORY`, or bare lines), oldest
+/// first. A command spread over lines ends each but the last with a backslash; the lines are rejoined.
+pub fn parse_zsh_history(text: &str) -> Vec<(u64, String)> {
+    let mut out: Vec<(u64, String)> = Vec::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        let (at, first) = match line
+            .strip_prefix(": ")
+            .and_then(|r| r.split_once(';'))
+            .and_then(|(meta, cmd)| Some((meta.split_once(':')?.0.trim().parse().ok()?, cmd)))
+        {
+            Some((at, cmd)) => (at, cmd),
+            None => (0, line),
+        };
+        let mut cmd = first.to_string();
+        while cmd.ends_with('\\') {
+            let Some(next) = lines.next() else { break };
+            cmd.pop();
+            cmd.push('\n');
+            cmd.push_str(next);
+        }
+        if out.last().is_some_and(|(_, c)| *c == cmd) {
+            continue;
+        }
+        out.push((at, cmd));
+    }
+    out
+}
+/// Put the commands from a zsh history file ahead of what is already recorded, so Ctrl-R and the
+/// suggestions know your past on day one. Secrets and over-long commands are left out. Returns how many
+/// were added.
+pub fn import_shell_history(file: &std::path::Path) -> Result<usize> {
+    let text = String::from_utf8_lossy(&std::fs::read(file)?).into_owned();
+    let existing = match std::fs::read_to_string(path()?) {
+        Ok(t) => parse(&t),
+        Err(_) => Vec::new(),
+    };
+    let oldest = existing.iter().map(|e| e.at).filter(|a| *a > 0).min();
+    let mut added: Vec<Entry> = parse_zsh_history(&text)
+        .into_iter()
+        .filter(|(_, cmd)| should_record(cmd) && cmd.len() <= MAX_CMD_BYTES)
+        .map(|(at, cmd)| Entry {
+            cmd,
+            cwd: String::new(),
+            exit: 0,
+            ms: 0,
+            // Entries without a timestamp sort before everything that has one.
+            at: if at == 0 {
+                oldest.unwrap_or(1).saturating_sub(1)
+            } else {
+                at
+            },
+            branch: None,
+            host: None,
+        })
+        .collect();
+    let n = added.len();
+    added.extend(existing);
+    let text: String = compact(added)
+        .iter()
+        .filter_map(|e| serde_json::to_string(e).ok())
+        .map(|l| l + "\n")
+        .collect();
+    util::write_private_atomic(&path()?, text.as_bytes())?;
+    Ok(n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +347,18 @@ mod tests {
         let good = serde_json::to_string(&e("ls -la", "/a", 1)).unwrap();
         let list = parse(&format!("not json\n{good}\n\n{{\"cmd\":1}}\n"));
         assert_eq!(list, vec![e("ls -la", "/a", 1)]);
+    }
+    #[test]
+    fn zsh_history_parses_extended_plain_and_multiline() {
+        let text = ": 1700000000:0;ls -la\n: 1700000005:2;echo a \\\nb\nplain cmd\nplain cmd\n";
+        assert_eq!(
+            parse_zsh_history(text),
+            vec![
+                (1700000000, "ls -la".to_string()),
+                (1700000005, "echo a \nb".to_string()),
+                (0, "plain cmd".to_string()),
+            ]
+        );
     }
     #[test]
     fn blank_and_space_prefixed_commands_are_not_recorded() {

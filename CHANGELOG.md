@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- zsh panes load the shell integration by themselves (a temporary `ZDOTDIR` that restores yours and loads TERYON at the first prompt), so Ctrl-R, ghost suggestions, fuzzy Tab, `z` and the working-directory tracking no longer need a line in `~/.zshrc`. Set `TERYON_INJECT=0` before the daemon starts to turn it off; a `.zshrc` that already has the `eval` line is unaffected
+- The integration turns on `inc_append_history` (unless you set `inc_append_history` or `share_history` yourself; `TERYON_HISTFLUSH=0` opts out), so a pane that is closed or killed no longer loses its shell history
+- `teryon hist import [FILE]` adds a zsh history file to Ctrl-R and the suggestions; the integration runs it once for `~/.zsh_history`
+- Panes set `TERM_PROGRAM=teryon`
+
+- `teryon cp SRC... DEST`: scp-style copy with `host:path`, `~`, recursive folders, rsync when both ends have it (else scp, including host-to-host via `scp -3`), `--dry-run`, `--no-clobber`, `--parents`, `--limit-kbps`
+- `teryon completions zsh` now completes host names (config and `~/.ssh/config`) and remote paths for `cp`, `push` and `pull`
+- Hosts in files pulled in by `Include` in `~/.ssh/config` now show up in the picker, `import-ssh`, setup and the AI host list
+
 ## 0.21.0
 
 A code viewer in Quick Look, saved pane trees, and two new windows for the host you work on. Desktop only; the daemon and protocol are unchanged, so no daemon restart is needed.

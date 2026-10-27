@@ -2,6 +2,38 @@
 //! working directory are (OSC 133 and OSC 7). Everything works without them, only less smartly.
 use std::path::{Path, PathBuf};
 
+/// A `ZDOTDIR` whose only file restores the real one, runs the user's `.zshenv`, and loads the shell
+/// integration at the first prompt (after `.zshrc`), so panes get it without editing any startup file.
+const ZSH_ENV: &str = r#"# TERYON: undo the temporary ZDOTDIR, run your .zshenv, load the shell integration at the first prompt.
+if [[ -n ${TERYON_USER_ZDOTDIR+x} ]]; then
+  if [[ -n $TERYON_USER_ZDOTDIR ]]; then ZDOTDIR=$TERYON_USER_ZDOTDIR; else unset ZDOTDIR; fi
+  unset TERYON_USER_ZDOTDIR
+fi
+[[ -r ${ZDOTDIR:-$HOME}/.zshenv ]] && source ${ZDOTDIR:-$HOME}/.zshenv
+if [[ -o interactive && -z $__teryon_integrated && "${TERYON_INJECT:-1}" != 0 ]]; then
+  __teryon_boot() {
+    add-zsh-hook -d precmd __teryon_boot
+    unfunction __teryon_boot
+    [[ -n $__teryon_integrated ]] && return
+    (( $+commands[teryon] )) || { [[ -x $TERYON_EXE ]] && path+=(${TERYON_EXE:h}); }
+    (( $+commands[teryon] )) && eval "$(command teryon shell-init zsh)"
+  }
+  autoload -Uz add-zsh-hook && add-zsh-hook precmd __teryon_boot
+fi
+"#;
+
+/// Write the injection directory (under `~/.teryon`) and return it. The daemon points zsh panes'
+/// `ZDOTDIR` here and keeps the user's own value in `TERYON_USER_ZDOTDIR`.
+pub fn zsh_inject_dir() -> anyhow::Result<PathBuf> {
+    let dir = crate::util::home()?.join(".teryon/zdotdir");
+    let file = dir.join(".zshenv");
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(ZSH_ENV) {
+        std::fs::create_dir_all(&dir)?;
+        crate::util::write_private_atomic(&file, ZSH_ENV.as_bytes())?;
+    }
+    Ok(dir)
+}
+
 const ZSH: &str = r#"# TERYON shell integration for zsh (OSC 133 prompt marks, OSC 7 working directory, history, suggestions).
 if [[ -z "$__teryon_integrated" ]]; then
   typeset -g __teryon_integrated=1 __teryon_ran= __teryon_cmd= __teryon_t0=
@@ -32,6 +64,12 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     [[ "${TERYON_HISTORY:-1}" != 0 ]] && command teryon hist add --exit "$1" --ms "$ms" --cwd "$PWD" -- "$__teryon_cmd" >/dev/null 2>&1 &!
     __teryon_cmd= __teryon_t0=
   }
+  if [[ "${TERYON_HISTORY:-1}" != 0 ]]; then
+    # Write each command to HISTFILE as it runs (a pane that is killed or never exits loses its history otherwise).
+    [[ "${TERYON_HISTFLUSH:-1}" != 0 && ! -o inc_append_history && ! -o inc_append_history_time && ! -o share_history ]] && setopt inc_append_history
+    # Once: bring ~/.zsh_history into Ctrl-R and the suggestions.
+    [[ -e ~/.teryon/zsh-history-imported ]] || command teryon hist import --once >/dev/null 2>&1 &!
+  fi
   __teryon_clear_hint() {
     POSTDISPLAY=
     __teryon_hint=

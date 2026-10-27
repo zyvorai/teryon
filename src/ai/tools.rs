@@ -311,9 +311,7 @@ pub fn host_names() -> String {
         .map(|c| c.hosts.keys().cloned().collect())
         .unwrap_or_default();
     if let Ok(home) = crate::util::home() {
-        if let Ok(text) = std::fs::read_to_string(home.join(".ssh/config")) {
-            names.extend(crate::config::ssh_hosts(&text));
-        }
+        names.extend(crate::config::ssh_hosts_file(&home.join(".ssh/config")));
     }
     names.sort();
     names.dedup();

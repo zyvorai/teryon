@@ -187,7 +187,7 @@ enum Commands {
     },
     /// Print the shell integration script (OSC 133 prompt marks + OSC 7 cwd) for zsh, bash or fish.
     ShellInit {
-        #[arg(value_parser = ["zsh", "bash", "fish"])]
+        #[arg(value_parser = ["zsh", "bash", "fish", "zdotdir"])]
         shell: String,
     },
     /// Command history behind the shell integration (used by the zsh widgets).
@@ -306,8 +306,40 @@ enum Commands {
         /// Theme to export.
         name: Option<String>,
     },
-    /// Print a shell completion script (bash, zsh, fish, elvish, powershell).
+    /// Print a shell completion script (bash, zsh, fish, elvish, powershell). The zsh script also
+    /// completes hosts and remote paths.
     Completions { shell: clap_complete::Shell },
+    /// Copy files between this machine and hosts, scp-style: `teryon cp notes.txt mini:~/docs/`.
+    /// Folders copy recursively (a trailing `/` copies a folder's contents); uses rsync when both
+    /// ends have it, else scp.
+    Cp {
+        /// Sources followed by the destination; `host:path` is remote, `~` means the login directory.
+        #[arg(required = true, num_args = 2.., value_name = "PATH")]
+        paths: Vec<String>,
+        /// Which tool copies the files.
+        #[arg(long, value_enum, default_value = "auto")]
+        engine: teryon::cp::Engine,
+        /// Show what would be copied (rsync) or the command that would run (scp), and change nothing.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Skip files that already exist at the destination.
+        #[arg(long)]
+        no_clobber: bool,
+        /// Create the destination directory, with its parents, first.
+        #[arg(short = 'p', long)]
+        parents: bool,
+        /// Limit bandwidth in KB/s.
+        #[arg(long)]
+        limit_kbps: Option<u32>,
+        /// Print the command that runs.
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    #[command(hide = true)]
+    Complete {
+        /// `hosts` or `remote-path HOST PREFIX`.
+        args: Vec<String>,
+    },
     /// Start the workspace a project describes in `.teryon.toml`: its panes, directories and commands.
     Up {
         /// Host to start it on.
@@ -418,6 +450,13 @@ enum HistCommand {
     /// Copy HOST's command history here over SSH, so Ctrl-R and the history picker also find what ran
     /// there (`host:NAME` filters to it). Commands with secrets are left out; run again to refresh.
     Pull { host: String },
+    /// Add the commands from a zsh history file (default ~/.zsh_history) to this history.
+    /// With --once, do it only the first time (the shell integration runs it that way).
+    Import {
+        file: Option<PathBuf>,
+        #[arg(long)]
+        once: bool,
+    },
     /// Print the command to ghost after PREFIX (nothing if none).
     Suggest {
         #[arg(long, default_value = "")]
@@ -545,9 +584,7 @@ fn start(bin: Option<String>, want_desktop: bool) -> Result<i32> {
     let theme = Theme::load(&cfg.theme)?;
     let hosts: Vec<String> = cfg.hosts.keys().cloned().collect();
     let ssh = teryon::util::home()
-        .ok()
-        .and_then(|h| std::fs::read_to_string(h.join(".ssh/config")).ok())
-        .map(|t| config::ssh_hosts(&t))
+        .map(|h| config::ssh_hosts_file(&h.join(".ssh/config")))
         .unwrap_or_default();
     let entries = teryon::start::build_entries(&hosts, &teryon::recent::load(), &ssh);
     let lister_bin = bin.clone();
@@ -862,8 +899,55 @@ fn run() -> Result<i32> {
             }
         }
         Commands::Completions { shell } => {
-            clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut std::io::stdout())
+            if shell == clap_complete::Shell::Zsh {
+                let mut script = Vec::new();
+                clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut script);
+                print!(
+                    "{}",
+                    teryon::complete::zsh_script(&String::from_utf8_lossy(&script))
+                );
+            } else {
+                clap_complete::generate(
+                    shell,
+                    &mut Cli::command(),
+                    "teryon",
+                    &mut std::io::stdout(),
+                )
+            }
         }
+        Commands::Cp {
+            paths,
+            engine,
+            dry_run,
+            no_clobber,
+            parents,
+            limit_kbps,
+            verbose,
+        } => teryon::cp::run(
+            &paths,
+            &teryon::cp::Opts {
+                engine,
+                dry_run,
+                no_clobber,
+                parents,
+                limit_kbps,
+            },
+            verbose,
+        )?,
+        Commands::Complete { args } => match args.as_slice() {
+            [kind] if kind == "hosts" => {
+                for h in teryon::complete::hosts() {
+                    println!("{h}");
+                }
+            }
+            [kind, host, prefix] if kind == "remote-path" => {
+                // Completion must stay quiet: an unreachable host just yields no candidates.
+                for p in teryon::complete::remote_paths(host, prefix).unwrap_or_default() {
+                    println!("{p}");
+                }
+            }
+            _ => {}
+        },
         Commands::Up {
             host,
             file,
@@ -922,7 +1006,10 @@ fn run() -> Result<i32> {
                 Some(f) => f,
                 None => teryon::util::home()?.join(".ssh/config"),
             };
-            let names = config::ssh_hosts(&std::fs::read_to_string(&path)?);
+            let names = {
+                std::fs::metadata(&path)?;
+                config::ssh_hosts_file(&path)
+            };
             if dry_run {
                 let known = config::load()?.hosts;
                 for n in names.iter().filter(|n| !known.contains_key(*n)) {
@@ -1159,6 +1246,10 @@ fn run() -> Result<i32> {
                 .call(Request::Shutdown { force })?;
             println!("Daemon stopped");
         }
+        Commands::ShellInit { shell } if shell == "zdotdir" => {
+            // The directory zsh panes use as ZDOTDIR to load the integration without editing .zshrc.
+            println!("{}", teryon::shellinit::zsh_inject_dir()?.display());
+        }
         Commands::ShellInit { shell } => {
             let script = teryon::shellinit::script(&shell).context("unsupported shell")?;
             if shell == "zsh" {
@@ -1188,6 +1279,29 @@ fn run() -> Result<i32> {
                 branch,
                 host: None,
             })?;
+        }
+        Commands::Hist(HistCommand::Import { file, once }) => {
+            let home = teryon::util::home()?;
+            let marker = home.join(".teryon/zsh-history-imported");
+            if once && marker.exists() {
+                return Ok(0);
+            }
+            let file = file.unwrap_or_else(|| home.join(".zsh_history"));
+            let n = match teryon::history::import_shell_history(&file) {
+                Ok(n) => n,
+                // No history file yet is fine for the automatic run.
+                Err(_) if once && !file.exists() => 0,
+                Err(e) => return Err(e),
+            };
+            if once {
+                teryon::util::private_write(&marker, b"")?;
+            } else {
+                println!(
+                    "Added {n} command{} from {}.",
+                    if n == 1 { "" } else { "s" },
+                    file.display()
+                );
+            }
         }
         Commands::Hist(HistCommand::Scrub) => {
             let n = teryon::history::scrub_file()?;

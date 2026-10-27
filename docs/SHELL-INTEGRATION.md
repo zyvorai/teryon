@@ -19,6 +19,12 @@ teryon shell-init fish | source
 `teryon setup` can add the guarded block for your local shell after asking; it keeps a backup next to the file
 and is safe to re-run. The block does nothing on a machine without `teryon`. Open a new pane afterwards.
 
+zsh panes started by the TERYON daemon load the integration without that line: the daemon starts zsh with a temporary
+`ZDOTDIR` (`~/.teryon/zdotdir`) whose `.zshenv` restores your own `ZDOTDIR`, runs your `.zshenv`, and loads the
+integration at the first prompt, after your `.zshrc`. Set `TERYON_INJECT=0` in the daemon's environment to turn this off.
+The first time it loads, your `~/.zsh_history` is imported (secrets left out) and `inc_append_history` is set so
+long-lived panes write history as they go.
+
 ## What you get (desktop app)
 
 | Feature | How |

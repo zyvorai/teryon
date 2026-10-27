@@ -79,9 +79,7 @@ impl Deps for Real {
     }
     fn ssh_hosts(&self) -> Vec<String> {
         crate::util::home()
-            .ok()
-            .and_then(|h| std::fs::read_to_string(h.join(".ssh/config")).ok())
-            .map(|t| config::ssh_hosts(&t))
+            .map(|h| config::ssh_hosts_file(&h.join(".ssh/config")))
             .unwrap_or_default()
     }
     fn configured_hosts(&self) -> Vec<String> {

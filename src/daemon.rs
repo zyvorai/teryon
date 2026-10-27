@@ -281,6 +281,11 @@ impl Pane {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERYON", "1");
+        cmd.env("TERM_PROGRAM", "teryon");
+        cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+        if is_shell && std::env::var("TERYON_INJECT").as_deref() != Ok("0") {
+            inject_zsh(&mut cmd, &shell);
+        }
         for (name, value) in file_type_env(|n| std::env::var_os(n).is_some()) {
             cmd.env(name, value);
         }
@@ -1164,6 +1169,31 @@ pub fn run() -> Result<()> {
         });
     }
 }
+/// For a zsh pane, load the shell integration without the user editing `.zshrc` (see `shellinit::ZSH_ENV`).
+fn inject_zsh(cmd: &mut CommandBuilder, shell: &str) {
+    if std::path::Path::new(shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        != Some("zsh")
+    {
+        return;
+    }
+    let Ok(dir) = crate::shellinit::zsh_inject_dir() else {
+        return;
+    };
+    let current = std::env::var("ZDOTDIR").unwrap_or_default();
+    let user = if std::path::Path::new(&current) == dir {
+        std::env::var("TERYON_USER_ZDOTDIR").unwrap_or_default()
+    } else {
+        current
+    };
+    cmd.env("ZDOTDIR", dir);
+    cmd.env("TERYON_USER_ZDOTDIR", user);
+    if let Ok(exe) = std::env::current_exe() {
+        cmd.env("TERYON_EXE", exe);
+    }
+}
+
 pub fn ensure() -> Result<()> {
     if ipc::connect().is_ok() {
         return Ok(());
