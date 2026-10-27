@@ -34,6 +34,19 @@ fn kitty_disambiguated(key: KeyEvent) -> Option<Vec<u8>> {
         .into_bytes(),
     )
 }
+/// The control bytes xterm sends for Ctrl with a character outside `@`..`_`: Ctrl+/ and Ctrl+7 are
+/// 0x1f (undo in readline), Ctrl+? and Ctrl+8 are DEL, Ctrl+2 and Ctrl+` are NUL, Ctrl+3..6 are
+/// ESC, FS, GS and RS (as Ctrl+[, Ctrl+\\, Ctrl+] and Ctrl+^), Ctrl+~ is RS.
+fn xterm_control(c: char) -> Option<u8> {
+    match c {
+        '/' | '7' => Some(0x1f),
+        '?' | '8' => Some(0x7f),
+        '2' | '`' => Some(0),
+        '3'..='6' => Some(0x1b + (c as u8 - b'3')),
+        '~' => Some(0x1e),
+        _ => None,
+    }
+}
 /// Like `encode`, for a program that pushed Kitty keyboard `kitty` flags (see `kittykeys`).
 pub fn encode_with(key: KeyEvent, app_cursor: bool, kitty: u8) -> Option<Vec<u8>> {
     if kitty & crate::kittykeys::DISAMBIGUATE != 0 {
@@ -50,6 +63,8 @@ pub fn encode_with(key: KeyEvent, app_cursor: bool, kitty: u8) -> Option<Vec<u8>
                 vec![upper as u8 & 0x1f]
             } else if c == ' ' {
                 vec![0]
+            } else if let Some(b) = xterm_control(c) {
+                vec![b]
             } else {
                 return None;
             }
@@ -112,6 +127,28 @@ pub fn paste(text: &str, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ctrl_with_punctuation_and_digits_sends_the_xterm_bytes() {
+        use crossterm::event::{KeyCode as K, KeyEvent as E, KeyModifiers as M};
+        let enc = |c| encode(E::new(K::Char(c), M::CONTROL), false);
+        assert_eq!(enc('/').unwrap(), [0x1f]);
+        assert_eq!(enc('_').unwrap(), [0x1f]);
+        assert_eq!(enc('7').unwrap(), [0x1f]);
+        assert_eq!(enc('?').unwrap(), [0x7f]);
+        assert_eq!(enc('8').unwrap(), [0x7f]);
+        assert_eq!(enc('2').unwrap(), [0]);
+        assert_eq!(enc('3').unwrap(), [0x1b]);
+        assert_eq!(enc('4').unwrap(), [0x1c]);
+        assert_eq!(enc('5').unwrap(), [0x1d]);
+        assert_eq!(enc('6').unwrap(), [0x1e]);
+        // Ctrl+Alt+/ is ESC then the byte; keys xterm has no byte for stay unsent.
+        assert_eq!(
+            encode(E::new(K::Char('/'), M::CONTROL | M::ALT), false).unwrap(),
+            [27, 0x1f]
+        );
+        assert_eq!(enc('.'), None);
+        assert_eq!(enc('9'), None);
+    }
     #[test]
     fn kitty_disambiguate_changes_only_esc_and_modified_keys() {
         use crossterm::event::{KeyCode as K, KeyEvent as E, KeyModifiers as M};

@@ -22,6 +22,7 @@ and is safe to re-run. The block does nothing on a machine without `teryon`. Ope
 zsh panes started by the TERYON daemon load the integration without that line: the daemon starts zsh with a temporary
 `ZDOTDIR` (`~/.teryon/zdotdir`) whose `.zshenv` restores your own `ZDOTDIR`, runs your `.zshenv`, and loads the
 integration at the first prompt, after your `.zshrc`. Set `TERYON_INJECT=0` in the daemon's environment to turn this off.
+`teryon doctor --shell` (add a host name to check a remote one) shows what a new pane gets and what is missing.
 The first time it loads, your `~/.zsh_history` is imported (secrets left out) and `inc_append_history` is set so
 long-lived panes write history as they go.
 
