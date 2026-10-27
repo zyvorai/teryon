@@ -41,6 +41,7 @@ pub mod sandbox;
 pub mod screensync;
 pub mod settings;
 pub mod setup;
+pub mod shelldoctor;
 pub mod shellinit;
 pub mod snippet;
 pub mod start;

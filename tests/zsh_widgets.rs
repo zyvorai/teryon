@@ -250,3 +250,40 @@ fn a_zshrc_that_already_loads_the_integration_is_not_loaded_twice() {
     s.send(b"print -r -- N_${#${(M)precmd_functions:#__teryon_precmd}}_$((6*7))\n");
     s.expect("N_1_42");
 }
+
+#[test]
+fn doctor_shell_reports_a_pane_that_loads_the_integration() {
+    if !have_zsh() {
+        return;
+    }
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join(".zshrc"),
+        "autoload -Uz compinit; compinit -u -d $HOME/.zcompdump\nHISTFILE=$HOME/.zsh_history\nSAVEHIST=100\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/zsh")
+        .args(["doctor", "--shell"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(
+        text.contains("[ok  ] integration: loads in a new pane automatically"),
+        "{text}"
+    );
+    assert!(text.contains("[ok  ] Tab: compinit is loaded"), "{text}");
+    assert!(text.contains("[ok  ] shell history"), "{text}");
+
+    let off = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/zsh")
+        .env("TERYON_INJECT", "0")
+        .args(["doctor", "--shell"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&off.stdout);
+    assert!(text.contains("[FAIL] integration"), "{text}");
+}

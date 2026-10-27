@@ -184,6 +184,10 @@ enum Commands {
         /// Do not ask before deploying.
         #[arg(long, short = 'y')]
         yes: bool,
+        /// Instead, check why Tab, Ctrl-R, history or the working directory might not work in a
+        /// zsh pane on HOST (the shell integration, compinit, history saving, versions).
+        #[arg(long, conflicts_with_all = ["fix", "binary"])]
+        shell: bool,
     },
     /// Print the shell integration script (OSC 133 prompt marks + OSC 7 cwd) for zsh, bash or fish.
     ShellInit {
@@ -1210,8 +1214,20 @@ fn run() -> Result<i32> {
             fix,
             binary,
             yes,
+            shell,
         } => {
             let t = target(host, bin)?;
+            if shell {
+                if t.local() {
+                    print!(
+                        "{}",
+                        teryon::shelldoctor::render(&teryon::shelldoctor::run())
+                    );
+                } else {
+                    print!("{}", t.run_remote("doctor --shell")?);
+                }
+                return Ok(0);
+            }
             let mut rpc = match t.connect() {
                 Ok(rpc) => rpc,
                 Err(err) => {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `teryon doctor --shell [HOST]` starts a zsh the way a pane does and reports whether the integration loads, whether compinit/fzf-tab own Tab, whether history is saved as you type, and whether the `teryon` on PATH is the same build as the one running
+- Ctrl with `/`, `?`, `` ` ``, `~` and the digits 2 to 8 now sends the bytes xterm does (Ctrl+/ undoes in readline, Ctrl+? is DEL), instead of being dropped
+- zsh panes put the daemon's own `teryon` first on PATH (a link in `~/.teryon/bin`), so a stale build earlier on PATH cannot load an older integration
+
 - zsh panes load the shell integration by themselves (a temporary `ZDOTDIR` that restores yours and loads TERYON at the first prompt), so Ctrl-R, ghost suggestions, fuzzy Tab, `z` and the working-directory tracking no longer need a line in `~/.zshrc`. Set `TERYON_INJECT=0` before the daemon starts to turn it off; a `.zshrc` that already has the `eval` line is unaffected
 - The integration turns on `inc_append_history` (unless you set `inc_append_history` or `share_history` yourself; `TERYON_HISTFLUSH=0` opts out), so a pane that is closed or killed no longer loses its shell history
 - `teryon hist import [FILE]` adds a zsh history file to Ctrl-R and the suggestions; the integration runs it once for `~/.zsh_history`

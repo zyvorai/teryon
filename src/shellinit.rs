@@ -15,16 +15,33 @@ if [[ -o interactive && -z $__teryon_integrated && "${TERYON_INJECT:-1}" != 0 ]]
     add-zsh-hook -d precmd __teryon_boot
     unfunction __teryon_boot
     [[ -n $__teryon_integrated ]] && return
-    (( $+commands[teryon] )) || { [[ -x $TERYON_EXE ]] && path+=(${TERYON_EXE:h}); }
+    # Use the same build as the daemon: a stale `teryon` earlier on PATH would load an older integration.
+    [[ -x ~/.teryon/bin/teryon && -x $TERYON_EXE && "${commands[teryon]:A}" != "${TERYON_EXE:A}" ]] && path=(~/.teryon/bin $path)
     (( $+commands[teryon] )) && eval "$(command teryon shell-init zsh)"
   }
   autoload -Uz add-zsh-hook && add-zsh-hook precmd __teryon_boot
 fi
 "#;
 
+/// Point `~/.teryon/bin/teryon` at the running binary, so zsh panes can put exactly this build first on PATH.
+fn link_self() -> anyhow::Result<()> {
+    let exe = std::env::current_exe()?;
+    let link = crate::util::home()?.join(".teryon/bin/teryon");
+    if std::fs::read_link(&link).ok().as_deref() == Some(exe.as_path()) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(link.parent().unwrap())?;
+    let tmp = link.with_extension("new");
+    let _ = std::fs::remove_file(&tmp);
+    std::os::unix::fs::symlink(&exe, &tmp)?;
+    std::fs::rename(&tmp, &link)?;
+    Ok(())
+}
+
 /// Write the injection directory (under `~/.teryon`) and return it. The daemon points zsh panes'
 /// `ZDOTDIR` here and keeps the user's own value in `TERYON_USER_ZDOTDIR`.
 pub fn zsh_inject_dir() -> anyhow::Result<PathBuf> {
+    let _ = link_self();
     let dir = crate::util::home()?.join(".teryon/zdotdir");
     let file = dir.join(".zshenv");
     if std::fs::read_to_string(&file).ok().as_deref() != Some(ZSH_ENV) {
