@@ -744,6 +744,82 @@ pub fn ssh_hosts(content: &str) -> Vec<String> {
     }
     out
 }
+/// `Host` aliases from the OpenSSH config file at `path`, following `Include` lines (relative paths
+/// resolve against `~/.ssh`, `*`/`?` wildcards match file names) up to a small depth.
+pub fn ssh_hosts_file(path: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_ssh_hosts(path, 0, &mut out);
+    out
+}
+fn collect_ssh_hosts(path: &std::path::Path, depth: u8, out: &mut Vec<String>) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    for name in ssh_hosts(&text) {
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    if depth >= 4 {
+        return;
+    }
+    let Ok(home) = util::home() else { return };
+    let ssh_dir = home.join(".ssh");
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let mut parts = line.split_whitespace();
+        if !parts
+            .next()
+            .is_some_and(|k| k.eq_ignore_ascii_case("include"))
+        {
+            continue;
+        }
+        for pattern in parts {
+            let pattern = pattern.trim_matches('"');
+            let full = match pattern.strip_prefix("~/") {
+                Some(rest) => home.join(rest),
+                None if pattern.starts_with('/') => PathBuf::from(pattern),
+                None => ssh_dir.join(pattern),
+            };
+            for file in expand_file_glob(&full) {
+                collect_ssh_hosts(&file, depth + 1, out);
+            }
+        }
+    }
+}
+/// Files matching `path`, where only the last component may contain `*` or `?`.
+fn expand_file_glob(path: &std::path::Path) -> Vec<PathBuf> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !name.contains(['*', '?']) {
+        return vec![path.to_path_buf()];
+    }
+    let Some(dir) = path.parent() else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| glob_match(&name, &e.file_name().to_string_lossy()) && e.path().is_file())
+        .map(|e| e.path())
+        .collect();
+    files.sort();
+    files
+}
+fn glob_match(pattern: &str, text: &str) -> bool {
+    fn go(p: &[u8], t: &[u8]) -> bool {
+        match p.split_first() {
+            None => t.is_empty(),
+            Some((b'*', rest)) => (0..=t.len()).any(|i| go(rest, &t[i..])),
+            Some((b'?', rest)) => !t.is_empty() && go(rest, &t[1..]),
+            Some((c, rest)) => t.first() == Some(c) && go(rest, &t[1..]),
+        }
+    }
+    go(pattern.as_bytes(), text.as_bytes())
+}
 /// Append `[hosts.NAME]` tables for names not already configured; existing text is left untouched.
 pub fn add_hosts(names: &[String]) -> Result<Vec<String>> {
     let path = path()?;
@@ -944,6 +1020,25 @@ mod tests {
             "theme = \"nord\"\nsplash = true\n[hosts.x]\ntheme = \"inner\"\n"
         );
         assert_eq!(set_theme_text("", "nord"), "theme = \"nord\"\n");
+    }
+    #[test]
+    fn ssh_hosts_file_follows_includes() {
+        let dir = std::env::temp_dir().join(format!("teryon-inc-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("conf.d")).unwrap();
+        std::fs::write(dir.join("conf.d/a.conf"), "Host inc-a\n").unwrap();
+        std::fs::write(dir.join("conf.d/b.txt"), "Host skipped\n").unwrap();
+        let main = dir.join("config");
+        let inc = format!("Include {}/conf.d/*.conf\nHost top\n", dir.display());
+        std::fs::write(&main, inc).unwrap();
+        let hosts = ssh_hosts_file(&main);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(hosts, ["top", "inc-a"]);
+    }
+    #[test]
+    fn glob_match_handles_star_and_question() {
+        assert!(glob_match("*.conf", "work.conf"));
+        assert!(glob_match("c?.conf", "c1.conf"));
+        assert!(!glob_match("*.conf", "work.txt"));
     }
     #[test]
     fn ssh_hosts_skips_wildcards_and_comments() {

@@ -227,25 +227,22 @@ impl Target {
     }
     /// `rsync` with the options every TERYON transfer shares.
     fn rsync_command(&self) -> Command {
-        // --protect-args prevents the remote shell from interpreting filenames.
-        // --partial-dir preserves interrupted transfers without in-place corruption.
-        let mut cmd = Command::new(rsync_binary());
-        let mut ssh="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3".to_string();
+        rsync_command()
+    }
+    /// `ssh` for tab completion: short timeout and a shared connection, so repeated Tab presses are fast.
+    pub fn ssh_for_completion(&self) -> Command {
+        let mut cmd = Command::new("ssh");
         if let Some(path) = std::env::var_os("TERYON_SSH_CONFIG") {
-            ssh.push_str(" -F ");
-            ssh.push_str(&util::shell_quote(&path.to_string_lossy()));
+            cmd.arg("-F").arg(path);
         }
-        cmd.args([
-            "-a",
-            "--protect-args",
-            // Non-interactive SSH sessions often lack Homebrew on PATH, and macOS's own rsync
-            // (openrsync) cannot do --protect-args, so ask for a real rsync on the far side too.
-            "--rsync-path=PATH=/opt/homebrew/bin:/usr/local/bin:$PATH rsync",
-            "--partial-dir=.teryon-partial",
-            "--progress",
-            "-e",
-            &ssh,
-        ]);
+        cmd.args(["-T", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes"]);
+        cmd.args(["-o", "StrictHostKeyChecking=yes"]);
+        if let Ok(dir) = util::runtime_dir() {
+            cmd.args(["-o", "ControlMaster=auto", "-o", "ControlPersist=60"]);
+            cmd.arg("-o")
+                .arg(format!("ControlPath={}/cm-%C", dir.display()));
+        }
+        cmd.arg(&self.host);
         cmd
     }
     /// Quietly upload `sources` into the remote directory `dest_dir`, leaving files that already exist
@@ -319,6 +316,93 @@ impl Target {
         Ok(())
     }
 }
+/// `rsync` with the options every TERYON transfer shares.
+pub fn rsync_command() -> Command {
+    // --protect-args prevents the remote shell from interpreting filenames.
+    // --partial-dir preserves interrupted transfers without in-place corruption.
+    let mut cmd = Command::new(rsync_binary());
+    let mut ssh="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3".to_string();
+    if let Some(path) = std::env::var_os("TERYON_SSH_CONFIG") {
+        ssh.push_str(" -F ");
+        ssh.push_str(&util::shell_quote(&path.to_string_lossy()));
+    }
+    cmd.args([
+        "-a",
+        "--protect-args",
+        // Non-interactive SSH sessions often lack Homebrew on PATH, and macOS's own rsync
+        // (openrsync) cannot do --protect-args, so ask for a real rsync on the far side too.
+        "--rsync-path=PATH=/opt/homebrew/bin:/usr/local/bin:$PATH rsync",
+        "--partial-dir=.teryon-partial",
+        "--progress",
+        "-e",
+        &ssh,
+    ]);
+    cmd
+}
+/// `scp` with the same non-interactive SSH options as every other TERYON transfer.
+pub fn scp_command() -> Command {
+    let mut cmd = Command::new("scp");
+    if let Some(path) = std::env::var_os("TERYON_SSH_CONFIG") {
+        cmd.arg("-F").arg(path);
+    }
+    cmd.args([
+        "-r",
+        "-p",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "ServerAliveInterval=5",
+    ]);
+    cmd
+}
+/// Is a real rsync 3+ (not macOS's openrsync) installed on this machine?
+pub fn rsync_available() -> bool {
+    Command::new(rsync_binary())
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .is_ok_and(|o| {
+            o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("openrsync")
+        })
+}
+impl Target {
+    /// Does the far side have an rsync (Homebrew locations included)?
+    pub fn has_rsync(&self) -> bool {
+        self.ssh_for_completion()
+            .arg("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH command -v rsync")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+    /// `mkdir -p` a path on the host (relative paths are under the login directory).
+    pub fn mkdir_p(&self, dir: &str) -> Result<()> {
+        if dir.contains(['\n', '\0']) {
+            bail!("invalid remote path");
+        }
+        let out = self
+            .ssh()
+            .arg(format!("mkdir -p -- {}", util::shell_quote(dir)))
+            .stdin(Stdio::null())
+            .output()
+            .context("run ssh")?;
+        if !out.status.success() {
+            let why = String::from_utf8_lossy(&out.stderr);
+            bail!(
+                "cannot create {dir} on {}: {}",
+                self.host,
+                why.lines().last().unwrap_or("ssh error").trim()
+            );
+        }
+        Ok(())
+    }
+}
+
 /// The rsync to run: the first one on PATH or in a Homebrew prefix that is not macOS's openrsync
 /// (which lacks `--protect-args`). GUI apps start without Homebrew on PATH, hence the fixed list.
 fn rsync_binary() -> &'static str {

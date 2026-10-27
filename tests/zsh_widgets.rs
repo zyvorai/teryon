@@ -181,3 +181,72 @@ fn the_opt_in_prompt_shows_git_state_and_never_runs_a_hostile_branch_name() {
     s.send(b"false\n");
     s.expect("\u{2717}1");
 }
+
+/// What the daemon does for a zsh pane: point ZDOTDIR at the injection directory, keep the user's own.
+fn injected_shell(home: &std::path::Path, work: &std::path::Path, zshrc: &str) -> Session {
+    std::fs::write(home.join(".zshrc"), zshrc).unwrap();
+    let dir = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", home)
+        .args(["shell-init", "zdotdir"])
+        .output()
+        .unwrap()
+        .stdout;
+    let dir = String::from_utf8(dir).unwrap();
+    let mut s = Session::start_program("zsh", home, &["-fi"], Some(work));
+    s.send(
+        format!(
+            "export ZDOTDIR={} TERYON_USER_ZDOTDIR=; exec zsh -i\n",
+            dir.trim()
+        )
+        .as_bytes(),
+    );
+    s.expect("READY> ");
+    s
+}
+
+#[test]
+fn panes_load_the_integration_without_a_zshrc_line_and_keep_the_real_zdotdir() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let mut s = injected_shell(home.path(), work.path(), "PROMPT='READY> '\n");
+    // The integration loads before the first prompt is used (precmd), so give it one more.
+    s.send(b"print -r -- INT_${__teryon_integrated:-no}_ZD_${ZDOTDIR:-unset}_$((6*7))\n");
+    s.expect("INT_1_ZD_unset_42");
+}
+
+#[test]
+fn panes_flush_history_as_they_go() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let mut s = injected_shell(
+        home.path(),
+        work.path(),
+        "PROMPT='READY> '\nHISTFILE=$HOME/.zsh_history\nSAVEHIST=100\n",
+    );
+    s.send(b"print -r -- FLUSH_$((6*7))\n");
+    s.expect("FLUSH_42");
+    s.send(b"[[ -o inc_append_history ]] && print -r -- INC_$((6*7))\n");
+    s.expect("INC_42");
+    // The shell has not exited, yet the command is already on disk.
+    let text = std::fs::read_to_string(home.path().join(".zsh_history")).unwrap_or_default();
+    assert!(text.contains("FLUSH_$((6*7))"), "{text}");
+}
+
+#[test]
+fn a_zshrc_that_already_loads_the_integration_is_not_loaded_twice() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let mut s = injected_shell(
+        home.path(),
+        work.path(),
+        "PROMPT='READY> '\neval \"$(teryon shell-init zsh)\"\n",
+    );
+    s.send(b"print -r -- N_${#${(M)precmd_functions:#__teryon_precmd}}_$((6*7))\n");
+    s.expect("N_1_42");
+}
