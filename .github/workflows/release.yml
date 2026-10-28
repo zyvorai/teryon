@@ -36,6 +36,34 @@ jobs:
         with:
           name: teryon-${{ matrix.artifact }}
           path: dist/*.tar.gz
+  macos-app:
+    # Unsigned TERYON.app, built in CI so the Mac mini only has to sign and notarize it. The signing
+    # certificates never leave that Mac. The result is a workflow artifact, never attached to a Release.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/bundle-macos.sh
+      - name: Check the bundle
+        run: |
+          plutil -lint dist/TERYON.app/Contents/Info.plist
+          test -x dist/TERYON.app/Contents/MacOS/teryon
+          test -x dist/TERYON.app/Contents/MacOS/launch-teryon
+          test -s dist/TERYON.app/Contents/Resources/Teryon.icns
+          dist/TERYON.app/Contents/MacOS/teryon --version
+      - name: Zip the unsigned app with a checksum
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          cd dist
+          ditto -c -k --keepParent TERYON.app "TERYON-${version}-unsigned.zip"
+          shasum -a 256 "TERYON-${version}-unsigned.zip" > "SHA256SUMS-unsigned-${version}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teryon-macos-app-unsigned
+          path: |
+            dist/TERYON-*-unsigned.zip
+            dist/SHA256SUMS-unsigned-*
   publish:
     # Only for a pushed tag: attach the archives and the changelog section to a GitHub Release.
     if: startsWith(github.ref, 'refs/tags/v')
