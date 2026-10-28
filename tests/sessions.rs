@@ -1065,7 +1065,7 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
     let d = Daemon::start();
     // A pane that keeps printing, so the screen changes many times while two viewers poll it.
     let script = "i=0; while [ $i -lt 120 ]; do printf 'line %03d \\033[3%dmcolored text here\\033[0m and some more words\\n' $i $((i % 8)); i=$((i+1)); sleep 0.02; done; printf 'finished\\n'; sleep 8";
-    let (mut owner, pane) = pane_running(&d, "diffs", script);
+    let (_owner, pane) = pane_running(&d, "diffs", script);
     let viewer = |diff: bool| {
         let mut c = d.client();
         c.attach("diffs", true);
@@ -1085,6 +1085,11 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
     let mut rebuilt: Option<Vec<u8>> = None;
     let mut full_w: Option<Vec<u8>> = None;
     let mut whole_details = None;
+    let text = |bytes: &[u8]| {
+        let mut p = vt100::Parser::new(24, 80, 0);
+        p.process(bytes);
+        p.screen().contents()
+    };
     let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {
         let Response::State { panes } = with_diff.call(Request::Poll {
@@ -1143,17 +1148,15 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
                 full_w = Some(b.clone());
             }
         }
-        if owner.capture(pane).contains("finished") && known_d == known_w {
+        // Stop once both viewers hold the final screen. Checking the pane's own output instead races
+        // with a slow machine: both viewers can sit on the same stale revision while the pane finishes.
+        let at_end =
+            |b: &Option<Vec<u8>>| b.as_deref().is_some_and(|b| text(b).contains("finished"));
+        if at_end(&rebuilt) && at_end(&full_w) && known_d == known_w {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
-    // One last poll each so both hold the final screen.
-    let text = |bytes: &[u8]| {
-        let mut p = vt100::Parser::new(24, 80, 0);
-        p.process(bytes);
-        p.screen().contents()
-    };
     let (a, b) = (text(&rebuilt.unwrap()), text(&full_w.unwrap()));
     assert!(
         diffs_seen > 5,
