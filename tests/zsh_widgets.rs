@@ -287,3 +287,32 @@ fn doctor_shell_reports_a_pane_that_loads_the_integration() {
     let text = String::from_utf8_lossy(&off.stdout);
     assert!(text.contains("[FAIL] integration"), "{text}");
 }
+
+#[test]
+fn a_multi_line_paste_waits_for_a_y_and_a_single_line_does_not() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let mut s = shell(home.path(), work.path(), false);
+    // One command: inserted at once.
+    s.send(b"\x1b[200~print -r -- ONE_$((6*7))\x1b[201~");
+    s.expect("ONE_$((6*7))");
+    pause();
+    s.send(b"\x15");
+    // Two commands: held back, and "n" drops them.
+    s.send(b"\x1b[200~print -r -- A_$((6*7))\nprint -r -- B_$((6*7))\x1b[201~");
+    s.expect("Paste contains 2 lines");
+    pause();
+    s.send(b"n");
+    s.expect("paste dropped");
+    pause();
+    // The same paste with "y" lands on the line, and Enter runs both.
+    s.send(b"\x1b[200~print -r -- C_$((6*7))\nprint -r -- D_$((6*7))\x1b[201~");
+    s.expect("Paste contains 2 lines");
+    pause();
+    s.send(b"y");
+    pause();
+    s.send(b"\n");
+    s.expect("C_42");
+}

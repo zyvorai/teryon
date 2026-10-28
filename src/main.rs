@@ -231,6 +231,10 @@ enum Commands {
         #[arg(long, default_value = "")]
         query: String,
     },
+    /// Read pasted text on stdin and print why it needs confirming (nothing if it does not); used by
+    /// the zsh paste guard.
+    #[command(hide = true)]
+    PasteCheck,
     /// A two-line zsh prompt: directory, git, language, last command's duration and status.
     #[command(hide = true)]
     Prompt {
@@ -474,6 +478,30 @@ enum HistCommand {
         #[arg(long)]
         once: bool,
     },
+    /// Per project: how many commands ran, how many failed, which were slowest and which failed most.
+    Report {
+        /// Look back this many days.
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+        /// Only commands from this machine (`local` for this one; pulled with `hist pull`).
+        #[arg(long)]
+        host: Option<String>,
+        /// Commands to list per project.
+        #[arg(long, default_value_t = 3)]
+        top: usize,
+    },
+    /// Find the newest past command containing every word of QUERY and show where it ran. Prints
+    /// `cd DIR && COMMAND` (so you can paste or `eval` it); with --run, runs it in that directory.
+    Replay {
+        /// Only a command that failed.
+        #[arg(long)]
+        failed: bool,
+        /// Run it now, in the directory it ran in.
+        #[arg(long)]
+        run: bool,
+        #[arg(last = true)]
+        query: Vec<String>,
+    },
     /// Print the command to ghost after PREFIX (nothing if none).
     Suggest {
         #[arg(long, default_value = "")]
@@ -490,6 +518,13 @@ enum JumpCommand {
     Query {
         #[arg(long, default_value = "")]
         cwd: String,
+        #[arg(last = true)]
+        keywords: Vec<String>,
+    },
+    /// Open a shell on HOST in its best directory for the keywords, from that machine's own jump
+    /// history (what `z HOST:keywords` runs).
+    Go {
+        host: String,
         #[arg(last = true)]
         keywords: Vec<String>,
     },
@@ -1449,6 +1484,49 @@ fn run() -> Result<i32> {
                 return Ok(1);
             }
         }
+        Commands::Hist(HistCommand::Report { days, host, top }) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let host = host.map(|h| if h == "local" { String::new() } else { h });
+            let entries = teryon::history::load_with_hosts();
+            let home = std::env::var("HOME").unwrap_or_default();
+            let projects = teryon::histtools::report(
+                &entries,
+                now.saturating_sub(days * 86_400),
+                host.as_deref(),
+                top,
+                &home,
+            );
+            print!("{}", teryon::histtools::render(&projects, days));
+        }
+        Commands::Hist(HistCommand::Replay { failed, run, query }) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let entries = teryon::history::load_all();
+            let Some(e) = teryon::histtools::find(&entries, &query, failed) else {
+                bail!("no earlier command matches '{}'", query.join(" "));
+            };
+            let branch = teryon::history::git_branch(&e.cwd);
+            eprintln!(
+                "{}\n  {}",
+                teryon::histtools::context(e, now, branch.as_deref()),
+                e.cmd
+            );
+            if run {
+                if !std::path::Path::new(&e.cwd).is_dir() {
+                    bail!("{} no longer exists", e.cwd);
+                }
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
+                let status = std::process::Command::new(shell)
+                    .args(["-c", &e.cmd])
+                    .current_dir(&e.cwd)
+                    .status()?;
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            println!("cd -- {} && {}", teryon::util::shell_quote(&e.cwd), e.cmd);
+        }
         Commands::Hist(HistCommand::Suggest { cwd, prefix }) => {
             let entries = teryon::history::load_tail();
             if let Some(s) = teryon::history::suggest(&entries, &prefix.join(" "), &cwd) {
@@ -1516,6 +1594,41 @@ fn run() -> Result<i32> {
                         None => std::process::exit(1),
                     }
                 }
+                JumpCommand::Go { host, keywords } => {
+                    let keywords: Vec<String> =
+                        keywords.into_iter().filter(|w| !w.is_empty()).collect();
+                    let t = target(host.clone(), bin)?;
+                    let words: String = keywords
+                        .iter()
+                        .map(|w| format!(" {}", teryon::util::shell_quote(w)))
+                        .collect();
+                    let dir = if keywords.is_empty() {
+                        String::new()
+                    } else {
+                        let out = t
+                            .run_remote(&format!("jump query --cwd \"$PWD\" --{words}"))
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "{host}: no directory matches '{}' ({e})",
+                                    keywords.join(" ")
+                                )
+                            })?;
+                        out.trim().to_string()
+                    };
+                    let line = if dir.is_empty() {
+                        "exec \"${SHELL:-sh}\" -l".to_string()
+                    } else {
+                        format!(
+                            "cd -- {} && exec \"${{SHELL:-sh}}\" -l",
+                            teryon::util::shell_quote(&dir)
+                        )
+                    };
+                    let err = {
+                        use std::os::unix::process::CommandExt;
+                        t.ssh().arg("-t").arg(line).exec()
+                    };
+                    bail!("start OpenSSH: {err}");
+                }
                 JumpCommand::List { cwd, keywords } => {
                     teryon::frecent::seed_if_missing();
                     for hit in teryon::frecent::rank(&teryon::frecent::load(), &keywords, &cwd, now)
@@ -1523,6 +1636,14 @@ fn run() -> Result<i32> {
                         println!("{hit}");
                     }
                 }
+            }
+        }
+        Commands::PasteCheck => {
+            use std::io::Read;
+            let mut text = String::new();
+            std::io::stdin().take(1 << 20).read_to_string(&mut text)?;
+            if let Some(why) = teryon::paste::risk(&text) {
+                println!("{why}");
             }
         }
         Commands::Highlight { line } => {

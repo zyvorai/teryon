@@ -360,3 +360,76 @@ fn hist_sync_copies_a_hosts_history_over_real_ssh_and_auto_mode_stays_quiet() {
         "not again within the interval"
     );
 }
+
+#[test]
+fn z_host_opens_a_shell_in_the_hosts_best_directory_over_real_ssh() {
+    let Some(e) = setup() else {
+        eprintln!("skipped: cannot start a user-level sshd here");
+        return;
+    };
+    // The "remote" is this machine, so give its teryon a home of its own to hold the jump log.
+    let remote_home = e.home.path().join("remote-home");
+    let target = e.work.path().join("src/sub");
+    std::fs::create_dir_all(&remote_home).unwrap();
+    let wrapper = e.home.path().join("remote-teryon");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nHOME='{}' exec '{}' \"$@\"\n",
+            remote_home.display(),
+            env!("CARGO_BIN_EXE_teryon")
+        ),
+    )
+    .unwrap();
+    std::process::Command::new("chmod")
+        .arg("755")
+        .arg(&wrapper)
+        .status()
+        .unwrap();
+    let add = Command::new(&wrapper)
+        .args(["jump", "add"])
+        .arg(&target)
+        .status()
+        .unwrap();
+    assert!(add.success());
+    let cfg_dir = e.home.path().join(".config/teryon");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    std::fs::write(
+        cfg_dir.join("config.toml"),
+        format!(
+            "[hosts.tsrv]\ndestination = \"tsrv\"\nremote_bin = \"{}\"\n",
+            wrapper.display()
+        ),
+    )
+    .unwrap();
+    let go = |words: &[&str]| {
+        use std::io::Write;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .env("HOME", e.home.path())
+            .env("TERYON_SSH_CONFIG", &e.server.ssh_config)
+            .args(["jump", "go", "tsrv", "--"])
+            .args(words)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"echo HERE_IS=$(basename \"$PWD\")\nexit\n")
+            .unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let out = go(&["sub"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("HERE_IS=sub"), "{out:?}");
+
+    let out = go(&["nosuchplace"]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no directory matches 'nosuchplace'"),
+        "{out:?}"
+    );
+}
