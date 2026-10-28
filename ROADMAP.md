@@ -2,7 +2,16 @@
 
 What has shipped and what is still open, based on the current limitations (`docs/LIMITATIONS.md`), what users are likely to hit, and the Mac mini / AI-agent / infrastructure focus.
 
-**Status**: Engineering preview v0.21.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+**Status**: Engineering preview v0.22.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+
+## Shipped in 0.22.0
+
+| Area | What |
+|---|---|
+| Shell | zsh panes load the integration themselves; reliable Tab, Ctrl-R and history in zsh, bash and fish; `doctor --shell`; fixed dropped Ctrl keys; zsh paste guard |
+| CLI | Dynamic completion (hosts, workspaces, remote paths), `teryon cp`, `hosts --check`, `wake --wait`, `explain`, `snip`, `watch-sync` |
+| History | `hist report`, `hist replay`, `hist sync`, `hist import`, `z HOST:words` |
+| Panes | `teryon search` greps the scrollback of every pane; `teryon play` plays a recording back with hostile sequences filtered; per-project `[env]` in `.teryon.toml` |
 
 ## Shipped in 0.21.0
 

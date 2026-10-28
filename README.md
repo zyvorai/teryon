@@ -18,7 +18,7 @@
   <img src="docs/images/teryon-grid-dark.jpg" alt="TERYON desktop app: a file tree, a git log, test output and an assistant waiting for approval, in four panes" width="100%">
 </picture>
 
-> **Status: 0.21.0 engineering preview.** Working code, integration tests, tutorials and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
+> **Status: 0.22.0 engineering preview.** Working code, integration tests, tutorials and release automation. It is not a claim of production maturity, universal terminal compatibility, or superiority over established tools. Read [the verification report](docs/TESTING.md) and [known limits](docs/LIMITATIONS.md).
 
 ## Why TERYON
 
