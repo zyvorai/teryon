@@ -1,5 +1,6 @@
 //! The daemon, never a connection handler, owns every PTY.
 use crate::protocol::*;
+use crate::util::LockRecover;
 use crate::{ipc, util};
 use anyhow::{bail, Context, Result};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -356,7 +357,7 @@ impl Pane {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let mut st = read_state.lock().unwrap();
+                        let mut st = read_state.lock_recover();
                         for piece in apc.feed(&buf[..n]) {
                             match piece {
                                 crate::kittygfx::Piece::Data(data) => st.parser.process(&data),
@@ -386,7 +387,7 @@ impl Pane {
         });
         thread::spawn(move || {
             let exit = child.wait().map(|s| s.exit_code()).unwrap_or(255);
-            let mut st = state.lock().unwrap();
+            let mut st = state.lock_recover();
             st.exited = Some(exit);
             st.revision += 1;
         });
@@ -397,7 +398,7 @@ impl Pane {
         known: Option<u64>,
         mut sync: Option<&mut crate::screensync::PaneSync>,
     ) -> PaneView {
-        let st = self.state.lock().unwrap();
+        let st = self.state.lock_recover();
         let (rows, cols) = st.parser.screen().size();
         let changed = known != Some(st.revision);
         let top = st.parser.screen().scrolled_total();
@@ -420,7 +421,7 @@ impl Pane {
         };
         let mut view = PaneView {
             id: self.id,
-            title: self.title.lock().unwrap().clone(),
+            title: self.title.lock_recover().clone(),
             cwd: log.cwd.clone().unwrap_or_else(|| self.cwd.clone()),
             pid: self.pid,
             rows,
@@ -469,13 +470,13 @@ impl Pane {
         let Some(pid) = self.pid.filter(|_| !exited) else {
             return Vec::new();
         };
-        let mut cache = self.ports.lock().unwrap();
+        let mut cache = self.ports.lock_recover();
         if !cache.busy && cache.at.elapsed() > Duration::from_secs(5) {
             cache.busy = true;
             let shared = self.ports.clone();
             thread::spawn(move || {
                 let found = crate::ports::listening(pid);
-                let mut c = shared.lock().unwrap();
+                let mut c = shared.lock_recover();
                 *c = PortCache {
                     at: std::time::Instant::now(),
                     ports: found,
@@ -490,11 +491,11 @@ impl Pane {
         if exited {
             return None;
         }
-        let mut cache = self.fg.lock().unwrap();
+        let mut cache = self.fg.lock_recover();
         if cache.0.elapsed() < Duration::from_secs(1) {
             return cache.1.clone();
         }
-        let leader = self.master.lock().unwrap().process_group_leader();
+        let leader = self.master.lock_recover().process_group_leader();
         let text = leader.filter(|p| *p > 1).and_then(|pid| {
             let out = std::process::Command::new("ps")
                 .args(["-o", "command=", "-p", &pid.to_string()])
@@ -516,13 +517,13 @@ impl Pane {
         if !valid_size(rows, cols) {
             bail!("terminal size outside supported bounds");
         }
-        self.master.lock().unwrap().resize(PtySize {
+        self.master.lock_recover().resize(PtySize {
             rows,
             cols,
             pixel_width: 0,
             pixel_height: 0,
         })?;
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock_recover();
         st.parser.screen_mut().set_size(rows, cols);
         st.revision += 1;
         Ok(())
@@ -530,7 +531,7 @@ impl Pane {
     /// Retained text, one line per terminal row (so line numbers are exact), and the absolute
     /// number of its first line.
     fn capture(&self) -> (String, u64) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock_recover();
         let (rows, cols) = st.parser.screen().size();
         let rows = usize::from(rows);
         // Query the actual bounded scrollback length, then walk oldest to newest.
@@ -568,11 +569,11 @@ impl Pane {
         (lines.join("\n"), first)
     }
     fn kill(&self) -> Result<()> {
-        if self.state.lock().unwrap().exited.is_some() {
+        if self.state.lock_recover().exited.is_some() {
             return Ok(());
         }
-        let foreground = self.master.lock().unwrap().process_group_leader();
-        let result = self.killer.lock().unwrap().kill().context("terminate pane");
+        let foreground = self.master.lock_recover().process_group_leader();
+        let result = self.killer.lock_recover().kill().context("terminate pane");
         // Explicit termination must also stop a foreground job that ignores HUP.
         // SAFETY: group IDs come from this pane's PTY and spawned child. Never
         // signal the daemon's own group, zero, or process group 1.
@@ -626,7 +627,7 @@ struct Connection {
 /// Host stats, sampled at most every 5 seconds however many clients ask.
 fn host_stats() -> crate::hoststats::HostStats {
     static CACHE: Mutex<Option<(Instant, crate::hoststats::HostStats)>> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = CACHE.lock_recover();
     if let Some((at, stats)) = cache.as_ref() {
         if at.elapsed() < Duration::from_secs(5) {
             return stats.clone();
@@ -680,12 +681,12 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             let live = ws
                 .panes
                 .values()
-                .any(|p| p.state.lock().unwrap().exited.is_none());
+                .any(|p| p.state.lock_recover().exited.is_none());
             if live && !force {
                 bail!("workspace contains live processes; removal requires --force");
             }
             for p in ws.panes.values().chain(ws.graveyard.iter().map(|(_, p)| p)) {
-                if p.state.lock().unwrap().exited.is_none() {
+                if p.state.lock_recover().exited.is_none() {
                     p.kill()?;
                 }
             }
@@ -764,7 +765,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 .workspaces
                 .values()
                 .flat_map(|w| w.panes.values())
-                .filter(|p| p.state.lock().unwrap().exited.is_none())
+                .filter(|p| p.state.lock_recover().exited.is_none())
                 .count();
             if live > 0 && !force {
                 bail!("{live} live panes; refusing shutdown without --force");
@@ -823,7 +824,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         bail!("input sequence gap");
                     }
                     let p = ws.panes.get(&pane).context("pane not found")?;
-                    if p.state.lock().unwrap().exited.is_some() {
+                    if p.state.lock_recover().exited.is_some() {
                         bail!("pane has exited");
                     }
                     // Acceptance means queued, not executed. A blocked PTY writer
@@ -867,8 +868,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         .get(&pane)
                         .context("pane not found")?
                         .title
-                        .lock()
-                        .unwrap() = title;
+                        .lock_recover() = title;
                     Ok(Response::Ack { seq: None })
                 }
                 Request::SoftClose { pane } => {
@@ -899,7 +899,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                         bail!("cannot remove the last pane; exit its shell instead");
                     }
                     let p = ws.panes.get(&pane).context("pane not found")?;
-                    if p.state.lock().unwrap().exited.is_none() {
+                    if p.state.lock_recover().exited.is_none() {
                         p.kill()?;
                     }
                     ws.panes.remove(&pane);
@@ -914,8 +914,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                     let p = ws.panes.get(&pane).context("pane not found")?;
                     let bytes = p
                         .state
-                        .lock()
-                        .unwrap()
+                        .lock_recover()
                         .parser
                         .callbacks()
                         .images
@@ -958,12 +957,11 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
     let result = (|| -> Result<()> {
         while let Some(req) = read_frame::<Request>(&mut reader)? {
             let shutdown = matches!(req, Request::Shutdown { .. });
-            let response =
-                process(req, &mut conn, &mut state.lock().unwrap()).unwrap_or_else(|e| {
-                    Response::Error {
-                        message: format!("{e:#}"),
-                    }
-                });
+            let response = process(req, &mut conn, &mut state.lock_recover()).unwrap_or_else(|e| {
+                Response::Error {
+                    message: format!("{e:#}"),
+                }
+            });
             let stop = shutdown && matches!(response, Response::Ack { .. });
             write_frame(&mut writer, &response)?;
             if stop {
@@ -973,7 +971,7 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
         }
         Ok(())
     })();
-    release(&conn, &mut state.lock().unwrap());
+    release(&conn, &mut state.lock_recover());
     result
 }
 
@@ -981,7 +979,7 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
 /// has no client attached (an attached client notifies for itself).
 /// End the shells of soft-closed panes whose grace period is over.
 fn reap_graveyards(state: &Mutex<State>) {
-    let mut st = state.lock().unwrap();
+    let mut st = state.lock_recover();
     for w in st.workspaces.values_mut() {
         let (expired, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut w.graveyard)
             .into_iter()
@@ -1020,7 +1018,7 @@ fn watch_panes(state: &Mutex<State>) {
         let mut running: Vec<u64> = Vec::new();
         let mut agent_working = false;
         let snapshot: Vec<(String, bool, Vec<Arc<Pane>>)> = {
-            let st = state.lock().unwrap();
+            let st = state.lock_recover();
             st.workspaces
                 .iter()
                 .map(|(name, w)| {
@@ -1038,7 +1036,7 @@ fn watch_panes(state: &Mutex<State>) {
                 let key = (ws.clone(), pane.id);
                 alive.insert(key.clone());
                 let (rev, exited, marks) = {
-                    let st = pane.state.lock().unwrap();
+                    let st = pane.state.lock_recover();
                     (
                         st.revision,
                         st.exited.is_some(),
@@ -1046,11 +1044,11 @@ fn watch_panes(state: &Mutex<State>) {
                     )
                 };
                 let fg = pane.foreground_command(exited).unwrap_or_default();
-                let title = pane.title.lock().unwrap().clone();
+                let title = pane.title.lock_recover().clone();
                 let fg = if fg.is_empty() { title } else { fg };
                 let tracker = trackers.entry(key).or_insert_with(|| Tracker::new(now));
                 let rows = || {
-                    let st = pane.state.lock().unwrap();
+                    let st = pane.state.lock_recover();
                     let screen = st.parser.screen();
                     let (_, cols) = screen.size();
                     screen.rows(0, cols).collect::<Vec<String>>()
