@@ -31,7 +31,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `snip add\|list\|show\|fill\|run\|rm` | Saved commands with `{{placeholders}}` (Alt-S in the shell integration picks one) |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |
-| `wake HOST` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
+| `wake HOST [--wait [--timeout SECS] [--connect]]` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
 | `agents [HOST...] [--all]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
 | `completions SHELL` | Shell completion script (bash, zsh, fish, elvish, powershell) |

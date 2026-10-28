@@ -388,6 +388,15 @@ enum Commands {
     Wake {
         /// A configured host alias.
         host: String,
+        /// Then wait until the host answers over SSH (and say at once, without a packet, if it already does).
+        #[arg(long)]
+        wait: bool,
+        /// With --wait: give up after this many seconds.
+        #[arg(long, default_value_t = 180)]
+        timeout: u64,
+        /// With --wait: open `teryon connect HOST` once it is up.
+        #[arg(long, requires = "wait")]
+        connect: bool,
     },
     /// Add `Host` aliases from ~/.ssh/config to the TERYON config (never edits SSH config or copies keys).
     ImportSsh {
@@ -1111,7 +1120,12 @@ fn run() -> Result<i32> {
             }
             None => println!("TERYON {} is up to date.", env!("CARGO_PKG_VERSION")),
         },
-        Commands::Wake { host } => {
+        Commands::Wake {
+            host,
+            wait,
+            timeout,
+            connect,
+        } => {
             let cfg = config::load()?;
             let h = cfg
                 .hosts
@@ -1120,8 +1134,40 @@ fn run() -> Result<i32> {
             let mac = h.mac.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("host `{host}` has no `mac = \"aa:bb:cc:dd:ee:ff\"` in the config")
             })?;
-            teryon::wake::wake(mac, h.broadcast.as_deref())?;
-            println!("Sent a wake-on-LAN packet for {host}; give it a few seconds to boot");
+            let t = target(host.clone(), bin)?;
+            let answers = || {
+                t.ssh()
+                    .args(["-o", "ConnectTimeout=3", "true"])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|s| s.success())
+            };
+            if wait && answers() {
+                println!("{host} is already awake");
+            } else {
+                teryon::wake::wake(mac, h.broadcast.as_deref())?;
+                if !wait {
+                    println!("Sent a wake-on-LAN packet for {host}; give it a few seconds to boot");
+                    return Ok(0);
+                }
+                eprintln!("Sent a wake-on-LAN packet for {host}; waiting up to {timeout}s for it to answer...");
+                if !teryon::wake::wait_until(
+                    answers,
+                    std::time::Duration::from_secs(timeout),
+                    std::time::Duration::from_secs(3),
+                ) {
+                    bail!("{host} did not answer over SSH within {timeout}s (is Wake for network access enabled, and is it on Ethernet?)");
+                }
+                println!("{host} is up");
+            }
+            if connect {
+                let status = std::process::Command::new(std::env::current_exe()?)
+                    .args(["connect", &host])
+                    .status()?;
+                return Ok(status.code().unwrap_or(1));
+            }
         }
         Commands::ImportSsh { file, dry_run } => {
             let path = match file {

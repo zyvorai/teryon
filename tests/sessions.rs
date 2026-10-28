@@ -291,8 +291,17 @@ fn resize_unicode_color_and_incremental_snapshot() {
         data: "printf '\\033[32mλ界\\033[0m\\n'\r".as_bytes().to_vec(),
     });
     c.until(1, "λ界");
-    thread::sleep(Duration::from_millis(100));
-    let s = c.snapshot();
+    // Let the shell finish drawing its prompt: two snapshots in a row with the same revision.
+    let mut s = c.snapshot();
+    for _ in 0..50 {
+        thread::sleep(Duration::from_millis(100));
+        let next = c.snapshot();
+        let settled = next[0].revision == s[0].revision;
+        s = next;
+        if settled {
+            break;
+        }
+    }
     let mut parser = vt100::Parser::new(31, 117, 0);
     parser.process(s[0].screen.as_ref().unwrap());
     assert!(parser.screen().contents().contains("λ界"));

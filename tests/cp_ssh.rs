@@ -475,3 +475,51 @@ fn hosts_check_reports_a_reachable_host_and_a_dead_one_over_real_ssh() {
     );
     assert!(down.contains(" down "), "{text}");
 }
+
+#[test]
+fn wake_wait_reports_an_awake_host_and_gives_up_on_a_dead_one() {
+    let Some(e) = setup() else {
+        eprintln!("skipped: cannot start a user-level sshd here");
+        return;
+    };
+    let mut cfg = std::fs::read_to_string(&e.server.ssh_config).unwrap();
+    cfg.push_str("Host dead\n  HostName 127.0.0.1\n  Port 1\n");
+    std::fs::write(&e.server.ssh_config, cfg).unwrap();
+    let cfg_dir = e.home.path().join(".config/teryon");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    // The packet goes to the loopback address, so nothing leaves this machine.
+    std::fs::write(
+        cfg_dir.join("config.toml"),
+        "[hosts.tsrv]\ndestination = \"tsrv\"\nmac = \"aa:bb:cc:dd:ee:ff\"\nbroadcast = \"127.0.0.1\"\n\
+         [hosts.dead]\ndestination = \"dead\"\nmac = \"aa:bb:cc:dd:ee:01\"\nbroadcast = \"127.0.0.1\"\n",
+    )
+    .unwrap();
+    let wake = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .env("HOME", e.home.path())
+            .env("TERYON_SSH_CONFIG", &e.server.ssh_config)
+            .arg("wake")
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let awake = wake(&["tsrv", "--wait"]);
+    assert!(awake.status.success(), "{awake:?}");
+    assert!(String::from_utf8_lossy(&awake.stdout).contains("tsrv is already awake"));
+    assert!(
+        !String::from_utf8_lossy(&awake.stderr).contains("Sent a wake-on-LAN"),
+        "no packet for a host that answers"
+    );
+
+    let started = std::time::Instant::now();
+    let dead = wake(&["dead", "--wait", "--timeout", "4"]);
+    assert!(!dead.status.success());
+    let err = String::from_utf8_lossy(&dead.stderr);
+    assert!(err.contains("Sent a wake-on-LAN packet"), "{err}");
+    assert!(
+        err.contains("dead did not answer over SSH within 4s"),
+        "{err}"
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+}
