@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `teryon wake HOST --wait [--timeout SECS] [--connect]` sends the wake-on-LAN packet, then waits until the host answers over SSH (default 180 s) and optionally opens `teryon connect`; a host that is already awake gets no packet
 - `teryon hosts [--check]` lists configured and `~/.ssh/config` hosts; `--check` probes them in parallel over SSH for up/down, round-trip time, free disk and the installed teryon version
 - `teryon snip add|list|show|fill|run|rm`: saved commands with `{{placeholders}}` from the shell (`[[desktop.snippets]]` from the config are included; `snip add` keeps its own in `~/.teryon/snippets.jsonl`). Missing values are asked for on the terminal, and a `{{host}}` answer accepts a prefix of a configured host. Alt-S in zsh, bash and fish picks one and types it
 - `teryon hist report [--days N] [--host H]` lists, per project (Git repository), how many commands ran and failed and which were slowest and failed most; Ctrl-C does not count as a failure
