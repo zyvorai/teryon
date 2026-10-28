@@ -36,6 +36,25 @@ pub fn wake(mac: &str, broadcast: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Call `up` every `every` until it says yes or `timeout` has passed; whether the host answered.
+/// The first call happens at once.
+pub fn wait_until(
+    mut up: impl FnMut() -> bool,
+    timeout: std::time::Duration,
+    every: std::time::Duration,
+) -> bool {
+    let end = std::time::Instant::now() + timeout;
+    loop {
+        if up() {
+            return true;
+        }
+        if std::time::Instant::now() + every > end {
+            return false;
+        }
+        std::thread::sleep(every);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +94,26 @@ mod tests {
             .unwrap();
         let mut buf = [0u8; 200];
         assert_eq!(rx.recv(&mut buf).unwrap(), 102);
+    }
+    #[test]
+    fn waiting_stops_at_the_first_answer_and_gives_up_at_the_deadline() {
+        use std::time::Duration;
+        let mut calls = 0;
+        assert!(wait_until(
+            || {
+                calls += 1;
+                calls == 3
+            },
+            Duration::from_secs(5),
+            Duration::from_millis(5)
+        ));
+        assert_eq!(calls, 3);
+        let started = std::time::Instant::now();
+        assert!(!wait_until(
+            || false,
+            Duration::from_millis(60),
+            Duration::from_millis(20)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }
