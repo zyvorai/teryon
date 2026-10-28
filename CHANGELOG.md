@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Per-project environment: an `[env]` table in `.teryon.toml` (variables and `path_prepend`) is loaded by the zsh, bash and fish integrations when you `cd` into the project and undone when you leave, restoring any value it replaced. It loads only after `teryon env allow` in that directory, editing the table asks again, and `PATH`, `HOME`, `LD_PRELOAD` and the like cannot be set. `[shell] env = false` turns it off
+- `teryon search PATTERN [--host H] [-w NAME | --all] [-i] [-E] [-C N]` searches the scrollback the daemon keeps for each pane, grep-style (`workspace/pane:line: text`, with the same absolute line numbers as `capture`). Lowercase patterns ignore case; exit status 0 found, 1 nothing found, 2 error. It only reads, so it never takes control of a pane
 - `teryon watch-sync SRC HOST:DEST` keeps a remote directory up to date: it copies once at start and again after the files change and settle (polled every `--interval` seconds), and while the host is unreachable it retries with a growing delay (2 s up to 60 s). New and changed files are copied; deletions are not propagated
 - Fix: `teryon up` waits (up to 4 s) for a new pane's shell to show its prompt before typing the pane's command; a shell that was still starting could throw the command away
 
