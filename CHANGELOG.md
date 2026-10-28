@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: `teryon up` waits (up to 4 s) for a new pane's shell to show its prompt before typing the pane's command; a shell that was still starting could throw the command away
 
 - `teryon explain -- tar -xzf a.tgz -C /tmp` explains a command line part by part (commands, flags, `-la` as `-l -a`, pipes, redirects, `sudo`/`env` wrappers) from the manual pages on this machine. It only reads `man`; the command is never run
 

@@ -224,6 +224,30 @@ pub fn up(
     up_with(call, recipe, workspace, base, local, &mut |_| {})
 }
 
+/// How long a new pane's shell gets to show its prompt before a command is typed into it anyway.
+const SHELL_WAIT: Duration = Duration::from_secs(4);
+
+/// Wait until the pane has printed something and stopped changing (the shell's prompt), because a
+/// shell that is still starting can throw away what is typed before its prompt appears. Never fails
+/// on a slow or silent shell: after `SHELL_WAIT` the command is typed regardless.
+fn wait_for_shell(call: &mut dyn FnMut(Request) -> Result<Response>, pane: u64) -> Result<()> {
+    let end = Instant::now() + SHELL_WAIT;
+    let mut last = String::new();
+    loop {
+        let Response::Captured { text, .. } = call(Request::Capture { pane })? else {
+            return Ok(());
+        };
+        if !text.trim().is_empty() && text == last {
+            return Ok(());
+        }
+        last = text;
+        if Instant::now() >= end {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+}
+
 /// `s` as one word for a POSIX shell (and fish, zsh, bash): in single quotes.
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -400,6 +424,7 @@ pub fn up_with(
             }
         }
         if let Some(cmd) = typed_command(p) {
+            wait_for_shell(call, ids[i])?;
             let mut data = cmd.into_bytes();
             data.push(b'\r');
             seq += 1;
