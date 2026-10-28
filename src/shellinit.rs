@@ -333,11 +333,13 @@ if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       command teryon jump add "$PWD" >/dev/null 2>&1 & disown 2>/dev/null
     fi
     [ "${TERYON_HISTORY:-1}" = 0 ] && return 0
-    [ "${TERYON_HISTFLUSH:-1}" != 0 ] && builtin history -a 2>/dev/null
+    # bash 3.2 (macOS /bin/bash) never writes anything for `history -a`; it appends the line itself below.
+    (( BASH_VERSINFO[0] >= 4 )) && [ "${TERYON_HISTFLUSH:-1}" != 0 ] && builtin history -a 2>/dev/null
     __teryon_hist_number || return 0
     # A command hidden from bash's history (leading space, ignoredups) has no new number: skip it.
     [ "$__teryon_hn" = "$__teryon_hnum" ] && return 0
     __teryon_hnum=$__teryon_hn
+    (( BASH_VERSINFO[0] < 4 )) && [ "${TERYON_HISTFLUSH:-1}" != 0 ] && printf '%s\n' "$__teryon_hc" >> "${HISTFILE:-$HOME/.bash_history}" 2>/dev/null
     local ms=0 now=${EPOCHREALTIME/[.,]/}
     [ -n "$__teryon_t0" ] && [ -n "$now" ] && ms=$(( (now - __teryon_t0) / 1000 ))
     __teryon_t0=
@@ -346,7 +348,8 @@ if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   }
   if [ "${TERYON_HISTORY:-1}" != 0 ]; then
     # Append each command to HISTFILE as it runs, so a pane that is killed keeps its history.
-    [ "${TERYON_HISTFLUSH:-1}" != 0 ] && shopt -s histappend
+    # (bash 3.2 keeps its default of rewriting HISTFILE at exit: with histappend the lines appended above would repeat.)
+    (( BASH_VERSINFO[0] >= 4 )) && [ "${TERYON_HISTFLUSH:-1}" != 0 ] && shopt -s histappend
     [ -e ~/.teryon/history-imported-.bash_history ] || [ ! -e ~/.bash_history ] || { command teryon hist import --once ~/.bash_history >/dev/null 2>&1 & disown 2>/dev/null; }
     command teryon hist sync --auto >/dev/null 2>&1 & disown 2>/dev/null
   fi
