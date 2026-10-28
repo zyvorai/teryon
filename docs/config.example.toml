@@ -102,6 +102,9 @@ destination = "susant@mini.local"
 # tab = true
 # jump = true        # z and zi
 # prompt = false     # two-line prompt with git state
+# inject = true      # zsh panes load the integration without a line in .zshrc (TERYON_INJECT=0 also turns it off)
+# sync_hosts = ["mini"]    # copy these hosts' command history here in the background, so Ctrl-R finds it
+# sync_every_hours = 12
 
 # Push notifications. The daemon sends them while a workspace has no client attached; an attached
 # desktop app sends them to ntfy and the webhook itself while its window is in the background. Messages name the agent or program, never screen text.

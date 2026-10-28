@@ -142,6 +142,12 @@ pub struct ShellConfig {
     pub jump: bool,
     /// The two-line prompt with git state; off unless you ask (`TERYON_PROMPT`).
     pub prompt: bool,
+    /// Load the integration in zsh panes without a line in `.zshrc` (`TERYON_INJECT`, read by the daemon).
+    pub inject: bool,
+    /// Hosts whose command history is copied here in the background (`teryon hist sync --auto`).
+    pub sync_hosts: Vec<String>,
+    /// Minimum hours between those background copies.
+    pub sync_every_hours: u32,
 }
 impl Default for ShellConfig {
     fn default() -> Self {
@@ -154,6 +160,9 @@ impl Default for ShellConfig {
             tab: true,
             jump: true,
             prompt: false,
+            inject: true,
+            sync_hosts: Vec::new(),
+            sync_every_hours: 12,
         }
     }
 }

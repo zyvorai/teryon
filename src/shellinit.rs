@@ -18,6 +18,10 @@ if [[ -o interactive && -z $__teryon_integrated && "${TERYON_INJECT:-1}" != 0 ]]
     # Use the same build as the daemon: a stale `teryon` earlier on PATH would load an older integration.
     [[ -x ~/.teryon/bin/teryon && -x $TERYON_EXE && "${commands[teryon]:A}" != "${TERYON_EXE:A}" ]] && path=(~/.teryon/bin $path)
     (( $+commands[teryon] )) && eval "$(command teryon shell-init zsh)"
+    if [[ -n $__teryon_integrated && ! -e ~/.teryon/notice-seen ]]; then
+      print -r -- "teryon: shell integration loaded for this pane (Ctrl-R history, suggestions, Tab, z; ~/.zsh_history imported once). Check it with \`teryon doctor --shell\`; turn it off with [shell] inject = false in the config." >&2
+      : > ~/.teryon/notice-seen 2>/dev/null
+    fi
   }
   autoload -Uz add-zsh-hook && add-zsh-hook precmd __teryon_boot
 fi
@@ -86,6 +90,8 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     [[ "${TERYON_HISTFLUSH:-1}" != 0 && ! -o inc_append_history && ! -o inc_append_history_time && ! -o share_history ]] && setopt inc_append_history
     # Once: bring ~/.zsh_history into Ctrl-R and the suggestions.
     [[ -e ~/.teryon/zsh-history-imported ]] || command teryon hist import --once >/dev/null 2>&1 &!
+    # Copy the history of the hosts named in [shell] sync_hosts (at most every sync_every_hours).
+    command teryon hist sync --auto >/dev/null 2>&1 &!
   fi
   __teryon_clear_hint() {
     POSTDISPLAY=
@@ -281,31 +287,113 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
 fi
 "#;
 
-const BASH: &str = r#"# TERYON shell integration for bash (OSC 133 prompt marks, OSC 7 working directory).
+const BASH: &str = r#"# TERYON shell integration for bash (OSC 133 prompt marks, OSC 7 working directory, history, pickers, z).
 if [ -z "$__teryon_integrated" ]; then
   __teryon_integrated=1
   __teryon_ran=
+  __teryon_t0=
+  __teryon_hnum=
+  __teryon_last_pwd=
   __teryon_precmd() {
     local s=$?
     if [ -n "$__teryon_ran" ]; then printf '\e]133;D;%s\a' "$s"; fi
+    declare -F __teryon_record >/dev/null && __teryon_record "$s"
     __teryon_ran=
     local p=${PWD//\%/%25}; p=${p// /%20}
     printf '\e]7;file://%s%s\a' "${HOSTNAME}" "$p"
     printf '\e]133;A\a'
+    return "$s"
   }
   __teryon_preexec() {
     [ -n "$__teryon_ran" ] && return
     case "$BASH_COMMAND" in __teryon_*|*PROMPT_COMMAND*) return ;; esac
     __teryon_ran=1
+    __teryon_t0=${EPOCHREALTIME/[.,]/}
     local c=${BASH_COMMAND//[[:cntrl:]]/ }
     printf '\e]133;C;%s\a' "${c:0:500}"
   }
   PROMPT_COMMAND="__teryon_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
   trap '__teryon_preexec' DEBUG
 fi
+# History, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) and z/zi directory jump.
+# Needs bash 4+ for the pickers. Set TERYON_PLUS=0 before this line to turn them off. There is no ghost
+# text, highlighting or fuzzy Tab in bash; Tab stays bash-completion's.
+if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
+  __teryon_plus=1
+  __teryon_hist_number() {
+    local h; h=$(HISTTIMEFORMAT= builtin history 1 2>/dev/null) || return 1
+    [[ $h =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.*)$ ]] || return 1
+    __teryon_hn=${BASH_REMATCH[1]}; __teryon_hc=${BASH_REMATCH[2]}
+  }
+  __teryon_hist_number && __teryon_hnum=$__teryon_hn
+  __teryon_record() {
+    local s=$1
+    if [ "${TERYON_JUMP:-1}" != 0 ] && [ "$PWD" != "$__teryon_last_pwd" ]; then
+      __teryon_last_pwd=$PWD
+      command teryon jump add "$PWD" >/dev/null 2>&1 & disown 2>/dev/null
+    fi
+    [ "${TERYON_HISTORY:-1}" = 0 ] && return 0
+    [ "${TERYON_HISTFLUSH:-1}" != 0 ] && builtin history -a 2>/dev/null
+    __teryon_hist_number || return 0
+    # A command hidden from bash's history (leading space, ignoredups) has no new number: skip it.
+    [ "$__teryon_hn" = "$__teryon_hnum" ] && return 0
+    __teryon_hnum=$__teryon_hn
+    local ms=0 now=${EPOCHREALTIME/[.,]/}
+    [ -n "$__teryon_t0" ] && [ -n "$now" ] && ms=$(( (now - __teryon_t0) / 1000 ))
+    __teryon_t0=
+    command teryon hist add --exit "$s" --ms "$ms" --cwd "$PWD" -- "$__teryon_hc" >/dev/null 2>&1 & disown 2>/dev/null
+    return 0
+  }
+  if [ "${TERYON_HISTORY:-1}" != 0 ]; then
+    # Append each command to HISTFILE as it runs, so a pane that is killed keeps its history.
+    [ "${TERYON_HISTFLUSH:-1}" != 0 ] && shopt -s histappend
+    [ -e ~/.teryon/history-imported-.bash_history ] || [ ! -e ~/.bash_history ] || { command teryon hist import --once ~/.bash_history >/dev/null 2>&1 & disown 2>/dev/null; }
+    command teryon hist sync --auto >/dev/null 2>&1 & disown 2>/dev/null
+  fi
+  if (( BASH_VERSINFO[0] >= 4 )) && [ "${TERYON_PICKERS:-1}" != 0 ]; then
+    __teryon_history_widget() {
+      local out rc
+      out=$(command teryon pick --history --cwd "$PWD" --query "$READLINE_LINE" 2>/dev/null); rc=$?
+      [ $rc -eq 0 ] || [ $rc -eq 10 ] || return 0
+      READLINE_LINE=$out; READLINE_POINT=${#out}
+    }
+    __teryon_file_widget() {
+      local out q
+      out=$(command teryon pick --files --cwd "$PWD" 2>/dev/null) || return 0
+      printf -v q '%q ' "$out"
+      READLINE_LINE="${READLINE_LINE:0:READLINE_POINT}${q}${READLINE_LINE:READLINE_POINT}"
+      READLINE_POINT=$(( READLINE_POINT + ${#q} ))
+    }
+    __teryon_cd_widget() {
+      local out q
+      out=$(command teryon pick --dirs --cwd "$PWD" 2>/dev/null) || return 0
+      printf -v q '%q' "$out"
+      READLINE_LINE="cd -- $q"; READLINE_POINT=${#READLINE_LINE}
+    }
+    bind -x '"\C-r": __teryon_history_widget'
+    bind -x '"\C-t": __teryon_file_widget'
+    bind -x '"\ec": __teryon_cd_widget'
+  fi
+  if [ "${TERYON_JUMP:-1}" != 0 ]; then
+    if ! type z >/dev/null 2>&1; then
+      z() {
+        if [ $# -eq 0 ]; then builtin cd ~; return; fi
+        if [ $# -eq 1 ] && { [ -d "$1" ] || [ "$1" = - ]; }; then builtin cd -- "$1"; return; fi
+        local d; d=$(command teryon jump query --cwd "$PWD" -- "$@") || { echo "z: no directory matches: $*" >&2; return 1; }
+        builtin cd -- "$d"
+      }
+    fi
+    if ! type zi >/dev/null 2>&1; then
+      zi() {
+        local d; d=$(command teryon jump list --cwd "$PWD" -- "$@" | command teryon pick --query "$*") || return
+        [ -n "$d" ] && builtin cd -- "$d"
+      }
+    fi
+  fi
+fi
 "#;
 
-const FISH: &str = r#"# TERYON shell integration for fish (OSC 133 prompt marks, OSC 7 working directory).
+const FISH: &str = r#"# TERYON shell integration for fish (OSC 133 prompt marks, OSC 7 working directory, history, pickers, z).
 if not set -q __teryon_integrated
   set -g __teryon_integrated 1
   function __teryon_prompt --on-event fish_prompt
@@ -320,6 +408,78 @@ if not set -q __teryon_integrated
   function __teryon_preexec --on-event fish_preexec
     set -g __teryon_ran 1
     printf '\e]133;C;%s\a' (string replace -ra '[[:cntrl:]]' ' ' -- $argv[1] | string sub -l 500)
+  end
+end
+# History, fuzzy pickers (Ctrl-R history, Ctrl-T files, Alt-C directories) and z/zi directory jump.
+# Set TERYON_PLUS=0 before this line to turn them off. fish keeps its own history file and Tab.
+if status is-interactive; and test "$TERYON_PLUS" != 0; and not set -q __teryon_plus
+  set -g __teryon_plus 1
+  if test "$TERYON_HISTORY" != 0
+    function __teryon_record --on-event fish_postexec
+      set -l s $status
+      set -l ms 0
+      set -q CMD_DURATION; and set ms $CMD_DURATION
+      command teryon hist add --exit $s --ms $ms --cwd $PWD -- $argv[1] >/dev/null 2>&1 &
+      disown 2>/dev/null
+    end
+    command teryon hist sync --auto >/dev/null 2>&1 &
+    disown 2>/dev/null
+  end
+  if test "$TERYON_JUMP" != 0
+    function __teryon_chpwd --on-variable PWD
+      command teryon jump add $PWD >/dev/null 2>&1 &
+      disown 2>/dev/null
+    end
+    if not functions -q z
+      function z
+        if test (count $argv) -eq 0
+          builtin cd ~
+          return
+        end
+        if test (count $argv) -eq 1; and begin; test -d "$argv[1]"; or test "$argv[1]" = -; end
+          builtin cd -- $argv[1]
+          return
+        end
+        set -l d (command teryon jump query --cwd $PWD -- $argv)
+        or begin; echo "z: no directory matches: $argv" >&2; return 1; end
+        builtin cd -- $d
+      end
+    end
+    if not functions -q zi
+      function zi
+        set -l d (command teryon jump list --cwd $PWD -- $argv | command teryon pick --query "$argv")
+        and test -n "$d"; and builtin cd -- $d
+      end
+    end
+  end
+  if test "$TERYON_PICKERS" != 0
+    function __teryon_history_widget
+      set -l out (command teryon pick --history --cwd $PWD --query (commandline) 2>/dev/null)
+      set -l rc $status
+      if test $rc -eq 0 -o $rc -eq 10
+        commandline -r -- $out
+        commandline -f repaint
+        test $rc -eq 10; and commandline -f execute
+      else
+        commandline -f repaint
+      end
+    end
+    function __teryon_file_widget
+      set -l out (command teryon pick --files --cwd $PWD 2>/dev/null)
+      and commandline -i -- (string escape -- $out)" "
+      commandline -f repaint
+    end
+    function __teryon_cd_widget
+      set -l out (command teryon pick --dirs --cwd $PWD 2>/dev/null)
+      and begin
+        commandline -r -- "cd -- "(string escape -- $out)
+        commandline -f execute
+      end
+      commandline -f repaint
+    end
+    bind \cr __teryon_history_widget
+    bind \ct __teryon_file_widget
+    bind \ec __teryon_cd_widget
   end
 end
 "#;

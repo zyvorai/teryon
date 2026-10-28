@@ -102,5 +102,26 @@ A variable set in the environment before the `eval` line wins over the file: `TE
 
 History and the jump list are local to each machine; a remote host keeps its own if it runs `teryon` with the
 integration. The highlighter is a tokenizer, not a full zsh parser, so `$(...)` and `case` patterns get basic
-colouring and lines over 500 characters are left plain. The Tab menu shows no descriptions yet. bash and fish get the
-prompt marks only.
+colouring and lines over 500 characters are left plain. The Tab menu shows no descriptions yet.
+
+### bash and fish
+
+Both get the prompt marks and working directory, command history (`~/.teryon/history.jsonl`, and bash also writes
+`~/.bash_history` as you go), the Ctrl-R history picker, Ctrl-T files, Alt-C directories and `z` / `zi`. bash needs version 4
+for the pickers (the macOS system bash 3.2 gets history and `z` only), Ctrl-R and Alt-C put the choice on the line and wait for
+Enter, and bash imports `~/.bash_history` once. There is no ghost text, highlighting, fuzzy Tab or prompt in either, and Tab stays
+with bash-completion or fish. They are not loaded automatically in panes: add the `eval` / `source` line from "Turn it on". The
+fish pickers are bound but only the recording, `z` and the bindings are covered by tests, not the picker in a live fish.
+
+### History from other machines
+
+`teryon hist sync [HOST...]` copies the command history of every configured host (or the ones named) here, so Ctrl-R finds what ran
+there (`host:NAME` filters to it). To keep it fresh automatically, list the hosts in `~/.config/teryon/config.toml`; the shell
+integration then syncs in the background at most every `sync_every_hours`:
+
+```toml
+[shell]
+sync_hosts = ["mini"]
+sync_every_hours = 12
+inject = true      # false: do not load the integration in zsh panes by itself
+```

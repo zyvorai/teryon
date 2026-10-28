@@ -285,7 +285,9 @@ fn gather() -> Facts {
         .and_then(|p| std::fs::metadata(&p).ok().map(|m| (p, m)));
     Facts {
         shell: std::env::var("SHELL").unwrap_or_default(),
-        inject_enabled: std::env::var("TERYON_INJECT").as_deref() != Ok("0"),
+        inject_enabled: std::env::var("TERYON_INJECT")
+            .map(|v| v != "0")
+            .unwrap_or_else(|_| crate::config::load().map_or(true, |c| c.shell.inject)),
         zshrc_loads_integration: zshrc
             .lines()
             .any(|l| !l.trim_start().starts_with('#') && l.contains("shell-init")),

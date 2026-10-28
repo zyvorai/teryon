@@ -312,7 +312,12 @@ enum Commands {
     },
     /// Print a shell completion script (bash, zsh, fish, elvish, powershell). The zsh script also
     /// completes hosts and remote paths.
-    Completions { shell: clap_complete::Shell },
+    Completions {
+        shell: clap_complete::Shell,
+        /// Write the zsh script into a directory on your `fpath` (as `_teryon`) instead of printing it.
+        #[arg(long)]
+        install: bool,
+    },
     /// Copy files between this machine and hosts, scp-style: `teryon cp notes.txt mini:~/docs/`.
     /// Folders copy recursively (a trailing `/` copies a folder's contents); uses rsync when both
     /// ends have it, else scp.
@@ -341,7 +346,7 @@ enum Commands {
     },
     #[command(hide = true)]
     Complete {
-        /// `hosts` or `remote-path HOST PREFIX`.
+        /// `hosts`, `workspaces HOST` or `remote-path HOST PREFIX`.
         args: Vec<String>,
     },
     /// Start the workspace a project describes in `.teryon.toml`: its panes, directories and commands.
@@ -454,7 +459,15 @@ enum HistCommand {
     /// Copy HOST's command history here over SSH, so Ctrl-R and the history picker also find what ran
     /// there (`host:NAME` filters to it). Commands with secrets are left out; run again to refresh.
     Pull { host: String },
-    /// Add the commands from a zsh history file (default ~/.zsh_history) to this history.
+    /// Copy the command history of HOSTS (default: every configured host) here, like `hist pull` for
+    /// each. With --auto: only the hosts in `[shell] sync_hosts`, at most every `sync_every_hours`,
+    /// and quietly (the zsh integration runs it this way).
+    Sync {
+        hosts: Vec<String>,
+        #[arg(long)]
+        auto: bool,
+    },
+    /// Add the commands from a zsh or bash history file (default ~/.zsh_history) to this history.
     /// With --once, do it only the first time (the shell integration runs it that way).
     Import {
         file: Option<PathBuf>,
@@ -502,6 +515,14 @@ enum LayoutCommand {
         workspace: String,
         file: PathBuf,
     },
+}
+/// Copy `host`'s command history here (what `hist pull` does); returns how many commands.
+fn hist_pull(host: &str, bin: Option<String>) -> Result<usize> {
+    let t = target(host.to_string(), bin)?;
+    let text = t.run_remote("hist export")?;
+    let entries = teryon::history::import(host, &text);
+    teryon::history::save_host(host, &entries)?;
+    Ok(entries.len())
 }
 fn target(host: String, remote_bin: Option<String>) -> Result<Target> {
     config::target(&host, remote_bin)
@@ -902,21 +923,36 @@ fn run() -> Result<i32> {
                 }
             }
         }
-        Commands::Completions { shell } => {
-            if shell == clap_complete::Shell::Zsh {
-                let mut script = Vec::new();
-                clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut script);
-                print!(
-                    "{}",
-                    teryon::complete::zsh_script(&String::from_utf8_lossy(&script))
-                );
+        Commands::Completions { shell, install } => {
+            let mut script = Vec::new();
+            clap_complete::generate(shell, &mut Cli::command(), "teryon", &mut script);
+            let script = String::from_utf8_lossy(&script).into_owned();
+            let script = if shell == clap_complete::Shell::Zsh {
+                teryon::complete::zsh_script(&script)
             } else {
-                clap_complete::generate(
-                    shell,
-                    &mut Cli::command(),
-                    "teryon",
-                    &mut std::io::stdout(),
-                )
+                script
+            };
+            if !install {
+                print!("{script}");
+            } else if shell != clap_complete::Shell::Zsh {
+                bail!("--install supports zsh; for other shells redirect the output into your completion directory");
+            } else {
+                let home = teryon::util::home()?;
+                let (dir, on_fpath) =
+                    teryon::complete::pick_install_dir(&teryon::complete::user_fpath(), &home);
+                std::fs::create_dir_all(&dir)?;
+                let file = dir.join("_teryon");
+                std::fs::write(&file, script)?;
+                println!("Installed {}", file.display());
+                if !on_fpath {
+                    println!(
+                        "Add this before `compinit` in ~/.zshrc:\n  fpath=({} $fpath)",
+                        dir.display()
+                    );
+                }
+                println!(
+                    "Open a new shell (if Tab still shows old completions: rm ~/.zcompdump*)."
+                );
             }
         }
         Commands::Cp {
@@ -942,6 +978,11 @@ fn run() -> Result<i32> {
             [kind] if kind == "hosts" => {
                 for h in teryon::complete::hosts() {
                     println!("{h}");
+                }
+            }
+            [kind, host] if kind == "workspaces" => {
+                for w in teryon::complete::workspaces(host).unwrap_or_default() {
+                    println!("{w}");
                 }
             }
             [kind, host, prefix] if kind == "remote-path" => {
@@ -1268,7 +1309,7 @@ fn run() -> Result<i32> {
         }
         Commands::ShellInit { shell } => {
             let script = teryon::shellinit::script(&shell).context("unsupported shell")?;
-            if shell == "zsh" {
+            if shell == "zsh" || shell == "bash" {
                 // A broken config must not break shell start-up: fall back to the defaults.
                 let cfg = config::load().map(|c| c.shell).unwrap_or_default();
                 print!("{}", teryon::shellinit::preamble(&cfg));
@@ -1298,11 +1339,20 @@ fn run() -> Result<i32> {
         }
         Commands::Hist(HistCommand::Import { file, once }) => {
             let home = teryon::util::home()?;
-            let marker = home.join(".teryon/zsh-history-imported");
+            let file = file.unwrap_or_else(|| home.join(".zsh_history"));
+            // zsh keeps its original marker name; another file (bash's) gets one of its own.
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let marker = home.join(if name == ".zsh_history" {
+                ".teryon/zsh-history-imported".to_string()
+            } else {
+                format!(".teryon/history-imported-{name}")
+            });
             if once && marker.exists() {
                 return Ok(0);
             }
-            let file = file.unwrap_or_else(|| home.join(".zsh_history"));
             let n = match teryon::history::import_shell_history(&file) {
                 Ok(n) => n,
                 // No history file yet is fine for the automatic run.
@@ -1330,15 +1380,74 @@ fn run() -> Result<i32> {
             print!("{}", teryon::history::export(limit));
         }
         Commands::Hist(HistCommand::Pull { host }) => {
-            let t = target(host.clone(), bin)?;
-            let text = t.run_remote("hist export")?;
-            let entries = teryon::history::import(&host, &text);
-            teryon::history::save_host(&host, &entries)?;
+            let n = hist_pull(&host, bin)?;
             println!(
-                "Pulled {} command{} from {host}; search them with `host:{host}` in the history picker.",
-                entries.len(),
-                if entries.len() == 1 { "" } else { "s" }
+                "Pulled {n} command{} from {host}; search them with `host:{host}` in the history picker.",
+                if n == 1 { "" } else { "s" }
             );
+        }
+        Commands::Hist(HistCommand::Sync { hosts, auto }) => {
+            let cfg = config::load()?;
+            let hosts = if !hosts.is_empty() {
+                hosts
+            } else if auto {
+                cfg.shell.sync_hosts.clone()
+            } else {
+                let mut all: Vec<String> = cfg.hosts.keys().cloned().collect();
+                all.sort();
+                all
+            };
+            if hosts.is_empty() {
+                return Ok(0);
+            }
+            if auto {
+                let stamp = teryon::util::home()?.join(".teryon/hist-sync-stamp");
+                let every =
+                    Duration::from_secs(u64::from(cfg.shell.sync_every_hours.max(1)) * 3600);
+                let fresh = std::fs::metadata(&stamp)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age < every);
+                if fresh {
+                    return Ok(0);
+                }
+                // Stamp first, so shells opened together do not all sync.
+                std::fs::create_dir_all(stamp.parent().unwrap())?;
+                std::fs::write(&stamp, b"")?;
+            }
+            let results: Vec<(String, Result<usize>)> = thread::scope(|s| {
+                let handles: Vec<_> = hosts
+                    .iter()
+                    .map(|h| {
+                        let bin = bin.clone();
+                        (h.clone(), s.spawn(move || hist_pull(h, bin)))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|(h, j)| {
+                        let r = j
+                            .join()
+                            .unwrap_or_else(|_| Err(anyhow::anyhow!("panicked")));
+                        (h, r)
+                    })
+                    .collect()
+            });
+            let mut failed = 0;
+            for (host, r) in results {
+                match r {
+                    Ok(n) if !auto => println!("{host}: {n} commands"),
+                    Err(e) if !auto => {
+                        failed += 1;
+                        eprintln!("{host}: {e:#}");
+                    }
+                    _ => {}
+                }
+            }
+            if failed > 0 {
+                return Ok(1);
+            }
         }
         Commands::Hist(HistCommand::Suggest { cwd, prefix }) => {
             let entries = teryon::history::load_tail();
