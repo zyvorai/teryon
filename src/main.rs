@@ -189,6 +189,27 @@ enum Commands {
         #[arg(long, conflicts_with_all = ["fix", "binary"])]
         shell: bool,
     },
+    /// Keep DEST matching the local directory SRC: copy it now and again after every change (checked
+    /// by polling), with the same engines as `teryon cp`. New and changed files are copied; deleted
+    /// ones are not removed at DEST. While DEST cannot be reached it retries with a growing delay.
+    WatchSync {
+        /// A local directory; its contents are copied.
+        src: PathBuf,
+        /// A local path or `host:path`.
+        dest: String,
+        /// Seconds between checks for changes.
+        #[arg(long, default_value_t = 2)]
+        interval: u64,
+        /// Seconds the files must stay unchanged before copying.
+        #[arg(long, default_value_t = 1)]
+        debounce: u64,
+        /// Copy once and exit.
+        #[arg(long)]
+        once: bool,
+        /// Which tool copies the files.
+        #[arg(long, value_enum, default_value = "auto")]
+        engine: teryon::cp::Engine,
+    },
     /// Explain a command line part by part (commands, flags, pipes, redirects) from the manual pages on
     /// this machine. The command is not run. Example: `teryon explain -- tar -xzf a.tgz -C /tmp`.
     Explain {
@@ -1378,6 +1399,87 @@ fn run() -> Result<i32> {
         Commands::Deploy { host, binary } => {
             target(host, bin)?.deploy(&binary)?;
             println!("Deployment verified");
+        }
+        Commands::WatchSync {
+            src,
+            dest,
+            interval,
+            debounce,
+            once,
+            engine,
+        } => {
+            if !src.is_dir() {
+                bail!("{} is not a directory", src.display());
+            }
+            if !matches!(
+                teryon::cp::parse_endpoint(&dest),
+                teryon::cp::Endpoint::Remote { .. }
+            ) {
+                bail!("DEST must be host:path (for example `mini:~/src`); to copy between two local directories use rsync");
+            }
+            let paths = vec![
+                teryon::watchsync::contents_of(&src.to_string_lossy()),
+                dest.clone(),
+            ];
+            let opts = teryon::cp::Opts {
+                engine,
+                dry_run: false,
+                no_clobber: false,
+                parents: true,
+                limit_kbps: None,
+            };
+            let stamp = || {
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                format!(
+                    "{:02}:{:02}:{:02}",
+                    secs / 3600 % 24,
+                    secs / 60 % 60,
+                    secs % 60
+                )
+            };
+            let mut fp = teryon::watchsync::fingerprint(&src)?;
+            let mut machine = teryon::watchsync::Machine::new(
+                fp,
+                std::time::Instant::now(),
+                std::time::Duration::from_secs(debounce),
+            );
+            if !once {
+                eprintln!(
+                    "Watching {} -> {dest} (every {interval}s; Ctrl-C stops)",
+                    src.display()
+                );
+            }
+            loop {
+                let now = std::time::Instant::now();
+                if machine.observe(fp, now) {
+                    let started = std::time::Instant::now();
+                    let result = teryon::cp::run(&paths, &opts, false);
+                    machine.done(fp, result.is_ok(), std::time::Instant::now());
+                    match result {
+                        Ok(()) => eprintln!(
+                            "[{}] synced in {:.1}s",
+                            stamp(),
+                            started.elapsed().as_secs_f32()
+                        ),
+                        Err(e) if once => return Err(e),
+                        Err(e) => eprintln!(
+                            "[{}] sync failed: {e:#}; retrying in {}s",
+                            stamp(),
+                            machine.backoff_secs()
+                        ),
+                    }
+                    if once {
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(interval.max(1)));
+                // A directory that cannot be read for a moment is not the end of the watch.
+                if let Ok(next) = teryon::watchsync::fingerprint(&src) {
+                    fp = next;
+                }
+            }
         }
         Commands::Explain { line } => {
             let parts = teryon::explain::explain(&line.join(" "), &mut teryon::explain::man_text);

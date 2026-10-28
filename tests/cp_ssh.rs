@@ -523,3 +523,80 @@ fn wake_wait_reports_an_awake_host_and_gives_up_on_a_dead_one() {
     );
     assert!(started.elapsed() < std::time::Duration::from_secs(30));
 }
+
+#[test]
+fn watch_sync_copies_to_a_real_host_and_fails_clearly_for_a_dead_one() {
+    let Some(e) = setup() else {
+        eprintln!("skipped: cannot start a user-level sshd here");
+        return;
+    };
+    if !rsync_ok() {
+        return;
+    }
+    let mut cfg = std::fs::read_to_string(&e.server.ssh_config).unwrap();
+    cfg.push_str("Host dead\n  HostName 127.0.0.1\n  Port 1\n  ConnectTimeout 3\n");
+    std::fs::write(&e.server.ssh_config, cfg).unwrap();
+    let run = |dest: &str| {
+        Command::new(env!("CARGO_BIN_EXE_teryon"))
+            .env("HOME", e.home.path())
+            .env("TERYON_SSH_CONFIG", &e.server.ssh_config)
+            .args(["watch-sync", "--once"])
+            .arg(e.work.path().join("src"))
+            .arg(dest)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let out = run(&e.remote("watched"));
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(read(e.p("watched/a.txt")), "alpha\n");
+    assert_eq!(read(e.p("watched/sub/b.txt")), "beta\n");
+    assert_eq!(read(e.p("watched/with space/c d.txt")), "gamma\n");
+
+    let dead = run("dead:/tmp/never");
+    assert!(!dead.status.success());
+
+    // A running watch copies the first state at once, then new and changed files.
+    let live = e.work.path().join("live-src");
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::write(live.join("a.txt"), "first").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", e.home.path())
+        .env("TERYON_SSH_CONFIG", &e.server.ssh_config)
+        .arg("watch-sync")
+        .arg(&live)
+        .arg(e.remote("live-dst"))
+        .args(["--interval", "1", "--debounce", "1"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let wait_for = |rel: &str, text: &str| {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < end {
+            if read(e.p(rel)) == text {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        false
+    };
+    let result = (|| {
+        if !wait_for("live-dst/a.txt", "first") {
+            return Err("initial copy");
+        }
+        std::fs::write(live.join("a.txt"), "second!").unwrap();
+        std::fs::write(live.join("new.txt"), "fresh").unwrap();
+        if !wait_for("live-dst/a.txt", "second!") {
+            return Err("changed file");
+        }
+        if !wait_for("live-dst/new.txt", "fresh") {
+            return Err("new file");
+        }
+        Ok(())
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(result, Ok(()));
+}
