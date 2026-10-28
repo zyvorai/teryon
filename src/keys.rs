@@ -63,10 +63,8 @@ pub fn encode_with(key: KeyEvent, app_cursor: bool, kitty: u8) -> Option<Vec<u8>
                 vec![upper as u8 & 0x1f]
             } else if c == ' ' {
                 vec![0]
-            } else if let Some(b) = xterm_control(c) {
-                vec![b]
             } else {
-                return None;
+                vec![xterm_control(c)?]
             }
         }
         KeyCode::Char(c) => c.to_string().into_bytes(),
