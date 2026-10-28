@@ -20,6 +20,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `deploy HOST --binary PATH` | Verify and install an explicitly supplied target binary |
 | `doctor HOST [--fix --binary PATH] [-y]` | Report daemon platform and reachability; with `--fix`, confirm then deploy the binary |
 | `record HOST -w NAME --pane N -o FILE.cast` | Record a pane as asciicast v2 (screen snapshots; new 0600 file) |
+| `play FILE.cast [--speed N] [--max-idle SECS] [--raw] [--info]` | Play a recording in this terminal (no asciinema needed); long pauses are shortened; clipboard writes and terminal queries in the file are dropped unless `--raw` |
 | `layout save HOST -w NAME FILE` | Save initial directories and pane titles to a new local file |
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |

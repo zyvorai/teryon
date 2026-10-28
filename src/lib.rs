@@ -4,6 +4,7 @@ compile_error!("TERYON 0.1 supports macOS and Linux. Use WSL on Windows.");
 pub mod agents;
 pub mod ai;
 pub mod brand;
+pub mod castplay;
 pub mod complete;
 pub mod config;
 pub mod configedit;
