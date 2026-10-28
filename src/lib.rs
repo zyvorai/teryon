@@ -14,6 +14,7 @@ pub mod dashboard;
 #[cfg(feature = "desktop")]
 pub mod desktop;
 pub mod diagnose;
+pub mod dirnv;
 pub mod explain;
 pub mod files;
 pub mod fontscan;

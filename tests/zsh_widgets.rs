@@ -346,3 +346,37 @@ fn alt_s_picks_a_snippet_asks_for_its_placeholders_and_types_it() {
     s.send(b"\n");
     s.expect("DEPLOY_prod_42");
 }
+
+#[test]
+fn a_trusted_project_env_loads_on_cd_and_is_put_back_on_leaving() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    let proj = work.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join(".teryon.toml"),
+        "[env]\nPROJ_VAR = \"hello\"\nKEPT = \"project\"\n",
+    )
+    .unwrap();
+    let mut s = shell_with(home.path(), work.path(), false, b"export KEPT=mine\n");
+    // Not trusted yet: told how to trust it, and nothing is set.
+    s.send(b"cd proj\n");
+    s.expect("run `teryon env allow`");
+    pause();
+    s.send(b"print -r -- UNTRUSTED_${PROJ_VAR:-unset}\n");
+    s.expect("UNTRUSTED_unset");
+    s.send(b"teryon env allow\n");
+    s.expect("Loaded the next time");
+    pause();
+    s.send(b"cd .. && cd proj\n");
+    s.expect("loaded 2 variable(s)");
+    pause();
+    s.send(b"print -r -- IN_${PROJ_VAR:-unset}_${KEPT}\n");
+    s.expect("IN_hello_project");
+    s.send(b"cd ..\n");
+    pause();
+    s.send(b"print -r -- OUT_${PROJ_VAR:-unset}_${KEPT}\n");
+    s.expect("OUT_unset_mine");
+}

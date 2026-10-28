@@ -96,7 +96,7 @@ prompt = false     # two-line prompt with git state
 ```
 
 A variable set in the environment before the `eval` line wins over the file: `TERYON_PLUS`, `TERYON_HISTORY`,
-`TERYON_SUGGEST`, `TERYON_HIGHLIGHT`, `TERYON_PICKERS`, `TERYON_TAB`, `TERYON_JUMP`, `TERYON_PROMPT`, `TERYON_PASTE_GUARD` (`0` or `1`).
+`TERYON_SUGGEST`, `TERYON_HIGHLIGHT`, `TERYON_PICKERS`, `TERYON_TAB`, `TERYON_JUMP`, `TERYON_PROMPT`, `TERYON_PASTE_GUARD`, `TERYON_ENV` (`0` or `1`).
 
 ### Limits
 
@@ -125,6 +125,7 @@ sync_hosts = ["mini"]
 sync_every_hours = 12
 inject = true      # false: do not load the integration in zsh panes by itself
 paste_guard = true # false: paste multi-line text without asking
+env = true         # false: never load a project's [env] table on cd
 ```
 
 ### Reports, replay and remote jumps

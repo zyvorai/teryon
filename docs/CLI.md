@@ -26,6 +26,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `sandbox [--allow-write DIR] -- COMMAND…` | Run COMMAND (an AI agent, say) so it can only write to the Git repository it is started in and to scratch/settings directories, and cannot read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`; the network stays open (`sandbox-exec` on macOS, `bwrap` on Linux) |
 | `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout` / `restart`, see below); refuses a workspace that already exists |
 | `watch-sync SRC HOST:DEST [--interval S] [--debounce S] [--once]` | Copy the local directory SRC to DEST now and after every change (polled; same engines as `cp`); retries with a growing delay while the host is unreachable. Deleted files are not removed at DEST |
+| `env allow\|deny\|status [DIR]` | Trust, stop trusting, or inspect the `[env]` table of the project's `.teryon.toml` (loaded by the shell integration on `cd`) |
 | `explain -- COMMAND LINE` | Explain a command line part by part (command, each flag, pipes, redirects) from the local manual pages; never runs it |
 | `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
 | `hist report [--days N] [--host H]` | Per project: commands run, failures, slowest and most-failing commands |
@@ -51,6 +52,24 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 Transfers accept `--limit-kbps N` to limit bandwidth in KiB/s. Repeat the same command after interruption to reuse retained partial data.
 
 Global `--remote-bin /absolute/path` overrides the remote executable path. `TERYON_SSH_CONFIG=/path/to/ssh_config` supplies an alternate OpenSSH configuration to connections, deployment, transfers, and forwards.
+
+## Project environment variables
+
+The same `.teryon.toml` can carry an `[env]` table. The shell integration (zsh, bash, fish) sets those variables when you
+`cd` into the project and puts back what they replaced when you leave:
+
+```toml
+[env]
+API_URL = "http://localhost:3000"
+DEBUG = true
+path_prepend = ["bin", "node_modules/.bin"]   # put in front of PATH; relative to this file
+```
+
+Nothing loads until you trust the table with `teryon env allow` in that directory (it prints what it will set).
+Editing the table, or a copy of the file in a cloned repository, asks again; `teryon env status` shows the state and
+`teryon env deny` withdraws trust. The file is ignored unless you own it. `PATH` itself (use `path_prepend`), `HOME`,
+`SHELL`, `IFS`, `ENV`, `BASH_ENV`, `PROMPT_COMMAND`, `ZDOTDIR`, `CDPATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and `DYLD_*`
+cannot be set from a project. `[shell] env = false` (or `TERYON_ENV=0`) turns the loading off.
 
 ## Project recipes: starting things in order
 

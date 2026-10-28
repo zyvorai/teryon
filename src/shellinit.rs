@@ -263,6 +263,12 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       }
     fi
   fi
+  # Per-project environment: the [env] table of a trusted .teryon.toml (`teryon env allow`) loads on cd.
+  if [[ "${TERYON_ENV:-1}" != 0 ]]; then
+    __teryon_env_hook() { eval "$(command teryon env hook --shell zsh --key "${__TERYON_ENV_KEY-}" --names "${__TERYON_ENV_NAMES-}")"; }
+    add-zsh-hook chpwd __teryon_env_hook
+    __teryon_env_hook
+  fi
   # Paste guard: a paste of several lines, or of something that looks like a secret, waits for a y.
   # Skipped when another plugin already replaced the paste widget.
   if [[ "${TERYON_PASTE_GUARD:-1}" != 0 && "${widgets[bracketed-paste]}" == builtin ]]; then
@@ -353,8 +359,15 @@ if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     __teryon_hn=${BASH_REMATCH[1]}; __teryon_hc=${BASH_REMATCH[2]}
   }
   __teryon_hist_number && __teryon_hnum=$__teryon_hn
+  __teryon_env_hook() {
+    [ "${TERYON_ENV:-1}" = 0 ] && return 0
+    [ "$PWD" = "$__teryon_env_pwd" ] && return 0
+    __teryon_env_pwd=$PWD
+    eval "$(command teryon env hook --shell bash --key "${__TERYON_ENV_KEY-}" --names "${__TERYON_ENV_NAMES-}")"
+  }
   __teryon_record() {
     local s=$1
+    __teryon_env_hook
     if [ "${TERYON_JUMP:-1}" != 0 ] && [ "$PWD" != "$__teryon_last_pwd" ]; then
       __teryon_last_pwd=$PWD
       command teryon jump add "$PWD" >/dev/null 2>&1 & disown 2>/dev/null
@@ -470,6 +483,12 @@ if status is-interactive; and test "$TERYON_PLUS" != 0; and not set -q __teryon_
       command teryon jump add $PWD >/dev/null 2>&1 &
       disown 2>/dev/null
     end
+    if test "$TERYON_ENV" != 0
+      function __teryon_env_hook --on-variable PWD
+        command teryon env hook --shell fish --key "$__TERYON_ENV_KEY" --names "$__TERYON_ENV_NAMES" | source
+      end
+      __teryon_env_hook
+    end
     if not functions -q z
       function z
         if test (count $argv) -eq 0
@@ -550,6 +569,7 @@ pub fn preamble(cfg: &crate::config::ShellConfig) -> String {
         ("TERYON_JUMP", cfg.jump),
         ("TERYON_PROMPT", cfg.prompt),
         ("TERYON_PASTE_GUARD", cfg.paste_guard),
+        ("TERYON_ENV", cfg.env),
     ]
     .iter()
     .map(|(name, on)| format!(": \"${{{name}:={}}}\"\n", flag(*on)))
