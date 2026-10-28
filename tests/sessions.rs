@@ -172,10 +172,16 @@ fn process_and_shell_survive_disconnect() {
     ));
     assert_eq!(c.snapshot()[0].pid, pid);
     c.until(pane, "SURVIVED_NETWORK_DROP");
-    assert_eq!(
-        c.snapshot().iter().find(|p| p.id == pane).unwrap().exited,
-        Some(0)
-    );
+    // The command still sleeps a moment after printing, so wait for its exit instead of expecting it.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let exited = loop {
+        let exited = c.snapshot().iter().find(|p| p.id == pane).unwrap().exited;
+        if exited.is_some() || Instant::now() > deadline {
+            break exited;
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(exited, Some(0));
 }
 #[test]
 fn exclusive_controller_and_readonly_are_enforced_server_side() {
