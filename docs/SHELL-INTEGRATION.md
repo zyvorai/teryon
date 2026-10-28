@@ -133,3 +133,11 @@ paste_guard = true # false: paste multi-line text without asking
 - `teryon hist replay -- deploy` finds the newest command containing "deploy" and tells you where and when it ran. It prints `cd DIR && COMMAND` (use `eval "$(teryon hist replay -- deploy)"`), or runs the command in that directory with `--run`. `--failed` only considers commands that failed.
 - `z mini:proj` opens a shell on the host `mini` in the directory its own `z` history ranks best for "proj" (the host needs `teryon` installed). `z mini:` just opens a shell there.
 - In zsh, pasting several lines, or something that looks like a secret, shows `Paste contains ... [y/N]` first. Turn it off with `[shell] paste_guard = false`.
+
+### Saved commands (snippets)
+
+- `teryon snip add deploy -- make deploy ENV={{env}}` saves a command; `{{name}}` marks what changes each time.
+- `teryon snip run deploy env=prod` fills it and runs it with your shell; anything not given as `KEY=VALUE` is asked for. For a `{{host}}` placeholder you can type the start of a configured host name.
+- `teryon snip list`, `show NAME`, `fill NAME [KEY=VALUE...]` (prints the filled command), `rm NAME`.
+- Alt-S (zsh, bash, fish) opens a picker, asks for the placeholders and types the result on the command line without running it.
+- Snippets in `[[desktop.snippets]]` are listed too; a saved one with the same name wins.
