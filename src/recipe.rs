@@ -14,6 +14,9 @@ pub struct Recipe {
     pub workspace: Option<String>,
     #[serde(default, rename = "pane")]
     pub panes: Vec<RecipePane>,
+    /// Environment variables for the directory (`teryon env`); not used by `teryon up`.
+    #[serde(default)]
+    pub env: Option<toml::Value>,
 }
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -436,6 +439,17 @@ pub fn up_with(
         }
     }
     Ok(ids)
+}
+
+#[cfg(test)]
+mod env_table_tests {
+    use super::*;
+    #[test]
+    fn a_recipe_may_also_carry_an_env_table_for_the_shell_integration() {
+        let r = parse("[env]\nA = \"1\"\n[[pane]]\nname = \"a\"\n").unwrap();
+        assert_eq!(r.panes.len(), 1);
+        assert!(r.env.is_some());
+    }
 }
 
 #[cfg(test)]

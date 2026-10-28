@@ -193,3 +193,33 @@ fn fish_binds_the_pickers() {
         assert!(out.contains(w), "{w} not bound: {out}");
     }
 }
+
+#[test]
+fn bash_loads_a_trusted_project_env_on_cd_and_puts_it_back() {
+    if !have("bash") {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let proj = work.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join(".teryon.toml"),
+        "[env]\nPROJ_VAR = \"hello\"\nKEPT = \"project\"\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", home.path())
+        .current_dir(&proj)
+        .args(["env", "allow"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let mut s = bash(home.path(), work.path());
+    s.send(b"export KEPT=mine\n");
+    s.send(b"cd proj\n");
+    s.send(b"echo IN_${PROJ_VAR:-unset}_${KEPT}\n");
+    s.expect("IN_hello_project");
+    s.send(b"cd ..\n");
+    s.send(b"echo OUT_${PROJ_VAR:-unset}_${KEPT}\n");
+    s.expect("OUT_unset_mine");
+}

@@ -103,6 +103,7 @@ destination = "susant@mini.local"
 # jump = true        # z and zi
 # prompt = false     # two-line prompt with git state
 # inject = true      # zsh panes load the integration without a line in .zshrc (TERYON_INJECT=0 also turns it off)
+# env = true         # load the [env] table of a trusted project .teryon.toml when you cd into it (teryon env allow)
 # paste_guard = true # ask before a multi-line or secret-looking paste is put on the command line (zsh)
 # sync_hosts = ["mini"]    # copy these hosts' command history here in the background, so Ctrl-R finds it
 # sync_every_hours = 12

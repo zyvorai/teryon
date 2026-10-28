@@ -266,6 +266,10 @@ enum Commands {
         #[arg(long, default_value = "")]
         query: String,
     },
+    /// Per-project environment variables from the `[env]` table of `.teryon.toml`, loaded by the shell
+    /// integration once you have run `teryon env allow` there.
+    #[command(subcommand)]
+    Env(EnvCommand),
     /// Saved commands with `{{placeholders}}`: `snip add deploy -- make deploy ENV={{env}}`, `snip run deploy env=prod`.
     /// Alt-S in the shell integration picks one and types it for you.
     #[command(subcommand)]
@@ -556,6 +560,28 @@ enum HistCommand {
         cwd: String,
         #[arg(last = true)]
         prefix: Vec<String>,
+    },
+}
+#[derive(Subcommand)]
+enum EnvCommand {
+    /// Trust the `[env]` table of the `.teryon.toml` at or above DIR (default: here): its variables load
+    /// when your shell enters the project and are put back when it leaves. Editing the table asks again.
+    Allow { dir: Option<PathBuf> },
+    /// Stop trusting that project's `[env]` table.
+    Deny { dir: Option<PathBuf> },
+    /// Show the project's variables and whether they are trusted.
+    Status { dir: Option<PathBuf> },
+    /// Shell code to run after changing directory (used by the shell integration).
+    #[command(hide = true)]
+    Hook {
+        #[arg(long, default_value = "zsh")]
+        shell: String,
+        #[arg(long, default_value = "")]
+        key: String,
+        #[arg(long, default_value = "")]
+        names: String,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
     },
 }
 #[derive(Subcommand)]
@@ -1795,6 +1821,83 @@ fn run() -> Result<i32> {
         Commands::Prompt { status, ms, cwd } => {
             let home = std::env::var("HOME").unwrap_or_default();
             print!("{}", teryon::prompt::prompt(status, ms, &cwd, &home));
+        }
+        Commands::Env(cmd) => {
+            let here = std::env::current_dir()?;
+            let dir_of =
+                |d: Option<PathBuf>| d.map_or(here.clone(), |d| d.canonicalize().unwrap_or(d));
+            match cmd {
+                EnvCommand::Hook {
+                    shell,
+                    key,
+                    names,
+                    cwd,
+                } => {
+                    let sh = if shell == "fish" {
+                        teryon::dirnv::Shell::Fish
+                    } else {
+                        teryon::dirnv::Shell::Posix
+                    };
+                    let names: Vec<String> = names.split_whitespace().map(String::from).collect();
+                    let (script, notes) = teryon::dirnv::hook(
+                        sh,
+                        &cwd.unwrap_or(here),
+                        &key,
+                        &names,
+                        &teryon::dirnv::load_allowed(),
+                    );
+                    for n in notes {
+                        eprintln!("{n}");
+                    }
+                    print!("{script}");
+                }
+                EnvCommand::Allow { dir } => {
+                    let found = teryon::dirnv::find(&dir_of(dir))?.context(
+                        "no .teryon.toml with an [env] table at or above this directory",
+                    )?;
+                    println!("Trusting {}:", found.root.join(".teryon.toml").display());
+                    for (k, v) in &found.env.vars {
+                        println!("  {k}={v}");
+                    }
+                    for d in &found.env.path_prepend {
+                        println!("  PATH gets {d} in front");
+                    }
+                    teryon::dirnv::allow(&found)?;
+                    println!("Loaded the next time your shell enters it (or run `cd .`). Editing the table asks again.");
+                }
+                EnvCommand::Deny { dir } => {
+                    let found = teryon::dirnv::find(&dir_of(dir))?.context(
+                        "no .teryon.toml with an [env] table at or above this directory",
+                    )?;
+                    if teryon::dirnv::deny(&found.root)? {
+                        println!("No longer trusting {}", found.root.display());
+                    } else {
+                        println!("{} was not trusted", found.root.display());
+                    }
+                }
+                EnvCommand::Status { dir } => match teryon::dirnv::find(&dir_of(dir))? {
+                    None => println!("No .teryon.toml with an [env] table at or above here."),
+                    Some(found) => {
+                        let trusted =
+                            teryon::dirnv::is_allowed(&found, &teryon::dirnv::load_allowed());
+                        println!(
+                            "{}: {}",
+                            found.root.join(".teryon.toml").display(),
+                            if trusted {
+                                "trusted"
+                            } else {
+                                "not trusted (run `teryon env allow`, or it changed since you did)"
+                            }
+                        );
+                        for (k, v) in &found.env.vars {
+                            println!("  {k}={v}");
+                        }
+                        for d in &found.env.path_prepend {
+                            println!("  PATH gets {d} in front");
+                        }
+                    }
+                },
+            }
         }
         Commands::Snip(cmd) => {
             let cfg = config::load().unwrap_or_default();

@@ -144,6 +144,9 @@ pub struct ShellConfig {
     pub prompt: bool,
     /// Load the integration in zsh panes without a line in `.zshrc` (`TERYON_INJECT`, read by the daemon).
     pub inject: bool,
+    /// Load a project's `[env]` from `.teryon.toml` when you enter it, once trusted with
+    /// `teryon env allow` (`TERYON_ENV`).
+    pub env: bool,
     /// Ask before a paste of several lines, or of something that looks like a secret, goes onto the
     /// command line (`TERYON_PASTE_GUARD`; zsh).
     pub paste_guard: bool,
@@ -165,6 +168,7 @@ impl Default for ShellConfig {
             prompt: false,
             inject: true,
             paste_guard: true,
+            env: true,
             sync_hosts: Vec::new(),
             sync_every_hours: 12,
         }
