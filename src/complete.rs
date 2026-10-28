@@ -1,6 +1,10 @@
 //! Candidates for shell tab completion. `teryon completions zsh` wires these into the generated
 //! script through the hidden `teryon complete` command.
-use crate::{config, files, util};
+use crate::{
+    config, files, ipc,
+    protocol::{Request, Response},
+    util,
+};
 use anyhow::{bail, Result};
 use std::process::Stdio;
 
@@ -15,6 +19,37 @@ pub fn hosts() -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+/// Workspace names on `host`. Completion never starts a daemon: with none running there are none.
+pub fn workspaces(host: &str) -> Result<Vec<String>> {
+    let target = config::target(host, None)?;
+    let response = if target.local() {
+        if ipc::connect().is_err() {
+            return Ok(Vec::new());
+        }
+        target.connect()?.call(Request::List)?
+    } else {
+        let out = target
+            .ssh_for_completion()
+            .arg(format!(
+                "exec {} sessions local",
+                target.remote_executable()
+            ))
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()?;
+        if !out.status.success() {
+            bail!("cannot list workspaces on {host}");
+        }
+        serde_json::from_slice(&out.stdout)?
+    };
+    let Response::Workspaces { items } = response else {
+        return Ok(Vec::new());
+    };
+    let mut names: Vec<String> = items.into_iter().map(|w| w.name).collect();
+    names.sort();
+    Ok(names)
 }
 
 /// Split a typed remote path into the directory to list (as typed) and the name being completed.
@@ -84,6 +119,35 @@ pub fn remote_paths(host: &str, prefix: &str) -> Result<Vec<String>> {
     Ok(candidates(prefix, &String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Where `_teryon` should go: the first directory under `home` that is already on zsh's `fpath`,
+/// else `~/.zsh/completions` (which the caller then tells the user to add).
+pub fn pick_install_dir(fpath: &[String], home: &std::path::Path) -> (std::path::PathBuf, bool) {
+    for dir in fpath {
+        let d = std::path::PathBuf::from(dir);
+        if d.starts_with(home) && d.is_dir() {
+            return (d, true);
+        }
+    }
+    (home.join(".zsh/completions"), false)
+}
+
+/// `fpath` as an interactive zsh sees it with the user's own startup files (empty if zsh fails).
+pub fn user_fpath() -> Vec<String> {
+    let out = std::process::Command::new("zsh")
+        .args(["-ic", "print -rl -- $fpath"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    out.map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter(|l| l.starts_with('/'))
+            .map(str::to_string)
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// A miniature CLI shaped like teryon's, so the script patching is tested without the binary.
 #[cfg(test)]
 #[derive(clap::Parser)]
@@ -119,6 +183,13 @@ _teryon_hosts() {
   h=(${(f)"$(teryon complete hosts 2>/dev/null)"})
   compadd -a h
 }
+_teryon_workspaces() {
+  local h=${words[2]}
+  [[ -z $h || $h == -* ]] && h=local
+  local -a w
+  w=(${(f)"$(teryon complete workspaces "$h" 2>/dev/null)"})
+  compadd -a w
+}
 _teryon_remote_path() {
   local -a p
   p=(${(f)"$(teryon complete remote-path "$1" "$PREFIX" 2>/dev/null)"})
@@ -144,6 +215,8 @@ pub fn zsh_script(generated: &str) -> String {
     let hosts = regex::Regex::new(r"(?m)^('\*?:{1,2}hosts?(?: -- [^:']*)?):_default'").unwrap();
     out = hosts.replace_all(&out, "${1}:_teryon_hosts'").into_owned();
     out = out.replace(":HOST:_default'", ":HOST:_teryon_hosts'");
+    out = out.replace(":WORKSPACE:_default'", ":WORKSPACE:_teryon_workspaces'");
+    out = out.replace("':workspace:_default'", "':workspace:_teryon_workspaces'");
     // `push HOST SOURCE DEST` then `pull HOST SOURCE DEST`, in that order in the generated script.
     let src = "':source:_default'";
     let dst = "':destination:_default'";
@@ -175,6 +248,22 @@ mod tests {
         assert!(out.contains("':destination:_files'"));
         assert!(out.contains(":_teryon_cp_arg'"));
         assert!(!out.contains(":_default'"));
+    }
+    #[test]
+    fn install_dir_prefers_an_fpath_directory_under_home() {
+        let home = std::env::temp_dir().join(format!("teryon-fp-{}", std::process::id()));
+        let inside = home.join(".zfunc");
+        std::fs::create_dir_all(&inside).unwrap();
+        let fpath = vec![
+            "/usr/share/zsh/site-functions".to_string(),
+            inside.display().to_string(),
+        ];
+        assert_eq!(pick_install_dir(&fpath, &home), (inside.clone(), true));
+        assert_eq!(
+            pick_install_dir(&["/usr/share".to_string()], &home),
+            (home.join(".zsh/completions"), false)
+        );
+        std::fs::remove_dir_all(&home).ok();
     }
     #[test]
     fn prefix_splits_at_the_last_slash() {

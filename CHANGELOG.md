@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- bash and fish integrations now record history, bind the Ctrl-R / Ctrl-T / Alt-C pickers and provide `z` / `zi` (bash 4+ for the pickers; bash also flushes `~/.bash_history` as it goes and imports it once). No ghost text, highlighting or fuzzy Tab
+- `teryon hist sync [HOST...]` copies other hosts' history here; `[shell] sync_hosts` / `sync_every_hours` keep it fresh in the background. `hist import` also reads bash history files
+- `teryon completions zsh --install` writes the completion script into a directory on your `fpath`; workspace names now complete too
+- `teryon cp` accepts `-` for standard input/output (`teryon cp - host:file`, `teryon cp host:file -`) and remote wildcards (`host:logs/*.txt`). `--no-clobber` now refuses to run with scp instead of silently overwriting
+- `[shell] inject = false` turns off loading the integration in zsh panes; the first pane prints a one-time notice saying what was loaded
+- Fix: connection sharing for completion and the rsync probe is skipped when the runtime directory is too long for a Unix socket, which had made the probe wrongly report "no rsync"
+
 - `teryon doctor --shell [HOST]` starts a zsh the way a pane does and reports whether the integration loads, whether compinit/fzf-tab own Tab, whether history is saved as you type, and whether the `teryon` on PATH is the same build as the one running
 - Ctrl with `/`, `?`, `` ` ``, `~` and the digits 2 to 8 now sends the bytes xterm does (Ctrl+/ undoes in readline, Ctrl+? is DEL), instead of being dropped
 - zsh panes put the daemon's own `teryon` first on PATH (a link in `~/.teryon/bin`), so a stale build earlier on PATH cannot load an older integration

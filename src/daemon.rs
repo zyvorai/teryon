@@ -283,7 +283,10 @@ impl Pane {
         cmd.env("TERYON", "1");
         cmd.env("TERM_PROGRAM", "teryon");
         cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-        if is_shell && std::env::var("TERYON_INJECT").as_deref() != Ok("0") {
+        let inject = std::env::var("TERYON_INJECT")
+            .map(|v| v != "0")
+            .unwrap_or_else(|_| crate::config::load().map_or(true, |c| c.shell.inject));
+        if is_shell && inject {
             inject_zsh(&mut cmd, &shell);
         }
         for (name, value) in file_type_env(|n| std::env::var_os(n).is_some()) {

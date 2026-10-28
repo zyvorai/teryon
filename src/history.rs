@@ -261,19 +261,31 @@ pub fn add(entry: &Entry) -> Result<()> {
     Ok(())
 }
 
-/// Commands in a zsh history file (`: 1700000000:0;cmd` with `EXTENDED_HISTORY`, or bare lines), oldest
+/// Commands in a zsh or bash history file (`: 1700000000:0;cmd` with `EXTENDED_HISTORY`, `#1700000000`
+/// lines from bash's `HISTTIMEFORMAT`, or bare lines), oldest
 /// first. A command spread over lines ends each but the last with a backslash; the lines are rejoined.
 pub fn parse_zsh_history(text: &str) -> Vec<(u64, String)> {
     let mut out: Vec<(u64, String)> = Vec::new();
     let mut lines = text.lines();
+    // bash writes `#1700000000` before each command when HISTTIMEFORMAT is set.
+    let mut pending_at = 0;
     while let Some(line) = lines.next() {
+        if line.len() >= 9
+            && line.len() <= 11
+            && line
+                .strip_prefix('#')
+                .is_some_and(|d| d.bytes().all(|b| b.is_ascii_digit()))
+        {
+            pending_at = line[1..].parse().unwrap_or(0);
+            continue;
+        }
         let (at, first) = match line
             .strip_prefix(": ")
             .and_then(|r| r.split_once(';'))
             .and_then(|(meta, cmd)| Some((meta.split_once(':')?.0.trim().parse().ok()?, cmd)))
         {
             Some((at, cmd)) => (at, cmd),
-            None => (0, line),
+            None => (std::mem::take(&mut pending_at), line),
         };
         let mut cmd = first.to_string();
         while cmd.ends_with('\\') {
@@ -357,6 +369,18 @@ mod tests {
                 (1700000000, "ls -la".to_string()),
                 (1700000005, "echo a \nb".to_string()),
                 (0, "plain cmd".to_string()),
+            ]
+        );
+    }
+    #[test]
+    fn bash_history_timestamps_are_attached_to_the_next_command() {
+        let text = "#1700000000\nls\n#1700000009\ngit status\nplain\n";
+        assert_eq!(
+            parse_zsh_history(text),
+            vec![
+                (1700000000, "ls".to_string()),
+                (1700000009, "git status".to_string()),
+                (0, "plain".to_string()),
             ]
         );
     }

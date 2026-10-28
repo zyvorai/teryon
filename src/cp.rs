@@ -78,6 +78,8 @@ pub trait Env {
     fn resolve(&self, host: &str) -> Result<String>;
     fn local_rsync(&self) -> bool;
     fn remote_rsync(&self, destination: &str) -> bool;
+    /// The paths on `destination` matching the shell pattern `pattern` (already login-relative).
+    fn expand_remote(&self, destination: &str, pattern: &str) -> Result<Vec<String>>;
 }
 
 pub struct RealEnv;
@@ -91,6 +93,51 @@ impl Env for RealEnv {
     fn remote_rsync(&self, destination: &str) -> bool {
         transport::Target::new(destination.to_string(), None).is_ok_and(|t| t.has_rsync())
     }
+    fn expand_remote(&self, destination: &str, pattern: &str) -> Result<Vec<String>> {
+        let target = transport::Target::new(destination.to_string(), None)?;
+        let script = format!(
+            "for f in {}; do [ -e \"$f\" ] && printf '%s\\n' \"$f\"; done",
+            glob_word(pattern)
+        );
+        let out = target
+            .ssh_for_completion()
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        // ssh itself failing (255) is an error; the loop ending on a non-match just means no files.
+        if out.status.code() == Some(255) {
+            bail!("cannot reach {destination} to expand {pattern}");
+        }
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect())
+    }
+}
+
+/// Does the path hold shell wildcards?
+pub fn has_glob(path: &str) -> bool {
+    path.contains(['*', '?', '['])
+}
+/// `pattern` as one shell word: wildcards stay live, everything else is single-quoted.
+pub fn glob_word(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut literal = String::new();
+    for c in pattern.chars() {
+        if matches!(c, '*' | '?' | '[' | ']') {
+            if !literal.is_empty() {
+                out.push_str(&util::shell_quote(&literal));
+                literal.clear();
+            }
+            out.push(c);
+        } else {
+            literal.push(c);
+        }
+    }
+    if !literal.is_empty() {
+        out.push_str(&util::shell_quote(&literal));
+    }
+    out
 }
 
 fn check_path(path: &str) -> Result<()> {
@@ -110,6 +157,67 @@ fn dest_dir(dest: &str, many: bool) -> Option<String> {
         Some((dir, _)) => Some(dir.to_string()),
         None => None,
     }
+}
+
+/// Does any remote source hold wildcards (so it may name several files)?
+fn args_glob(sources: &[Endpoint]) -> bool {
+    sources
+        .iter()
+        .any(|s| matches!(s, Endpoint::Remote { path, .. } if has_glob(path)))
+}
+
+/// `cp - host:file` (stdin to a remote file) and `cp host:file -` (a remote file to stdout), run as
+/// `ssh host cat`. Anything else is not a stream.
+fn stream_job(
+    sources: &[Endpoint],
+    dest: &Endpoint,
+    opts: &Opts,
+    env: &dyn Env,
+) -> Result<Option<Job>> {
+    let is_dash = |e: &Endpoint| matches!(e, Endpoint::Local(p) if p == "-");
+    if sources.iter().any(is_dash) {
+        let ([_], Endpoint::Remote { host, path }) = (sources, dest) else {
+            bail!("`-` reads standard input into one remote file: teryon cp - host:path");
+        };
+        let d = env.resolve(host)?;
+        let rp = remote_path(path);
+        if rp.ends_with('/') || rp == "." {
+            bail!("give the remote file a name (host:dir/name)");
+        }
+        let mut c = transport::Target::new(d.clone(), None)?.ssh();
+        c.arg(format!(
+            "{}cat > {}",
+            if opts.no_clobber { "set -C; " } else { "" },
+            util::shell_quote(&rp)
+        ));
+        let mkdir = if opts.parents {
+            dest_dir(&rp, false).map(|dir| (Some(d), dir))
+        } else {
+            None
+        };
+        return Ok(Some(Job {
+            engine: "ssh",
+            command: c,
+            mkdir,
+        }));
+    }
+    if is_dash(dest) {
+        let [Endpoint::Remote { host, path }] = sources else {
+            bail!("`-` as the destination writes one remote file to standard output: teryon cp host:path -");
+        };
+        let d = env.resolve(host)?;
+        if has_glob(path) {
+            bail!("a wildcard can match several files; name one file to send to standard output");
+        }
+        let mut c = transport::Target::new(d, None)?.ssh();
+        c.arg(format!("cat -- {}", util::shell_quote(&remote_path(path))));
+        return Ok(Some(Job {
+            engine: "ssh",
+            command: c,
+            mkdir: None,
+        }));
+    }
+    Ok(None)
 }
 
 pub fn plan(paths: &[String], opts: &Opts, env: &dyn Env) -> Result<Job> {
@@ -137,7 +245,10 @@ pub fn plan(paths: &[String], opts: &Opts, env: &dyn Env) -> Result<Job> {
     if src_hosts.windows(2).any(|w| w[0] != w[1]) {
         bail!("sources must all come from the same host");
     }
-    let many = sources.len() > 1;
+    let many = sources.len() > 1 || args_glob(&sources);
+    if let Some(job) = stream_job(&sources, &dest, opts, env)? {
+        return Ok(job);
+    }
     if remote_src.is_none() && matches!(dest, Endpoint::Local(_)) {
         bail!("neither side is a host; use host:path for the remote side (or plain cp)");
     }
@@ -150,7 +261,16 @@ pub fn plan(paths: &[String], opts: &Opts, env: &dyn Env) -> Result<Job> {
             Endpoint::Local(p) => args_src.push(p.clone()),
             Endpoint::Remote { host, path } => {
                 let d = env.resolve(host)?;
-                args_src.push(format!("{d}:{}", remote_path(path)));
+                let rp = remote_path(path);
+                if has_glob(&rp) {
+                    let found = env.expand_remote(&d, &rp)?;
+                    if found.is_empty() {
+                        bail!("no match for {host}:{path}");
+                    }
+                    args_src.extend(found.iter().map(|f| format!("{d}:{f}")));
+                } else {
+                    args_src.push(format!("{d}:{rp}"));
+                }
                 src_dest = Some(d);
             }
         }
@@ -183,6 +303,9 @@ pub fn plan(paths: &[String], opts: &Opts, env: &dyn Env) -> Result<Job> {
         Engine::Auto => rsync_ok,
     };
 
+    if opts.no_clobber && !use_rsync {
+        bail!("--no-clobber needs rsync 3+ on every machine involved (scp would overwrite)");
+    }
     let mut command = if use_rsync {
         let mut c = transport::rsync_command();
         if let Some(limit) = opts.limit_kbps {
@@ -222,7 +345,7 @@ pub fn plan(paths: &[String], opts: &Opts, env: &dyn Env) -> Result<Job> {
 
 pub fn run(paths: &[String], opts: &Opts, verbose: bool) -> Result<()> {
     let mut job = plan(paths, opts, &RealEnv)?;
-    if verbose || (opts.dry_run && job.engine == "scp") {
+    if verbose || (opts.dry_run && job.engine != "rsync") {
         let c = &job.command;
         let line: Vec<String> = std::iter::once(c.get_program())
             .chain(c.get_args())
@@ -230,7 +353,7 @@ pub fn run(paths: &[String], opts: &Opts, verbose: bool) -> Result<()> {
             .collect();
         eprintln!("[{}] {}", job.engine, line.join(" "));
     }
-    if opts.dry_run && job.engine == "scp" {
+    if opts.dry_run && job.engine != "rsync" {
         return Ok(());
     }
     if let Some((host, dir)) = &job.mkdir {
@@ -275,6 +398,12 @@ mod tests {
         }
         fn remote_rsync(&self, _: &str) -> bool {
             self.rsync
+        }
+        fn expand_remote(&self, _: &str, pattern: &str) -> Result<Vec<String>> {
+            Ok(match pattern {
+                "logs/*.txt" => vec!["logs/a.txt".into(), "logs/b c.txt".into()],
+                _ => Vec::new(),
+            })
         }
     }
     fn opts() -> Opts {
@@ -349,6 +478,34 @@ mod tests {
         assert!(plan(&v(&["a:x", "b:y"]), &forced, &Fake { rsync: true }).is_err());
     }
     #[test]
+    fn remote_wildcards_expand_on_the_host() {
+        let env = Fake { rsync: true };
+        let job = plan(&v(&["m:logs/*.txt", "."]), &opts(), &env).unwrap();
+        assert_eq!(tail(&job, 4), ["--", "m:logs/a.txt", "m:logs/b c.txt", "."]);
+        assert!(plan(&v(&["m:none/*", "."]), &opts(), &env).is_err());
+        assert_eq!(glob_word("a b/*.txt"), "'a b/'*'.txt'");
+        assert_eq!(glob_word("it's[ab]"), "'it'\\''s'['ab']");
+    }
+    #[test]
+    fn dash_streams_through_ssh_cat() {
+        let env = Fake { rsync: true };
+        let up = plan(&v(&["-", "m:~/out.txt"]), &opts(), &env).unwrap();
+        assert_eq!(up.engine, "ssh");
+        assert_eq!(tail(&up, 1), ["cat > 'out.txt'"]);
+        let safe = Opts {
+            no_clobber: true,
+            ..opts()
+        };
+        let up = plan(&v(&["-", "m:f"]), &safe, &env).unwrap();
+        assert_eq!(tail(&up, 1), ["set -C; cat > 'f'"]);
+        let down = plan(&v(&["m:/etc/hosts", "-"]), &opts(), &env).unwrap();
+        assert_eq!(tail(&down, 1), ["cat -- '/etc/hosts'"]);
+        assert!(plan(&v(&["-", "m:dir/"]), &opts(), &env).is_err());
+        assert!(plan(&v(&["-", "local-file"]), &opts(), &env).is_err());
+        assert!(plan(&v(&["a", "b", "-"]), &opts(), &env).is_err());
+        assert!(plan(&v(&["m:logs/*.txt", "-"]), &opts(), &env).is_err());
+    }
+    #[test]
     fn rejects_bad_shapes() {
         let env = Fake { rsync: true };
         assert!(plan(&v(&["only"]), &opts(), &env).is_err());
@@ -374,6 +531,11 @@ mod tests {
         for want in ["--bwlimit=100", "--ignore-existing", "-n"] {
             assert!(args.iter().any(|a| a == want), "{want}");
         }
+        assert!(plan(&v(&["a", "m:b"]), &o, &Fake { rsync: false }).is_err());
+        let o = Opts {
+            no_clobber: false,
+            ..o
+        };
         let s = plan(&v(&["a", "m:b"]), &o, &Fake { rsync: false }).unwrap();
         let args: Vec<_> = s
             .command

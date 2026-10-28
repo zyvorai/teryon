@@ -57,7 +57,7 @@ impl Target {
         cmd.arg(&self.host);
         cmd
     }
-    fn remote_executable(&self) -> String {
+    pub(crate) fn remote_executable(&self) -> String {
         self.remote_bin
             .as_ref()
             .map(|s| util::shell_quote(s))
@@ -237,7 +237,11 @@ impl Target {
         }
         cmd.args(["-T", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes"]);
         cmd.args(["-o", "StrictHostKeyChecking=yes"]);
-        if let Ok(dir) = util::runtime_dir() {
+        // A Unix socket path holds about 104 bytes, and ssh adds a 40-character hash and a suffix.
+        if let Some(dir) = util::runtime_dir()
+            .ok()
+            .filter(|d| d.as_os_str().len() <= 44)
+        {
             cmd.args(["-o", "ControlMaster=auto", "-o", "ControlPersist=60"]);
             cmd.arg("-o")
                 .arg(format!("ControlPath={}/cm-%C", dir.display()));
