@@ -433,3 +433,45 @@ fn z_host_opens_a_shell_in_the_hosts_best_directory_over_real_ssh() {
         "{out:?}"
     );
 }
+
+#[test]
+fn hosts_check_reports_a_reachable_host_and_a_dead_one_over_real_ssh() {
+    let Some(e) = setup() else {
+        eprintln!("skipped: cannot start a user-level sshd here");
+        return;
+    };
+    // A second host that nothing listens on.
+    let mut cfg = std::fs::read_to_string(&e.server.ssh_config).unwrap();
+    cfg.push_str("Host dead\n  HostName 127.0.0.1\n  Port 1\n  ConnectTimeout 3\n");
+    std::fs::write(&e.server.ssh_config, cfg).unwrap();
+    let cfg_dir = e.home.path().join(".config/teryon");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    std::fs::write(
+        cfg_dir.join("config.toml"),
+        format!(
+            "[hosts.tsrv]\ndestination = \"tsrv\"\nremote_bin = \"{}\"\n",
+            env!("CARGO_BIN_EXE_teryon")
+        ),
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", e.home.path())
+        .env("TERYON_SSH_CONFIG", &e.server.ssh_config)
+        .args(["hosts", "--check", "tsrv", "dead"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{out:?}");
+    let line = |host: &str| text.lines().find(|l| l.starts_with(host)).unwrap_or("");
+    let (up, down) = (line("tsrv"), line("dead"));
+    assert!(
+        up.contains(" up ") && up.contains(env!("CARGO_PKG_VERSION")),
+        "{text}"
+    );
+    assert!(
+        up.contains("ms") && up.contains('/'),
+        "disk and rtt shown: {text}"
+    );
+    assert!(down.contains(" down "), "{text}");
+}
