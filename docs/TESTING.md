@@ -28,7 +28,7 @@ Run on the Apple Silicon Mac mini the release was prepared on (2026-10-28), at t
 | `cargo test --features desktop` | **535 passed**: 461 library/UI, 2 CLI, 72 integration (7 `cp` over SSH, 2 per-project env, 1 explain, 2 history tools, 6 history CLI, 2 picker PTY, 1 play, 1 recovery, 1 search, 28 session, 6 shell PTY, 2 snippets, 1 watch-sync, 12 zsh widget) |
 | `cargo test --no-default-features` | **408 passed**: 334 library, 2 CLI and the same 72 integration tests (the desktop-only UI tests are not built) |
 | `cargo fmt --all --check` | **Passed** |
-| `cargo clippy --all-targets --all-features --locked -- -D warnings` | **Failed on Rust 1.99.0**: one error, `clippy::question_mark` at `src/keys.rs:66`. The pinned 1.94.0 does not report it and the pull-request checks (pinned compiler) passed; it was not run with 1.94.0 on this machine |
+| `cargo clippy --all-targets --all-features --locked -- -D warnings` | **Failed on Rust 1.99.0**: one error, `clippy::question_mark` at `src/keys.rs:66`. The pinned 1.94.0 does not report it and the pull-request checks (pinned compiler) passed; it was not run with 1.94.0 on this machine. Fixed on `main` after the tag (#48): clippy then passed on 1.99.0 with fmt and the 21 key tests; the full suites were not re-run |
 
 Notes on what these do and do not show:
 
