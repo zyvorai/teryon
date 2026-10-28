@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0
 
 - Per-project environment: an `[env]` table in `.teryon.toml` (variables and `path_prepend`) is loaded by the zsh, bash and fish integrations when you `cd` into the project and undone when you leave, restoring any value it replaced. It loads only after `teryon env allow` in that directory, editing the table asks again, and `PATH`, `HOME`, `LD_PRELOAD` and the like cannot be set. `[shell] env = false` turns it off
 - `teryon search PATTERN [--host H] [-w NAME | --all] [-i] [-E] [-C N]` searches the scrollback the daemon keeps for each pane, grep-style (`workspace/pane:line: text`, with the same absolute line numbers as `capture`). Lowercase patterns ignore case; exit status 0 found, 1 nothing found, 2 error. It only reads, so it never takes control of a pane
