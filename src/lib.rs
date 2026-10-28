@@ -44,6 +44,7 @@ pub mod recipe;
 pub mod record;
 pub mod sandbox;
 pub mod screensync;
+pub mod scrollsearch;
 pub mod settings;
 pub mod setup;
 pub mod shelldoctor;

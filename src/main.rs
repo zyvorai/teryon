@@ -189,6 +189,31 @@ enum Commands {
         #[arg(long, conflicts_with_all = ["fix", "binary"])]
         shell: bool,
     },
+    /// Search the scrollback of a workspace's panes for PATTERN, grep-style (`workspace/pane:line: text`).
+    /// Lowercase patterns ignore case unless the pattern has capitals; -i always ignores it. Exits 1 when
+    /// nothing matches. Reads like `capture`, so it never takes control of a pane.
+    Search {
+        pattern: String,
+        #[arg(long, default_value = "local")]
+        host: String,
+        #[arg(short, long, default_value = "default")]
+        workspace: String,
+        /// Search every workspace on the host.
+        #[arg(long, conflicts_with = "workspace")]
+        all: bool,
+        /// Ignore case.
+        #[arg(short = 'i', long)]
+        ignore_case: bool,
+        /// Treat PATTERN as a regular expression instead of plain text.
+        #[arg(short = 'E', long)]
+        regex: bool,
+        /// Lines of context around each match.
+        #[arg(short = 'C', long, default_value_t = 0)]
+        context: usize,
+        /// Most matches shown per pane.
+        #[arg(long, default_value_t = 50)]
+        max: usize,
+    },
     /// Keep DEST matching the local directory SRC: copy it now and again after every change (checked
     /// by polling), with the same engines as `teryon cp`. New and changed files are copied; deleted
     /// ones are not removed at DEST. While DEST cannot be reached it retries with a growing delay.
@@ -1425,6 +1450,61 @@ fn run() -> Result<i32> {
         Commands::Deploy { host, binary } => {
             target(host, bin)?.deploy(&binary)?;
             println!("Deployment verified");
+        }
+        Commands::Search {
+            pattern,
+            host,
+            workspace,
+            all,
+            ignore_case,
+            regex,
+            context,
+            max,
+        } => {
+            // Like grep: 0 found, 1 nothing found, 2 something went wrong.
+            let found = (|| -> Result<bool> {
+                let re = teryon::scrollsearch::matcher(&pattern, regex, ignore_case, true)?;
+                let t = target(host, bin)?;
+                let names: Vec<String> = if all {
+                    match t.connect()?.call(Request::List)? {
+                        Response::Workspaces { items } => {
+                            items.into_iter().map(|w| w.name).collect()
+                        }
+                        _ => bail!("unexpected response"),
+                    }
+                } else {
+                    vec![workspace]
+                };
+                let mut found = false;
+                for ws in names {
+                    let mut rpc = attach(&t, ws.clone(), true, None)?;
+                    for p in panes(&mut rpc)? {
+                        let Response::Captured { text, first_line } =
+                            rpc.call(Request::Capture { pane: p.id })?
+                        else {
+                            bail!("unexpected capture response");
+                        };
+                        let hits =
+                            teryon::scrollsearch::search(&text, first_line, &re, context, max);
+                        if !hits.is_empty() {
+                            found = true;
+                            print!(
+                                "{}",
+                                teryon::scrollsearch::render(&format!("{ws}/{}", p.id), &hits)
+                            );
+                        }
+                    }
+                }
+                Ok(found)
+            })();
+            match found {
+                Ok(true) => {}
+                Ok(false) => return Ok(1),
+                Err(e) => {
+                    eprintln!("teryon: {e:#}");
+                    return Ok(2);
+                }
+            }
         }
         Commands::WatchSync {
             src,

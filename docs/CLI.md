@@ -9,6 +9,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `sessions HOST` | JSON list of workspaces and controller status |
 | `panes HOST -w NAME` | Pane IDs, titles, initial directories, PIDs and exit status |
 | `capture HOST -w NAME --pane ID` | Plain retained output to stdout; read-only attachment |
+| `search PATTERN [--host H] [-w NAME \| --all] [-i] [-E] [-C N]` | grep the retained scrollback of a workspace's panes (or every workspace); prints `workspace/pane:line: text`; exit 0 found, 1 nothing, 2 error; read-only |
 | `exec HOST -w NAME -- COMMAND ARGS` | Durable command in a new pane |
 | `exec … --wait --timeout SECONDS` | Wait for exit and return its status; timeout leaves job running |
 | `exec … --wait --notify` | Also ring the bell, send OSC 9 and (macOS) a desktop notification on exit |
