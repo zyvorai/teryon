@@ -20,6 +20,7 @@ pub mod frecent;
 pub mod highlight;
 pub mod history;
 pub mod histtools;
+pub mod hosthealth;
 pub mod hoststats;
 pub mod inlineimg;
 pub mod ipc;

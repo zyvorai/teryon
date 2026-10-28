@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `teryon hosts [--check]` lists configured and `~/.ssh/config` hosts; `--check` probes them in parallel over SSH for up/down, round-trip time, free disk and the installed teryon version
 - `teryon hist report [--days N] [--host H]` lists, per project (Git repository), how many commands ran and failed and which were slowest and failed most; Ctrl-C does not count as a failure
 - `teryon hist replay [--failed] [--run] -- WORDS` finds the newest matching past command, says where, when and on which branch it ran, and prints `cd DIR && COMMAND` (or runs it there with `--run`)
 - `z HOST:words` (zsh, bash, fish) opens a shell on HOST in the directory its own jump history ranks best (`teryon jump go`)

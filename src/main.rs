@@ -189,6 +189,14 @@ enum Commands {
         #[arg(long, conflicts_with_all = ["fix", "binary"])]
         shell: bool,
     },
+    /// List the known hosts (configured and from ~/.ssh/config); with --check, ask each how it is doing:
+    /// reachable, round-trip time, free disk space and which teryon is installed.
+    Hosts {
+        /// Only these hosts (default: all of them).
+        hosts: Vec<String>,
+        #[arg(long)]
+        check: bool,
+    },
     /// Print the shell integration script (OSC 133 prompt marks + OSC 7 cwd) for zsh, bash or fish.
     ShellInit {
         #[arg(value_parser = ["zsh", "bash", "fish", "zdotdir"])]
@@ -1284,6 +1292,23 @@ fn run() -> Result<i32> {
         Commands::Deploy { host, binary } => {
             target(host, bin)?.deploy(&binary)?;
             println!("Deployment verified");
+        }
+        Commands::Hosts { hosts, check } => {
+            let hosts = if hosts.is_empty() {
+                teryon::complete::hosts()
+            } else {
+                hosts
+            };
+            if check {
+                print!(
+                    "{}",
+                    teryon::hosthealth::render(&teryon::hosthealth::check_all(&hosts))
+                );
+            } else {
+                for h in hosts {
+                    println!("{h}");
+                }
+            }
         }
         Commands::Doctor {
             host,

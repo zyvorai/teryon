@@ -25,6 +25,10 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
 | `sandbox [--allow-write DIR] -- COMMAND…` | Run COMMAND (an AI agent, say) so it can only write to the Git repository it is started in and to scratch/settings directories, and cannot read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`; the network stays open (`sandbox-exec` on macOS, `bwrap` on Linux) |
 | `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout` / `restart`, see below); refuses a workspace that already exists |
+| `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
+| `hist report [--days N] [--host H]` | Per project: commands run, failures, slowest and most-failing commands |
+| `hist replay [--failed] [--run] -- WORDS` | Find a past command and print `cd DIR && COMMAND` (or run it where it ran) |
+| `snip add\|list\|show\|fill\|run\|rm` | Saved commands with `{{placeholders}}` (Alt-S in the shell integration picks one) |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |
 | `wake HOST` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
