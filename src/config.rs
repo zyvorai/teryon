@@ -144,6 +144,9 @@ pub struct ShellConfig {
     pub prompt: bool,
     /// Load the integration in zsh panes without a line in `.zshrc` (`TERYON_INJECT`, read by the daemon).
     pub inject: bool,
+    /// Ask before a paste of several lines, or of something that looks like a secret, goes onto the
+    /// command line (`TERYON_PASTE_GUARD`; zsh).
+    pub paste_guard: bool,
     /// Hosts whose command history is copied here in the background (`teryon hist sync --auto`).
     pub sync_hosts: Vec<String>,
     /// Minimum hours between those background copies.
@@ -161,6 +164,7 @@ impl Default for ShellConfig {
             jump: true,
             prompt: false,
             inject: true,
+            paste_guard: true,
             sync_hosts: Vec::new(),
             sync_every_hours: 12,
         }

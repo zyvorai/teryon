@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `teryon hist report [--days N] [--host H]` lists, per project (Git repository), how many commands ran and failed and which were slowest and failed most; Ctrl-C does not count as a failure
+- `teryon hist replay [--failed] [--run] -- WORDS` finds the newest matching past command, says where, when and on which branch it ran, and prints `cd DIR && COMMAND` (or runs it there with `--run`)
+- `z HOST:words` (zsh, bash, fish) opens a shell on HOST in the directory its own jump history ranks best (`teryon jump go`)
+- zsh paste guard: a paste of several lines, or of something that looks like a secret, waits for a `y` (`[shell] paste_guard = false` or `TERYON_PASTE_GUARD=0` turns it off; it steps aside when another plugin owns the paste widget)
+- Fix: bash 3.2 (macOS `/bin/bash`) ignores `history -a`, so commands are now appended to `~/.bash_history` directly there
+
 - bash and fish integrations now record history, bind the Ctrl-R / Ctrl-T / Alt-C pickers and provide `z` / `zi` (bash 4+ for the pickers; bash also flushes `~/.bash_history` as it goes and imports it once). No ghost text, highlighting or fuzzy Tab
 - `teryon hist sync [HOST...]` copies other hosts' history here; `[shell] sync_hosts` / `sync_every_hours` keep it fresh in the background. `hist import` also reads bash history files
 - `teryon completions zsh --install` writes the completion script into a directory on your `fpath`; workspace names now complete too

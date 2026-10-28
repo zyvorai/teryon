@@ -96,7 +96,7 @@ prompt = false     # two-line prompt with git state
 ```
 
 A variable set in the environment before the `eval` line wins over the file: `TERYON_PLUS`, `TERYON_HISTORY`,
-`TERYON_SUGGEST`, `TERYON_HIGHLIGHT`, `TERYON_PICKERS`, `TERYON_TAB`, `TERYON_JUMP`, `TERYON_PROMPT` (`0` or `1`).
+`TERYON_SUGGEST`, `TERYON_HIGHLIGHT`, `TERYON_PICKERS`, `TERYON_TAB`, `TERYON_JUMP`, `TERYON_PROMPT`, `TERYON_PASTE_GUARD` (`0` or `1`).
 
 ### Limits
 
@@ -124,4 +124,12 @@ integration then syncs in the background at most every `sync_every_hours`:
 sync_hosts = ["mini"]
 sync_every_hours = 12
 inject = true      # false: do not load the integration in zsh panes by itself
+paste_guard = true # false: paste multi-line text without asking
 ```
+
+### Reports, replay and remote jumps
+
+- `teryon hist report` shows, per project, the slowest commands and the ones that fail most (`--days 30`, `--host mini`, `--host local`, `--top 5`).
+- `teryon hist replay -- deploy` finds the newest command containing "deploy" and tells you where and when it ran. It prints `cd DIR && COMMAND` (use `eval "$(teryon hist replay -- deploy)"`), or runs the command in that directory with `--run`. `--failed` only considers commands that failed.
+- `z mini:proj` opens a shell on the host `mini` in the directory its own `z` history ranks best for "proj" (the host needs `teryon` installed). `z mini:` just opens a shell there.
+- In zsh, pasting several lines, or something that looks like a secret, shows `Paste contains ... [y/N]` first. Turn it off with `[shell] paste_guard = false`.

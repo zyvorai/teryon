@@ -241,6 +241,8 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       z() {
         if (( $# == 0 )); then builtin cd ~; return; fi
         if (( $# == 1 )) && [[ -d "$1" || "$1" == - ]]; then builtin cd -- "$1"; return; fi
+        # z HOST:words opens a shell on HOST in its best-matching directory.
+        if [[ "$1" == [A-Za-z0-9_]*:* && "$1" != */* && ! -d "$1" ]]; then command teryon jump go "${1%%:*}" -- "${1#*:}" "${@:2}"; return; fi
         local d; d=$(command teryon jump query --cwd "$PWD" -- "$@") || { print -u2 "z: no directory matches: $*"; return 1; }
         builtin cd -- "$d"
       }
@@ -251,6 +253,22 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
         [[ -n "$d" ]] && builtin cd -- "$d"
       }
     fi
+  fi
+  # Paste guard: a paste of several lines, or of something that looks like a secret, waits for a y.
+  # Skipped when another plugin already replaced the paste widget.
+  if [[ "${TERYON_PASTE_GUARD:-1}" != 0 && "${widgets[bracketed-paste]}" == builtin ]]; then
+    __teryon_paste() {
+      local PASTED why k
+      zle .bracketed-paste PASTED || return
+      why=$(print -rn -- "$PASTED" | command teryon paste-check 2>/dev/null)
+      if [[ -n "$why" ]]; then
+        zle -R "Paste $why? [y/N] "
+        read -rsk1 k
+        if [[ "$k" != [yY] ]]; then zle -M "paste dropped"; return; fi
+      fi
+      LBUFFER+=$PASTED
+    }
+    zle -N bracketed-paste __teryon_paste
   fi
   # Prompt (opt-in): set TERYON_PROMPT=1 before this line for a two-line prompt with git state.
   if [[ "${TERYON_PROMPT:-0}" == 1 ]]; then
@@ -382,6 +400,8 @@ if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
       z() {
         if [ $# -eq 0 ]; then builtin cd ~; return; fi
         if [ $# -eq 1 ] && { [ -d "$1" ] || [ "$1" = - ]; }; then builtin cd -- "$1"; return; fi
+        # z HOST:words opens a shell on HOST in its best-matching directory.
+        if [[ "$1" == [A-Za-z0-9_]*:* && "$1" != */* && ! -d "$1" ]]; then command teryon jump go "${1%%:*}" -- "${1#*:}" "${@:2}"; return; fi
         local d; d=$(command teryon jump query --cwd "$PWD" -- "$@") || { echo "z: no directory matches: $*" >&2; return 1; }
         builtin cd -- "$d"
       }
@@ -443,6 +463,11 @@ if status is-interactive; and test "$TERYON_PLUS" != 0; and not set -q __teryon_
           builtin cd -- $argv[1]
           return
         end
+        # z HOST:words opens a shell on HOST in its best-matching directory.
+        if string match -qr '^[A-Za-z0-9_]+:' -- $argv[1]; and not string match -q '*/*' -- $argv[1]; and not test -d "$argv[1]"
+          command teryon jump go (string split -m1 : -- $argv[1])[1] -- (string split -m1 : -- $argv[1])[2] $argv[2..-1]
+          return
+        end
         set -l d (command teryon jump query --cwd $PWD -- $argv)
         or begin; echo "z: no directory matches: $argv" >&2; return 1; end
         builtin cd -- $d
@@ -500,6 +525,7 @@ pub fn preamble(cfg: &crate::config::ShellConfig) -> String {
         ("TERYON_TAB", cfg.tab),
         ("TERYON_JUMP", cfg.jump),
         ("TERYON_PROMPT", cfg.prompt),
+        ("TERYON_PASTE_GUARD", cfg.paste_guard),
     ]
     .iter()
     .map(|(name, on)| format!(": \"${{{name}:={}}}\"\n", flag(*on)))
