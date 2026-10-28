@@ -43,6 +43,7 @@ static QUIET_POLL_MS: std::sync::atomic::AtomicU32 =
 /// Set the poll gap for quiet sessions in milliseconds; 0 (or anything not above the normal idle gap)
 /// keeps the normal gap. Output that arrives after a quiet spell shows up that much later at worst,
 /// and the first keystroke or screen change brings fast polling back.
+#[cfg(feature = "desktop")]
 pub(crate) fn set_quiet_poll(ms: u32) {
     QUIET_POLL_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
 }
