@@ -316,3 +316,33 @@ fn a_multi_line_paste_waits_for_a_y_and_a_single_line_does_not() {
     s.send(b"\n");
     s.expect("C_42");
 }
+
+#[test]
+fn alt_s_picks_a_snippet_asks_for_its_placeholders_and_types_it() {
+    if !have_zsh() {
+        return;
+    }
+    let (home, work) = (tempfile::tempdir().unwrap(), workdir());
+    teryon(
+        home.path(),
+        &[
+            "snip",
+            "add",
+            "deploy",
+            "--",
+            "print -r -- DEPLOY_{{env}}_$((6*7))",
+        ],
+    );
+    let mut s = shell(home.path(), work.path(), false);
+    s.send(b"\x1bs");
+    s.expect("pick \u{276f}");
+    s.send(b"deplo");
+    pause();
+    s.send(b"\r");
+    s.expect("env: ");
+    s.send(b"prod\n");
+    s.expect("READY> print -r -- DEPLOY_prod_");
+    pause();
+    s.send(b"\n");
+    s.expect("DEPLOY_prod_42");
+}
