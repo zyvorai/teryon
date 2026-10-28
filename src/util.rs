@@ -112,6 +112,19 @@ pub fn private_write(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     f.write_all(bytes)?;
     Ok(())
 }
+/// Lock a mutex and keep going if another thread panicked while holding it. The daemon owns every
+/// live PTY, so one panicking thread must not poison the shared state and take all connections down.
+pub trait LockRecover<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockRecover<T> for std::sync::Mutex<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -138,5 +151,18 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(out.stdout, value.as_bytes());
+    }
+    #[test]
+    fn lock_recover_survives_a_poisoned_mutex() {
+        use super::LockRecover;
+        let m = std::sync::Arc::new(std::sync::Mutex::new(7));
+        let m2 = m.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = m2.lock().unwrap();
+            panic!("poison it");
+        })
+        .join();
+        assert!(m.lock().is_err());
+        assert_eq!(*m.lock_recover(), 7);
     }
 }
