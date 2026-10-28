@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `teryon watch-sync SRC HOST:DEST` keeps a remote directory up to date: it copies once at start and again after the files change and settle (polled every `--interval` seconds), and while the host is unreachable it retries with a growing delay (2 s up to 60 s). New and changed files are copied; deletions are not propagated
 - Fix: `teryon up` waits (up to 4 s) for a new pane's shell to show its prompt before typing the pane's command; a shell that was still starting could throw the command away
 
 - `teryon explain -- tar -xzf a.tgz -C /tmp` explains a command line part by part (commands, flags, `-la` as `-l -a`, pipes, redirects, `sudo`/`env` wrappers) from the manual pages on this machine. It only reads `man`; the command is never run

@@ -58,3 +58,4 @@ pub mod update;
 pub mod util;
 pub mod wake;
 pub mod watch;
+pub mod watchsync;

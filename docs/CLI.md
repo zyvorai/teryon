@@ -25,6 +25,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
 | `sandbox [--allow-write DIR] -- COMMAND…` | Run COMMAND (an AI agent, say) so it can only write to the Git repository it is started in and to scratch/settings directories, and cannot read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`; the network stays open (`sandbox-exec` on macOS, `bwrap` on Linux) |
 | `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout` / `restart`, see below); refuses a workspace that already exists |
+| `watch-sync SRC HOST:DEST [--interval S] [--debounce S] [--once]` | Copy the local directory SRC to DEST now and after every change (polled; same engines as `cp`); retries with a growing delay while the host is unreachable. Deleted files are not removed at DEST |
 | `explain -- COMMAND LINE` | Explain a command line part by part (command, each flag, pipes, redirects) from the local manual pages; never runs it |
 | `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
 | `hist report [--days N] [--host H]` | Per project: commands run, failures, slowest and most-failing commands |
