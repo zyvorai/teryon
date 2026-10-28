@@ -98,7 +98,7 @@ enum Commands {
         #[arg(long, default_value_t = 1)]
         pane: u64,
     },
-    /// Record a pane to an asciicast v2 file (screen snapshots; play with `asciinema play`).
+    /// Record a pane to an asciicast v2 file (screen snapshots; play with `teryon play` or `asciinema play`).
     Record {
         #[arg(default_value = "local")]
         host: String,
@@ -213,6 +213,23 @@ enum Commands {
         /// Most matches shown per pane.
         #[arg(long, default_value_t = 50)]
         max: usize,
+    },
+    /// Play a `teryon record` (asciicast v2) file in this terminal. Pauses longer than --max-idle are
+    /// shortened. Sequences that write the clipboard or make the terminal answer are dropped unless --raw.
+    Play {
+        file: PathBuf,
+        /// Playback speed (2 = twice as fast).
+        #[arg(long, default_value_t = 1.0)]
+        speed: f64,
+        /// Longest pause kept, in seconds of the recording.
+        #[arg(long, default_value_t = 2.0)]
+        max_idle: f64,
+        /// Pass every byte through, including sequences that write the clipboard or query the terminal.
+        #[arg(long)]
+        raw: bool,
+        /// Only print the size, length and number of frames.
+        #[arg(long)]
+        info: bool,
     },
     /// Keep DEST matching the local directory SRC: copy it now and again after every change (checked
     /// by polling), with the same engines as `teryon cp`. New and changed files are copied; deleted
@@ -1503,6 +1520,31 @@ fn run() -> Result<i32> {
                 Err(e) => {
                     eprintln!("teryon: {e:#}");
                     return Ok(2);
+                }
+            }
+        }
+        Commands::Play {
+            file,
+            speed,
+            max_idle,
+            raw,
+            info,
+        } => {
+            if !(0.05..=100.0).contains(&speed) || !max_idle.is_finite() || max_idle <= 0.0 {
+                bail!("--speed is 0.05 to 100 and --max-idle must be above 0");
+            }
+            let cast = teryon::castplay::read(&file)?;
+            if info {
+                print!("{}", teryon::castplay::info(&cast));
+            } else {
+                let mut out = std::io::stdout().lock();
+                teryon::castplay::play(&cast, speed, max_idle, raw, &mut out, &mut |d| {
+                    std::thread::sleep(d)
+                })?;
+                if !raw {
+                    use std::io::Write;
+                    // A recording may stop mid-style.
+                    out.write_all(b"\x1b[0m")?;
                 }
             }
         }
