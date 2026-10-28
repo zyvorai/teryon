@@ -171,6 +171,15 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     BUFFER="cd -- ${(q)out}"
     zle accept-line
   }
+  # Alt-S: pick a saved command (`teryon snip`), answer its {{placeholders}}, and have it typed for you.
+  __teryon_snippet_widget() {
+    zle -I
+    local pick cmd
+    pick=$(command teryon snip list 2>/dev/null | command teryon pick 2>/dev/null) || { zle reset-prompt; return 0; }
+    cmd=$(command teryon snip fill --ask -- "${pick%%$'\t'*}") || { zle reset-prompt; return 0; }
+    LBUFFER+=$cmd
+    zle reset-prompt
+  }
   # Fuzzy Tab: collect what zsh's completion would offer, pick with teryon pick, insert the choice.
   typeset -ga __tc_words; __tc_words=()
   typeset -g __tc_word= __tc_files= __teryon_tab_prev=${${(z)"$(bindkey '^I')"}[2]:-expand-or-complete}
@@ -298,8 +307,8 @@ if [[ -o interactive && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
   add-zle-hook-widget line-pre-redraw __teryon_redraw
   add-zle-hook-widget line-finish __teryon_clear_hint
   zle -N __teryon_forward_char; zle -N __teryon_end_of_line; zle -N __teryon_forward_word
-  zle -N __teryon_history_widget; zle -N __teryon_file_widget; zle -N __teryon_cd_widget
-  [[ "${TERYON_PICKERS:-1}" != 0 ]] && bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget
+  zle -N __teryon_history_widget; zle -N __teryon_file_widget; zle -N __teryon_cd_widget; zle -N __teryon_snippet_widget
+  [[ "${TERYON_PICKERS:-1}" != 0 ]] && bindkey '^R' __teryon_history_widget '^T' __teryon_file_widget '^[c' __teryon_cd_widget '^[s' __teryon_snippet_widget
   [[ "$__teryon_tab_prev" == *fzf-tab* ]] || bindkey '^I' __teryon_tab
   bindkey '^[[C' __teryon_forward_char '^[OC' __teryon_forward_char '^E' __teryon_end_of_line '^[f' __teryon_forward_word
 fi
@@ -393,7 +402,15 @@ if [[ $- == *i* && "${TERYON_PLUS:-1}" != 0 && -z "$__teryon_plus" ]]; then
     }
     bind -x '"\C-r": __teryon_history_widget'
     bind -x '"\C-t": __teryon_file_widget'
+    __teryon_snippet_widget() {
+      local pick cmd
+      pick=$(command teryon snip list 2>/dev/null | command teryon pick 2>/dev/null) || return 0
+      cmd=$(command teryon snip fill --ask -- "${pick%%$'\t'*}") || return 0
+      READLINE_LINE="${READLINE_LINE:0:READLINE_POINT}${cmd}${READLINE_LINE:READLINE_POINT}"
+      READLINE_POINT=$(( READLINE_POINT + ${#cmd} ))
+    }
     bind -x '"\ec": __teryon_cd_widget'
+    bind -x '"\es": __teryon_snippet_widget'
   fi
   if [ "${TERYON_JUMP:-1}" != 0 ]; then
     if ! type z >/dev/null 2>&1; then
@@ -505,6 +522,13 @@ if status is-interactive; and test "$TERYON_PLUS" != 0; and not set -q __teryon_
       end
       commandline -f repaint
     end
+    function __teryon_snippet_widget
+      set -l pick (command teryon snip list 2>/dev/null | command teryon pick 2>/dev/null)
+      and set -l cmd (command teryon snip fill --ask -- (string split -m1 \t -- $pick)[1])
+      and commandline -i -- $cmd
+      commandline -f repaint
+    end
+    bind \es __teryon_snippet_widget
     bind \cr __teryon_history_widget
     bind \ct __teryon_file_widget
     bind \ec __teryon_cd_widget

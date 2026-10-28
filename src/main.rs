@@ -239,6 +239,10 @@ enum Commands {
         #[arg(long, default_value = "")]
         query: String,
     },
+    /// Saved commands with `{{placeholders}}`: `snip add deploy -- make deploy ENV={{env}}`, `snip run deploy env=prod`.
+    /// Alt-S in the shell integration picks one and types it for you.
+    #[command(subcommand)]
+    Snip(SnipCommand),
     /// Read pasted text on stdin and print why it needs confirming (nothing if it does not); used by
     /// the zsh paste guard.
     #[command(hide = true)]
@@ -517,6 +521,36 @@ enum HistCommand {
         #[arg(last = true)]
         prefix: Vec<String>,
     },
+}
+#[derive(Subcommand)]
+enum SnipCommand {
+    /// List the saved commands (name, a tab, the command), including `[[desktop.snippets]]` from the config.
+    List {
+        /// Only the names.
+        #[arg(long)]
+        names: bool,
+    },
+    /// Save COMMAND under NAME; `{{placeholders}}` are asked for when it is used. Replaces a snippet of that name.
+    Add {
+        name: String,
+        #[arg(long, short)]
+        description: Option<String>,
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Forget a snippet added with `snip add`.
+    Rm { name: String },
+    /// Print the command of a snippet, placeholders unfilled.
+    Show { name: String },
+    /// Print a snippet with its placeholders filled from KEY=VALUE words, asking (on the terminal) for the rest with --ask.
+    Fill {
+        name: String,
+        values: Vec<String>,
+        #[arg(long)]
+        ask: bool,
+    },
+    /// Fill a snippet (asking for what is missing) and run it with your shell.
+    Run { name: String, values: Vec<String> },
 }
 #[derive(Subcommand)]
 enum JumpCommand {
@@ -1603,6 +1637,98 @@ fn run() -> Result<i32> {
         Commands::Prompt { status, ms, cwd } => {
             let home = std::env::var("HOME").unwrap_or_default();
             print!("{}", teryon::prompt::prompt(status, ms, &cwd, &home));
+        }
+        Commands::Snip(cmd) => {
+            let cfg = config::load().unwrap_or_default();
+            let all = teryon::snippet::merged(&cfg.desktop.snippets, teryon::snippet::load_saved());
+            let find = |name: &str| {
+                all.iter()
+                    .find(|s| s.name == name)
+                    .with_context(|| format!("no snippet named '{name}' (see `teryon snip list`)"))
+            };
+            // Questions go to the terminal even when stdout is captured by a shell widget.
+            let ask = |command: &str, values: &mut std::collections::BTreeMap<String, String>| {
+                let hosts = teryon::complete::hosts();
+                match std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open("/dev/tty")
+                {
+                    Ok(tty) => {
+                        let mut input = std::io::BufReader::new(tty.try_clone()?);
+                        teryon::snippet::ask(command, values, &hosts, &mut input, &mut &tty)
+                    }
+                    Err(_) => teryon::snippet::ask(
+                        command,
+                        values,
+                        &hosts,
+                        &mut std::io::stdin().lock(),
+                        &mut std::io::stderr(),
+                    ),
+                }
+            };
+            match cmd {
+                SnipCommand::List { names } => {
+                    for s in &all {
+                        if names {
+                            println!("{}", s.name);
+                        } else {
+                            println!("{}\t{}", s.name, s.command.replace('\n', " "));
+                        }
+                    }
+                }
+                SnipCommand::Add {
+                    name,
+                    description,
+                    command,
+                } => {
+                    let command = command.join(" ");
+                    teryon::snippet::check(&name, &command)?;
+                    let mut saved = teryon::snippet::load_saved();
+                    saved.retain(|s| s.name != name);
+                    saved.push(config::Snippet {
+                        name: name.clone(),
+                        command,
+                        description,
+                        run: false,
+                    });
+                    teryon::snippet::save_saved(&saved)?;
+                    println!("Saved '{name}'. Use it with `teryon snip run {name}` or Alt-S.");
+                }
+                SnipCommand::Rm { name } => {
+                    let mut saved = teryon::snippet::load_saved();
+                    let before = saved.len();
+                    saved.retain(|s| s.name != name);
+                    if saved.len() == before {
+                        bail!("'{name}' was not added with `snip add` (config snippets are edited in the config file)");
+                    }
+                    teryon::snippet::save_saved(&saved)?;
+                }
+                SnipCommand::Show { name } => println!("{}", find(&name)?.command),
+                SnipCommand::Fill {
+                    name,
+                    values,
+                    ask: asking,
+                } => {
+                    let sn = find(&name)?;
+                    let mut values = teryon::snippet::assignments(&values)?;
+                    if asking {
+                        ask(&sn.command, &mut values)?;
+                    }
+                    println!("{}", teryon::snippet::fill(&sn.command, &values));
+                }
+                SnipCommand::Run { name, values } => {
+                    let sn = find(&name)?;
+                    let mut values = teryon::snippet::assignments(&values)?;
+                    ask(&sn.command, &mut values)?;
+                    let line = teryon::snippet::fill(&sn.command, &values);
+                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
+                    let status = std::process::Command::new(shell)
+                        .args(["-c", &line])
+                        .status()?;
+                    std::process::exit(status.code().unwrap_or(1));
+                }
+            }
         }
         Commands::Jump(cmd) => {
             let now = std::time::SystemTime::now()
