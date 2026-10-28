@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `teryon explain -- tar -xzf a.tgz -C /tmp` explains a command line part by part (commands, flags, `-la` as `-l -a`, pipes, redirects, `sudo`/`env` wrappers) from the manual pages on this machine. It only reads `man`; the command is never run
 - `teryon hosts [--check]` lists configured and `~/.ssh/config` hosts; `--check` probes them in parallel over SSH for up/down, round-trip time, free disk and the installed teryon version
 - `teryon hist report [--days N] [--host H]` lists, per project (Git repository), how many commands ran and failed and which were slowest and failed most; Ctrl-C does not count as a failure
 - `teryon hist replay [--failed] [--run] -- WORDS` finds the newest matching past command, says where, when and on which branch it ran, and prints `cd DIR && COMMAND` (or runs it there with `--run`)

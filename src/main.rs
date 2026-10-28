@@ -189,6 +189,12 @@ enum Commands {
         #[arg(long, conflicts_with_all = ["fix", "binary"])]
         shell: bool,
     },
+    /// Explain a command line part by part (commands, flags, pipes, redirects) from the manual pages on
+    /// this machine. The command is not run. Example: `teryon explain -- tar -xzf a.tgz -C /tmp`.
+    Explain {
+        #[arg(last = true, required = true)]
+        line: Vec<String>,
+    },
     /// List the known hosts (configured and from ~/.ssh/config); with --check, ask each how it is doing:
     /// reachable, round-trip time, free disk space and which teryon is installed.
     Hosts {
@@ -1292,6 +1298,10 @@ fn run() -> Result<i32> {
         Commands::Deploy { host, binary } => {
             target(host, bin)?.deploy(&binary)?;
             println!("Deployment verified");
+        }
+        Commands::Explain { line } => {
+            let parts = teryon::explain::explain(&line.join(" "), &mut teryon::explain::man_text);
+            print!("{}", teryon::explain::render(&parts));
         }
         Commands::Hosts { hosts, check } => {
             let hosts = if hosts.is_empty() {
