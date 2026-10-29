@@ -33,6 +33,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
 | `hist report [--days N] [--host H]` | Per project: commands run, failures, slowest and most-failing commands |
 | `hist replay [--failed] [--run] -- WORDS` | Find a past command and print `cd DIR && COMMAND` (or run it where it ran) |
+| `notify test [--done]` | Show a sample "agent needs you" (or "finished") banner on this Mac and send it once to the ntfy and webhook sinks in `[notify]`, saying whether each accepted it |
 | `snip add\|list\|show\|fill\|run\|rm` | Saved commands with `{{placeholders}}` (Alt-S in the shell integration picks one) |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |

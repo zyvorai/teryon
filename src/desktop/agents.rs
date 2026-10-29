@@ -52,7 +52,7 @@ impl Desktop {
     pub(super) fn agents_update(&mut self) {
         let now = Instant::now();
         let notify = self.cfg.agent_notifications && !self.window_focused;
-        let mut messages: Vec<(&'static str, u64, String)> = Vec::new();
+        let mut notes: Vec<crate::notify::Note> = Vec::new();
         for (id, pane) in self.panes.iter_mut() {
             let fg = pane
                 .info
@@ -78,6 +78,8 @@ impl Desktop {
                 continue;
             }
             tr.computed = now;
+            // What the agent is asking, read from the same rows the state comes from.
+            let mut asked = None;
             let next = if pane.info.exited.is_some() || (found.is_none() && agents::is_shell(&fg)) {
                 Status::Done
             } else if found.is_none() {
@@ -90,6 +92,7 @@ impl Desktop {
                 if let Some(line) = agents::summary(&rows) {
                     tr.summary = Some(line);
                 }
+                asked = agents::question(&rows);
                 agents::status(&rows, now.duration_since(tr.changed))
             };
             let prev = tr.status;
@@ -99,36 +102,26 @@ impl Desktop {
                 let name = tr.kind.map_or("Agent", Kind::name);
                 if prev.is_some() && notify {
                     match next {
-                        Status::NeedsYou => messages.push((
-                            "agent_needs_you",
+                        Status::NeedsYou => notes.push(crate::notify::Note::agent_needs_you(
+                            name,
+                            &self.workspace,
                             *id,
-                            format!("{name} in pane {id} needs you"),
+                            asked,
                         )),
-                        Status::Done => messages.push((
-                            "agent_done",
+                        Status::Done => notes.push(crate::notify::Note::agent_done(
+                            name,
+                            &self.workspace,
                             *id,
-                            match &tr.summary {
-                                Some(line) => format!("{name} finished in pane {id}: {line}"),
-                                None => format!("{name} finished in pane {id}"),
-                            },
+                            tr.summary.clone(),
                         )),
                         _ => {}
                     }
                 }
             }
         }
-        for (event, pane, message) in messages {
-            crate::util::notify(&message);
-            crate::notify::send_remote(
-                &self.notify_cfg,
-                crate::notify::Note {
-                    event,
-                    title: "TERYON".into(),
-                    message,
-                    workspace: self.workspace.clone(),
-                    pane,
-                },
-            );
+        for note in notes {
+            note.show_banner();
+            crate::notify::send_remote(&self.notify_cfg, note);
         }
     }
 

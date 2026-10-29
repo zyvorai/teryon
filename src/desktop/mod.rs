@@ -816,23 +816,18 @@ impl Desktop {
                                     let limit = u64::from(self.cfg.notify_after_seconds) * 1000;
                                     let long = d.ms.is_some_and(|ms| limit > 0 && ms >= limit);
                                     if pane.announced != 0 && long && !self.window_focused {
-                                        let message = format!(
-                                            "Pane {} finished a command in {} s (exit {})",
+                                        let note = crate::notify::Note::command_done(
+                                            &self.workspace,
                                             view.id,
-                                            d.ms.unwrap_or(0) / 1000,
-                                            d.exit.map_or("?".to_string(), |c| c.to_string())
+                                            &format!(
+                                                "Pane {} finished a command in {} s (exit {})",
+                                                view.id,
+                                                d.ms.unwrap_or(0) / 1000,
+                                                d.exit.map_or("?".to_string(), |c| c.to_string())
+                                            ),
                                         );
-                                        crate::util::notify(&message);
-                                        crate::notify::send_remote(
-                                            &self.notify_cfg,
-                                            crate::notify::Note {
-                                                event: "command_done",
-                                                title: "TERYON".into(),
-                                                message,
-                                                workspace: self.workspace.clone(),
-                                                pane: view.id,
-                                            },
-                                        );
+                                        note.show_banner();
+                                        crate::notify::send_remote(&self.notify_cfg, note);
                                     }
                                     pane.announced = d.at;
                                 }

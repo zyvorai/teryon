@@ -252,6 +252,48 @@ const BUSY: &[&str] = &[
     "working (",
 ];
 
+/// What a waiting agent is asking, for a notification: the question line of the prompt `status`
+/// recognised ("Apply this edit?"), without the frames and bullets the agents draw around it.
+/// `None` when no prompt is on screen.
+pub fn question(rows: &[String]) -> Option<String> {
+    const MAX: usize = 120;
+    let tail: Vec<&String> = rows
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .rev()
+        .take(14)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let asks = |row: &str| {
+        let lower = row.to_lowercase();
+        ASKS.iter().any(|a| lower.contains(a))
+    };
+    // The last row that looks like part of a prompt, then the nearest row above it that asks.
+    let at = tail.iter().rposition(|r| asks(r))?;
+    let from = at.saturating_sub(8);
+    let row = tail[from..=at]
+        .iter()
+        .rev()
+        .find(|r| r.contains('?'))
+        .unwrap_or(&tail[at]);
+    let line = row
+        .trim()
+        .trim_matches(|c: char| "│┃|".contains(c))
+        .trim_start_matches(|c: char| "⏺●•⎿✻✽·*?-> ".contains(c) || c == '❯')
+        .trim();
+    let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().filter(|c| c.is_alphanumeric()).count() < 4 {
+        return None;
+    }
+    let mut out: String = line.chars().take(MAX).collect();
+    if line.chars().count() > MAX {
+        out.push('…');
+    }
+    Some(out)
+}
+
 /// Read an agent's state from the visible rows and how long the screen has been quiet.
 pub fn status(rows: &[String], quiet: Duration) -> Status {
     let tail: Vec<String> = rows
@@ -447,6 +489,43 @@ mod tests {
         assert!(is_shell("-zsh") && is_shell("/bin/bash -l") && !is_shell("claude"));
     }
 
+    #[test]
+    fn the_question_is_the_line_that_asks_not_the_options_under_it() {
+        let screen = rows(&[
+            "Edit src/db.rs  +18 -3",
+            "",
+            "? Apply this edit?",
+            "  1. Yes",
+            "  2. Yes, allow all edits this session",
+            "  3. No, and tell me what to do differently",
+        ]);
+        assert_eq!(question(&screen).as_deref(), Some("Apply this edit?"));
+    }
+    #[test]
+    fn a_yes_no_prompt_on_one_line_is_the_question_with_its_hint() {
+        let screen = rows(&["building…", "Do you want to proceed? (y/n)"]);
+        assert_eq!(
+            question(&screen).as_deref(),
+            Some("Do you want to proceed? (y/n)")
+        );
+    }
+    #[test]
+    fn frames_and_bullets_are_stripped_and_long_questions_are_cut() {
+        let screen = rows(&["│ ❯ Allow this command to run?   │", "  1. Yes"]);
+        assert_eq!(
+            question(&screen).as_deref(),
+            Some("Allow this command to run?")
+        );
+        let long = format!("Do you want to {} ? (y/n)", "overwrite ".repeat(30));
+        let q = question(&rows(&[long.as_str()])).unwrap();
+        assert_eq!(q.chars().count(), 121);
+        assert!(q.ends_with('…'));
+    }
+    #[test]
+    fn no_prompt_means_no_question() {
+        assert_eq!(question(&rows(&["compiling…", "  Finished in 2s"])), None);
+        assert_eq!(question(&[]), None);
+    }
     fn rows(lines: &[&str]) -> Vec<String> {
         lines.iter().map(|s| s.to_string()).collect()
     }
