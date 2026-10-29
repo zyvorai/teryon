@@ -1051,7 +1051,12 @@ fn reap_graveyards(state: &Mutex<State>) {
 
 /// Type an Approve or Deny from the phone into the pane that asked, if it still asks. A prompt that
 /// was already answered at the keyboard, or an agent that moved on, is left alone.
-fn apply_answer(state: &Mutex<State>, answer: crate::reply::Answer, entry: &crate::reply::Entry) {
+fn apply_answer(
+    state: &Mutex<State>,
+    answer: crate::reply::Answer,
+    entry: &crate::reply::Entry,
+) -> crate::reply::Outcome {
+    use crate::reply::Outcome;
     let pane = {
         let st = state.lock_recover();
         st.workspaces
@@ -1059,7 +1064,9 @@ fn apply_answer(state: &Mutex<State>, answer: crate::reply::Answer, entry: &crat
             .and_then(|w| w.panes.get(&entry.pane))
             .cloned()
     };
-    let Some(pane) = pane else { return };
+    let Some(pane) = pane else {
+        return Outcome::Gone;
+    };
     let still_asking = {
         let st = pane.state.lock_recover();
         if st.exited.is_some() {
@@ -1071,8 +1078,15 @@ fn apply_answer(state: &Mutex<State>, answer: crate::reply::Answer, entry: &crat
             crate::agents::status(&rows, Duration::from_secs(60)) == crate::agents::Status::NeedsYou
         }
     };
-    if still_asking {
-        let _ = pane.input.try_send(answer.keys(entry.kind).to_vec());
+    if still_asking
+        && pane
+            .input
+            .try_send(answer.keys(entry.kind).to_vec())
+            .is_ok()
+    {
+        Outcome::Sent
+    } else {
+        Outcome::NotAsking
     }
 }
 
@@ -1097,7 +1111,16 @@ fn watch_panes(state: &Arc<Mutex<State>>) {
             let weak = Arc::downgrade(state);
             crate::reply::listen(cfg.reply_url(), move |answer, entry| {
                 if let Some(state) = weak.upgrade() {
-                    apply_answer(&state, answer, &entry);
+                    let outcome = apply_answer(&state, answer, &entry);
+                    let (title, body) = crate::reply::confirmation(answer, &entry, outcome);
+                    if let Ok(cfg) = crate::config::load() {
+                        crate::notify::confirm(
+                            &cfg.notify,
+                            title,
+                            &body,
+                            outcome == crate::reply::Outcome::Sent,
+                        );
+                    }
                 }
             });
         }

@@ -34,6 +34,31 @@ impl Answer {
     }
 }
 
+/// What came of a tap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The keys were typed into the pane.
+    Sent,
+    /// The pane no longer shows a prompt (answered elsewhere, or the agent moved on).
+    NotAsking,
+    /// The pane or its workspace is gone.
+    Gone,
+}
+
+/// The ntfy title and body that tell the phone what its tap did. Titles are ASCII; the place is in the body.
+pub fn confirmation(answer: Answer, entry: &Entry, outcome: Outcome) -> (&'static str, String) {
+    let place = format!("{} · pane {}", entry.workspace, entry.pane);
+    match (outcome, answer) {
+        (Outcome::Sent, Answer::Approve) => ("Approved", place),
+        (Outcome::Sent, Answer::Deny) => ("Denied", place),
+        (Outcome::NotAsking, _) => (
+            "Not sent",
+            format!("{place}: the agent is no longer asking, nothing was typed"),
+        ),
+        (Outcome::Gone, _) => ("Not sent", format!("{place}: that pane is gone")),
+    }
+}
+
 /// What one token is allowed to answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -285,6 +310,26 @@ mod tests {
         assert!(buttons[0].starts_with("http, Approve, https://ntfy.sh/t-reply, method=POST"));
         assert!(buttons[0].contains(&format!("body=approve:{TOKEN}")));
         assert!(buttons[1].contains(&format!("body=deny:{TOKEN}")));
+    }
+
+    #[test]
+    fn the_phone_is_told_what_its_tap_did() {
+        let entry = Entry {
+            workspace: "demo".into(),
+            pane: 2,
+            kind: Kind::Claude,
+            issued: Instant::now(),
+        };
+        let say = |a, o| confirmation(a, &entry, o);
+        assert_eq!(
+            say(Answer::Approve, Outcome::Sent),
+            ("Approved", "demo · pane 2".into())
+        );
+        assert_eq!(say(Answer::Deny, Outcome::Sent).0, "Denied");
+        let (title, body) = say(Answer::Approve, Outcome::NotAsking);
+        assert_eq!(title, "Not sent");
+        assert!(body.contains("no longer asking"), "{body}");
+        assert!(say(Answer::Deny, Outcome::Gone).1.contains("gone"));
     }
 
     #[test]

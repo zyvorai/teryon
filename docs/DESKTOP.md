@@ -228,7 +228,7 @@ pane's directory. Without the integration everything else keeps working and âŒ˜â
   topic `<topic>-reply`, which the daemon listens on (it only makes outbound connections; nothing is opened on the
   Mac). Approve types the agent's own "yes" (Enter, or `y` for aider), Deny its "no" (Esc, or `n`). A token works
   once, for one pane, for 30 minutes, and only while that pane is still asking; a prompt you already answered at
-  the keyboard is left alone. Anyone who can read your topic can answer, so use a long random topic name (or a
+  the keyboard is left alone. Either way your phone gets a quiet follow-up on the main topic: "Approved" or "Denied" with the place, or "Not sent" saying why. Anyone who can read your topic can answer, so use a long random topic name (or a
   self-hosted ntfy with access control). Needs `curl`.
 
 ## Configuration
