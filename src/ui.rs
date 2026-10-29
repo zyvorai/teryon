@@ -204,6 +204,34 @@ pub(crate) enum Update {
     Controlled(String),
 }
 
+/// Fold the keystrokes already waiting behind `data` into it, so a burst goes out as one request
+/// instead of one round trip per key. It stops at another pane, at any other command (handed back
+/// to run next) and at the size limit, so the order of what you typed never changes.
+fn merge_input(pane: u64, data: &mut Vec<u8>, rx: &Receiver<Command>) -> Option<Command> {
+    while let Ok(next) = rx.try_recv() {
+        match next {
+            Command::Input {
+                pane: p,
+                data: more,
+            } if p == pane && data.len() + more.len() <= MAX_INPUT => {
+                data.extend_from_slice(&more);
+            }
+            other => return Some(other),
+        }
+    }
+    None
+}
+
+fn poll_request(known: &BTreeMap<u64, u64>, diff: bool) -> Request {
+    Request::Poll {
+        known: known
+            .iter()
+            .map(|(id, revision)| (id.to_string(), *revision))
+            .collect(),
+        diff,
+    }
+}
+
 pub(crate) fn worker(
     target: Target,
     workspace: String,
@@ -269,6 +297,8 @@ pub(crate) fn worker(
                 let mut seq = 0;
                 let mut hot_until = Instant::now();
                 let mut last_sent = Instant::now();
+                // A command read ahead while merging keystrokes; it runs before anything new is received.
+                let mut stash: Option<Command> = None;
                 let result = (|| -> Result<()> {
                     let mut ticked = Instant::now();
                     loop {
@@ -276,7 +306,13 @@ pub(crate) fn worker(
                             bail!("resumed after {} s", ticked.elapsed().as_secs());
                         }
                         ticked = Instant::now();
-                        match rx.recv_timeout(poll_wait(Instant::now(), hot_until)) {
+                        // The answer to a poll that went out right behind a keystroke.
+                        let mut early_state: Option<(Response, Instant)> = None;
+                        let received = match stash.take() {
+                            Some(command) => Ok(command),
+                            None => rx.recv_timeout(poll_wait(Instant::now(), hot_until)),
+                        };
+                        match received {
                             Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                                 return Ok(())
                             }
@@ -288,7 +324,10 @@ pub(crate) fn worker(
                                 let _ = tx.send(Update::Discarded);
                                 return Ok(());
                             }
-                            Ok(command) => {
+                            Ok(mut command) => {
+                                if let Command::Input { pane, data } = &mut command {
+                                    stash = merge_input(*pane, data, &rx);
+                                }
                                 let req = match command {
                                     Command::Input { pane, data } => {
                                         hot_until = Instant::now() + HOT_FOR;
@@ -406,7 +445,18 @@ pub(crate) fn worker(
                                     Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
-                                match rpc.call(req) {
+                                // What you typed is always followed by a poll to see the result. Send both
+                                // before reading either answer, so they share one round trip instead of two.
+                                let mut pipelined = None;
+                                let outcome = (|| -> Result<Response> {
+                                    rpc.send(&req)?;
+                                    if is_input {
+                                        rpc.send(&poll_request(&known, diff_ok))?;
+                                        pipelined = Some(Instant::now());
+                                    }
+                                    rpc.recv()
+                                })();
+                                match outcome {
                                     Ok(Response::Created { pane }) => {
                                         let _ = tx.send(Update::Created(pane));
                                     }
@@ -422,6 +472,11 @@ pub(crate) fn worker(
                                         let _ = tx.send(Update::Message(e.to_string()));
                                     }
                                     Err(e) => return Err(e),
+                                }
+                                // Read that poll's answer now: nothing else may be sent before it, or the
+                                // answers would be matched to the wrong requests.
+                                if let Some(sent_at) = pipelined {
+                                    early_state = Some((rpc.recv()?, sent_at));
                                 }
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -443,14 +498,13 @@ pub(crate) fn worker(
                                 ));
                             }
                         }
-                        let polled = Instant::now();
-                        let state = rpc.call(Request::Poll {
-                            known: known
-                                .iter()
-                                .map(|(id, revision)| (id.to_string(), *revision))
-                                .collect(),
-                            diff: diff_ok,
-                        })?;
+                        let (state, polled) = match early_state.take() {
+                            Some(sent) => sent,
+                            None => {
+                                let polled = Instant::now();
+                                (rpc.call(poll_request(&known, diff_ok))?, polled)
+                            }
+                        };
                         let poll_ms = polled.elapsed().as_millis() as u64;
                         if let Response::State { mut panes } = state {
                             // Diffs are turned back into whole screens here, so everything past this
@@ -1500,6 +1554,69 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    fn input(pane: u64, bytes: &[u8]) -> Command {
+        Command::Input {
+            pane,
+            data: bytes.to_vec(),
+        }
+    }
+    fn data_of(command: Option<Command>) -> Option<(u64, Vec<u8>)> {
+        match command {
+            Some(Command::Input { pane, data }) => Some((pane, data)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn queued_keystrokes_for_one_pane_become_one_request_in_order() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        for key in [b"b", b"c", b"d"] {
+            tx.send(input(1, key)).unwrap();
+        }
+        let mut data = b"a".to_vec();
+        assert!(merge_input(1, &mut data, &rx).is_none());
+        assert_eq!(data, b"abcd");
+        assert!(rx.try_recv().is_err(), "everything queued was taken");
+    }
+
+    #[test]
+    fn merging_stops_at_another_pane_and_hands_that_command_back() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, b"b")).unwrap();
+        tx.send(input(2, b"X")).unwrap();
+        tx.send(input(1, b"c")).unwrap();
+        let mut data = b"a".to_vec();
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"ab");
+        assert_eq!(data_of(back), Some((2, b"X".to_vec())));
+        // What came after it is still queued, behind it.
+        assert_eq!(data_of(rx.try_recv().ok()), Some((1, b"c".to_vec())));
+    }
+
+    #[test]
+    fn merging_stops_at_a_non_input_command_so_order_is_kept() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, b"b")).unwrap();
+        tx.send(Command::Close(1)).unwrap();
+        tx.send(input(1, b"c")).unwrap();
+        let mut data = b"a".to_vec();
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"ab");
+        assert!(matches!(back, Some(Command::Close(1))));
+    }
+
+    #[test]
+    fn a_merged_request_never_exceeds_the_input_limit() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, &vec![b'y'; MAX_INPUT])).unwrap();
+        tx.send(input(1, b"z")).unwrap();
+        let mut data = b"x".to_vec();
+        // The first queued chunk would push it past the limit, so it is handed back whole.
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"x");
+        assert_eq!(data_of(back).map(|(_, d)| d.len()), Some(MAX_INPUT));
+    }
+
     #[test]
     fn reconnect_waits_are_spread_but_stay_near_the_backoff() {
         for seed in [0, 1, 7, 999_999_999, u32::MAX] {
