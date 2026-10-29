@@ -67,7 +67,18 @@ fn bash_records_commands_flushes_history_and_skips_hidden_ones() {
     s.send(b"false\n");
     s.send(b"echo AFTER_$((6*7))\n");
     s.expect("AFTER_42");
-    assert!(eventually_exported(home.path(), "echo AFTER_$((6*7))"));
+    // Each command is recorded by its own background `teryon hist add`, so they can finish in any
+    // order: wait for every entry that is asserted on, not just the last one.
+    for entry in [
+        "echo BASH_REC_$((6*7))",
+        "\"cmd\":\"false\"",
+        "echo AFTER_$((6*7))",
+    ] {
+        assert!(
+            eventually_exported(home.path(), entry),
+            "never recorded: {entry}"
+        );
+    }
     let export = teryon(home.path(), &["hist", "export"]);
     assert!(export.contains("echo BASH_REC_$((6*7))"), "{export}");
     assert!(!export.contains("BASH_HIDDEN"), "{export}");
