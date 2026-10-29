@@ -19,7 +19,25 @@ Counts overlap across compiler/configuration runs; the totals should not be adde
 
 The runner's initial Rust 1.99.1 optimized build produced dependency archive/link errors. Pinning Rust 1.94.0 resolved that release-build issue; the pinned compiler is used by the repository and workflow definitions.
 
-## Latest local run (macOS, 0.22.0)
+## Latest local run (macOS, 0.23.0)
+
+Run on the same Apple Silicon Mac mini (2026-10-29), on a copy of the `v0.23.0` source with the committed lockfile and the compiler installed there (Rust 1.99.0, not the pinned 1.94.0):
+
+| Check | Result |
+|---|---|
+| `cargo test --features desktop` | **576 passed** |
+| Signed packages | `TERYON-0.23.0.dmg` and `TERYON-0.23.0.pkg` built with `scripts/release-macos.sh`; Apple's notary service answered **Accepted** for both and `stapler` stapled and validated both |
+| Published files | The `.dmg`, `.pkg` and `SHA256SUMS-macos-0.23.0` were uploaded to the GitHub release, then downloaded again; both packages matched the checksums |
+
+Notes:
+
+- The three `agent_reply` tests (phone approve, deny and late tap, against a fake ntfy server and a fake `claude`) failed three times with "daemon startup timeout" right after a fresh build on the mini, then passed 5 of 5 on warm runs and when the test binary was run directly with 3 threads. Raising the startup deadline from 5 s to 30 s did not change that, so it was reverted. The cause was not found; if CI shows the same, start there.
+- Only the `--features desktop` suite was run on the mini for this release; the no-default-features suite and clippy ran in the pull-request checks (pinned compiler), not on the mini.
+- The reply path was tested against a fake ntfy server only. It has not been tried with a real phone and the ntfy service, so button delivery on a phone and the 30-minute token expiry in practice are unchecked.
+- The desktop corner card and the macOS banner are covered by unit and app-level tests; neither was looked at on a real screen.
+- `spctl` was not run on the 0.23.0 packages and the `.dmg` was not opened on a clean Mac. The Homebrew cask was not updated or audited for 0.23.0.
+
+## Previous local run (macOS, 0.22.0)
 
 Run on the Apple Silicon Mac mini the release was prepared on (2026-10-28), at the `v0.22.0` tag with the committed lockfile and the compiler installed there (Rust 1.99.0, not the pinned 1.94.0):
 
