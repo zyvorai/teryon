@@ -360,6 +360,37 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn luminance(c: Color) -> f64 {
+        let (r, g, b) = rgb(c);
+        let lin = |v: u8| {
+            let v = f64::from(v) / 255.;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+    fn contrast(a: Color, b: Color) -> f64 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+    /// The muted colour carries the small labels (host stats, the status line). 4.5 is the WCAG AA
+    /// ratio for normal-size text; every built-in theme meets it today, so a new one must too.
+    #[test]
+    fn muted_text_is_readable_on_every_builtin_theme() {
+        for name in BUILTINS {
+            let t = Theme::load(name).unwrap();
+            for (surface, label) in [(t.panel, "panel"), (t.background, "background")] {
+                let ratio = contrast(t.muted, surface);
+                assert!(
+                    ratio >= 4.5,
+                    "{name}: muted on {label} is only {ratio:.2}:1"
+                );
+            }
+        }
+    }
     #[test]
     fn all_builtin_themes_parse() {
         for name in BUILTINS {
