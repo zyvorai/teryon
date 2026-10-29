@@ -204,6 +204,24 @@ pub(crate) enum Update {
     Controlled(String),
 }
 
+/// Fold the keystrokes already waiting behind `data` into it, so a burst goes out as one request
+/// instead of one round trip per key. It stops at another pane, at any other command (handed back
+/// to run next) and at the size limit, so the order of what you typed never changes.
+fn merge_input(pane: u64, data: &mut Vec<u8>, rx: &Receiver<Command>) -> Option<Command> {
+    while let Ok(next) = rx.try_recv() {
+        match next {
+            Command::Input {
+                pane: p,
+                data: more,
+            } if p == pane && data.len() + more.len() <= MAX_INPUT => {
+                data.extend_from_slice(&more);
+            }
+            other => return Some(other),
+        }
+    }
+    None
+}
+
 pub(crate) fn worker(
     target: Target,
     workspace: String,
@@ -269,6 +287,8 @@ pub(crate) fn worker(
                 let mut seq = 0;
                 let mut hot_until = Instant::now();
                 let mut last_sent = Instant::now();
+                // A command read ahead while merging keystrokes; it runs before anything new is received.
+                let mut stash: Option<Command> = None;
                 let result = (|| -> Result<()> {
                     let mut ticked = Instant::now();
                     loop {
@@ -276,7 +296,11 @@ pub(crate) fn worker(
                             bail!("resumed after {} s", ticked.elapsed().as_secs());
                         }
                         ticked = Instant::now();
-                        match rx.recv_timeout(poll_wait(Instant::now(), hot_until)) {
+                        let received = match stash.take() {
+                            Some(command) => Ok(command),
+                            None => rx.recv_timeout(poll_wait(Instant::now(), hot_until)),
+                        };
+                        match received {
                             Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                                 return Ok(())
                             }
@@ -288,7 +312,10 @@ pub(crate) fn worker(
                                 let _ = tx.send(Update::Discarded);
                                 return Ok(());
                             }
-                            Ok(command) => {
+                            Ok(mut command) => {
+                                if let Command::Input { pane, data } = &mut command {
+                                    stash = merge_input(*pane, data, &rx);
+                                }
                                 let req = match command {
                                     Command::Input { pane, data } => {
                                         hot_until = Instant::now() + HOT_FOR;
@@ -1500,6 +1527,69 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    fn input(pane: u64, bytes: &[u8]) -> Command {
+        Command::Input {
+            pane,
+            data: bytes.to_vec(),
+        }
+    }
+    fn data_of(command: Option<Command>) -> Option<(u64, Vec<u8>)> {
+        match command {
+            Some(Command::Input { pane, data }) => Some((pane, data)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn queued_keystrokes_for_one_pane_become_one_request_in_order() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        for key in [b"b", b"c", b"d"] {
+            tx.send(input(1, key)).unwrap();
+        }
+        let mut data = b"a".to_vec();
+        assert!(merge_input(1, &mut data, &rx).is_none());
+        assert_eq!(data, b"abcd");
+        assert!(rx.try_recv().is_err(), "everything queued was taken");
+    }
+
+    #[test]
+    fn merging_stops_at_another_pane_and_hands_that_command_back() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, b"b")).unwrap();
+        tx.send(input(2, b"X")).unwrap();
+        tx.send(input(1, b"c")).unwrap();
+        let mut data = b"a".to_vec();
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"ab");
+        assert_eq!(data_of(back), Some((2, b"X".to_vec())));
+        // What came after it is still queued, behind it.
+        assert_eq!(data_of(rx.try_recv().ok()), Some((1, b"c".to_vec())));
+    }
+
+    #[test]
+    fn merging_stops_at_a_non_input_command_so_order_is_kept() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, b"b")).unwrap();
+        tx.send(Command::Close(1)).unwrap();
+        tx.send(input(1, b"c")).unwrap();
+        let mut data = b"a".to_vec();
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"ab");
+        assert!(matches!(back, Some(Command::Close(1))));
+    }
+
+    #[test]
+    fn a_merged_request_never_exceeds_the_input_limit() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        tx.send(input(1, &vec![b'y'; MAX_INPUT])).unwrap();
+        tx.send(input(1, b"z")).unwrap();
+        let mut data = b"x".to_vec();
+        // The first queued chunk would push it past the limit, so it is handed back whole.
+        let back = merge_input(1, &mut data, &rx);
+        assert_eq!(data, b"x");
+        assert_eq!(data_of(back).map(|(_, d)| d.len()), Some(MAX_INPUT));
+    }
+
     #[test]
     fn reconnect_waits_are_spread_but_stay_near_the_backoff() {
         for seed in [0, 1, 7, 999_999_999, u32::MAX] {
