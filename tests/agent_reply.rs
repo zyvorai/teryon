@@ -21,6 +21,7 @@ fn fake_ntfy(word: &'static str, delay: Duration, posted: Arc<Mutex<Vec<String>>
                 let mut request = String::new();
                 reader.read_line(&mut request).unwrap_or(0);
                 let mut actions = String::new();
+                let mut title = String::new();
                 let mut length = 0usize;
                 loop {
                     let mut line = String::new();
@@ -31,6 +32,9 @@ fn fake_ntfy(word: &'static str, delay: Duration, posted: Arc<Mutex<Vec<String>>
                     if lower.starts_with("actions:") {
                         actions = line["actions:".len()..].trim().to_string();
                     }
+                    if lower.starts_with("title:") {
+                        title = line["title:".len()..].trim().to_string();
+                    }
                     if let Some(n) = lower.strip_prefix("content-length:") {
                         length = n.trim().parse().unwrap_or(0);
                     }
@@ -38,7 +42,7 @@ fn fake_ntfy(word: &'static str, delay: Duration, posted: Arc<Mutex<Vec<String>>
                 if request.starts_with("POST") {
                     let mut body = vec![0u8; length];
                     let _ = reader.read_exact(&mut body);
-                    posted.lock().unwrap().push(actions);
+                    posted.lock().unwrap().push(format!("{title}|{actions}"));
                     let _ = conn.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
                 } else if request.contains("topic-reply/json") {
                     let end = Instant::now() + Duration::from_secs(30);
@@ -113,6 +117,23 @@ impl Daemon {
     }
 }
 
+/// The phone is told what its tap did: a push titled `title` reaches the topic.
+fn told(posted: &Arc<Mutex<Vec<String>>>, title: &str) -> bool {
+    let end = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < end {
+        if posted
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.starts_with(&format!("{title}|")))
+        {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
 fn run(word: &'static str, expect_byte: &str) {
     let posted = Arc::new(Mutex::new(Vec::new()));
     let port = fake_ntfy(word, Duration::ZERO, posted.clone());
@@ -172,6 +193,16 @@ fn run(word: &'static str, expect_byte: &str) {
     assert!(
         actions.contains("Approve") && actions.contains("Deny"),
         "{actions}"
+    );
+    let title = if word == "approve" {
+        "Approved"
+    } else {
+        "Denied"
+    };
+    assert!(
+        told(&posted, title),
+        "no {title} confirmation: {:?}",
+        posted.lock().unwrap()
     );
 }
 
@@ -248,4 +279,5 @@ fn a_tap_after_the_prompt_was_answered_elsewhere_is_ignored() {
         "the late tap reached an agent that had moved on:\n{}",
         daemon.capture()
     );
+    assert!(told(&posted, "Not sent"), "{:?}", posted.lock().unwrap());
 }

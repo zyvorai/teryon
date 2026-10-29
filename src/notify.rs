@@ -302,6 +302,24 @@ pub fn try_sinks(cfg: &NotifyConfig, note: &Note) -> Vec<(&'static str, bool)> {
     out
 }
 
+/// Tell the ntfy topic what an Approve or Deny tap did, quietly (low priority, no buttons).
+pub fn confirm(cfg: &NotifyConfig, title: &str, body: &str, ok: bool) {
+    let Some(url) = &cfg.ntfy_url else { return };
+    let headers = [
+        ("Title", title.to_string()),
+        (
+            "Tags",
+            if ok { "white_check_mark" } else { "warning" }.to_string(),
+        ),
+        ("Priority", "low".to_string()),
+    ];
+    deliver(
+        "ntfy",
+        RETRY_DELAYS[..2].to_vec(),
+        curl_config(url, &headers, body),
+    );
+}
+
 /// Send `note` to the ntfy and webhook sinks only; the desktop app shows its own macOS notification.
 pub fn send_remote(cfg: &NotifyConfig, note: Note) {
     if cfg.ntfy_url.is_none() && cfg.webhook_url.is_none() {
