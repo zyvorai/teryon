@@ -2,7 +2,16 @@
 
 What has shipped and what is still open, based on the current limitations (`docs/LIMITATIONS.md`), what users are likely to hit, and the Mac mini / AI-agent / infrastructure focus.
 
-**Status**: Engineering preview v0.22.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+**Status**: Engineering preview v0.23.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+
+## Shipped in 0.23.0
+
+| Area | What |
+|---|---|
+| Agents | Answer an approval prompt from your phone (ntfy Approve and Deny buttons, one-time tokens, a follow-up that says what the tap did); a corner card in the desktop app when an agent in another pane needs you |
+| Notifications | A banner that names the pane and quotes the question; `teryon notify test`; retries with growing delays and counts in `doctor` |
+| Network | Merged keystrokes and a held poll: at 300 ms round trip a key echoes in about 370 ms (was 681) and a paste takes about 0.9 s (was 12.3 s) |
+| Desktop | The top bar colours link latency and memory only when they are bad |
 
 ## Shipped in 0.22.0
 
