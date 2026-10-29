@@ -48,6 +48,21 @@ pub(crate) fn set_quiet_poll(ms: u32) {
     QUIET_POLL_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// How long the daemon may hold the poll that follows a keystroke, waiting for the shell's echo.
+/// Typing during that time waits for it, so it is kept short.
+const ECHO_HOLD_MS: u32 = 60;
+
+fn poll_request(known: &BTreeMap<u64, u64>, diff: bool, wait_ms: u32) -> Request {
+    Request::Poll {
+        known: known
+            .iter()
+            .map(|(id, revision)| (id.to_string(), *revision))
+            .collect(),
+        diff,
+        wait_ms,
+    }
+}
+
 /// A worker loop that comes back after longer than this was suspended (laptop sleep, network
 /// change), so its connection is assumed dead and replaced at once instead of waiting for ssh keepalives.
 const RESUME_GAP: Duration = Duration::from_secs(20);
@@ -260,6 +275,8 @@ pub(crate) fn worker(
                 let mut undo_ok = false;
                 // Screen diffs save bandwidth on a real link; a local socket has none to save.
                 let mut diff_ok = false;
+                // The daemon can hold a poll until the echo of a keystroke arrives.
+                let mut longpoll_ok = false;
                 let mut mirrors = crate::screensync::ClientMirrors::default();
                 let mut meta = crate::screensync::MetaCache::default();
                 if let Ok(Response::Info {
@@ -269,11 +286,13 @@ pub(crate) fn worker(
                     stats,
                     undo,
                     diff,
+                    longpoll,
                     ..
                 }) = rpc.call(Request::Info)
                 {
                     undo_ok = undo;
                     diff_ok = diff && !target.local();
+                    longpoll_ok = longpoll && !target.local();
                     let _ = tx.send(Update::Daemon(format!("{arch} · {os}"), uptime, stats));
                 }
                 if previous_instance
@@ -296,6 +315,8 @@ pub(crate) fn worker(
                             bail!("resumed after {} s", ticked.elapsed().as_secs());
                         }
                         ticked = Instant::now();
+                        // The answer to a poll that went out right behind a keystroke.
+                        let mut early_state: Option<(Response, Instant)> = None;
                         let received = match stash.take() {
                             Some(command) => Ok(command),
                             None => rx.recv_timeout(poll_wait(Instant::now(), hot_until)),
@@ -433,7 +454,19 @@ pub(crate) fn worker(
                                     Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
-                                match rpc.call(req) {
+                                // Over a real link the echo of a key costs two round trips: one to send it
+                                // and one more to poll for it. Send the poll right behind it and let the
+                                // daemon hold it until the shell has answered, so they share one.
+                                let mut pipelined = None;
+                                let outcome = (|| -> Result<Response> {
+                                    rpc.send(&req)?;
+                                    if is_input && longpoll_ok {
+                                        rpc.send(&poll_request(&known, diff_ok, ECHO_HOLD_MS))?;
+                                        pipelined = Some(Instant::now());
+                                    }
+                                    rpc.recv()
+                                })();
+                                match outcome {
                                     Ok(Response::Created { pane }) => {
                                         let _ = tx.send(Update::Created(pane));
                                     }
@@ -449,6 +482,11 @@ pub(crate) fn worker(
                                         let _ = tx.send(Update::Message(e.to_string()));
                                     }
                                     Err(e) => return Err(e),
+                                }
+                                // Read that poll's answer now: nothing else may be sent before it, or the
+                                // answers would be matched to the wrong requests.
+                                if let Some(sent_at) = pipelined {
+                                    early_state = Some((rpc.recv()?, sent_at));
                                 }
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -470,14 +508,13 @@ pub(crate) fn worker(
                                 ));
                             }
                         }
-                        let polled = Instant::now();
-                        let state = rpc.call(Request::Poll {
-                            known: known
-                                .iter()
-                                .map(|(id, revision)| (id.to_string(), *revision))
-                                .collect(),
-                            diff: diff_ok,
-                        })?;
+                        let (state, polled) = match early_state.take() {
+                            Some(sent) => sent,
+                            None => {
+                                let polled = Instant::now();
+                                (rpc.call(poll_request(&known, diff_ok, 0))?, polled)
+                            }
+                        };
                         let poll_ms = polled.elapsed().as_millis() as u64;
                         if let Response::State { mut panes } = state {
                             // Diffs are turned back into whole screens here, so everything past this

@@ -933,6 +933,7 @@ fn panes(rpc: &mut Rpc) -> Result<Vec<PaneView>> {
     if let Response::State { panes } = rpc.call(Request::Poll {
         known: BTreeMap::new(),
         diff: false,
+        wait_ms: 0,
     })? {
         Ok(panes)
     } else {
@@ -1339,6 +1340,7 @@ fn run() -> Result<i32> {
                 let Response::State { panes } = rpc.call(Request::Poll {
                     known: known.clone(),
                     diff: false,
+                    wait_ms: 0,
                 })?
                 else {
                     bail!("unexpected response")

@@ -467,6 +467,7 @@ impl Backend for Real {
         match rpc.call(Request::Poll {
             known: BTreeMap::new(),
             diff: false,
+            wait_ms: 0,
         })? {
             Response::State { panes } => Ok(panes),
             _ => bail!("unexpected response"),

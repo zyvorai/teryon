@@ -299,6 +299,7 @@ fn is_ready(
         let listening = match call(Request::Poll {
             known: Default::default(),
             diff: false,
+            wait_ms: 0,
         })? {
             Response::State { panes } => {
                 panes.iter().any(|p| p.id == id && p.ports.contains(&port))

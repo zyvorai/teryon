@@ -9,7 +9,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -379,6 +379,7 @@ impl Pane {
                         };
                         st.parser.callbacks_mut().images.after_output(erases, top);
                         st.revision += 1;
+                        announce_change();
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(_) => break, // Linux PTYs use EIO at EOF.
@@ -390,6 +391,7 @@ impl Pane {
             let mut st = state.lock_recover();
             st.exited = Some(exit);
             st.revision += 1;
+            announce_change();
         });
         Ok(pane)
     }
@@ -526,6 +528,7 @@ impl Pane {
         let mut st = self.state.lock_recover();
         st.parser.screen_mut().set_size(rows, cols);
         st.revision += 1;
+        announce_change();
         Ok(())
     }
     /// Retained text, one line per terminal row (so line numbers are exact), and the absolute
@@ -707,6 +710,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             stats: Some(host_stats()),
             undo: true,
             diff: true,
+            longpoll: true,
         }),
         Request::Attach {
             workspace,
@@ -800,7 +804,7 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
                 bail!("read-only connection cannot modify the workspace");
             }
             match action {
-                Request::Poll { known, diff } => {
+                Request::Poll { known, diff, .. } => {
                     conn.mirrors.retain(|id, _| ws.panes.contains_key(id));
                     Ok(Response::State {
                         panes: ws
@@ -956,6 +960,11 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
     };
     let result = (|| -> Result<()> {
         while let Some(req) = read_frame::<Request>(&mut reader)? {
+            if let Request::Poll { known, wait_ms, .. } = &req {
+                if *wait_ms > 0 {
+                    hold_poll(&state, &conn, known, *wait_ms);
+                }
+            }
             let shutdown = matches!(req, Request::Shutdown { .. });
             let response = process(req, &mut conn, &mut state.lock_recover()).unwrap_or_else(|e| {
                 Response::Error {
@@ -973,6 +982,53 @@ fn serve(stream: ipc::Stream, state: Arc<Mutex<State>>, token: &str) -> Result<(
     })();
     release(&conn, &mut state.lock_recover());
     result
+}
+
+/// Longest a poll is held, whatever the client asks for.
+const MAX_HOLD: Duration = Duration::from_millis(250);
+
+/// Bumped whenever a pane's screen or state changes; `hold_poll` sleeps on it.
+static CHANGES: (Mutex<u64>, Condvar) = (Mutex::new(0), Condvar::new());
+
+fn announce_change() {
+    *CHANGES.0.lock_recover() += 1;
+    CHANGES.1.notify_all();
+}
+
+/// Whether a poll that knows `known` has anything to learn. It only looks: building the answer
+/// changes the connection's screen-diff state, so that happens once, afterwards.
+fn poll_has_news(state: &State, conn: &Connection, known: &BTreeMap<String, u64>) -> bool {
+    let Some(ws) = conn
+        .workspace
+        .as_ref()
+        .and_then(|w| state.workspaces.get(w))
+    else {
+        return true; // let the poll itself say what is wrong
+    };
+    ws.panes.len() != known.len()
+        || ws
+            .panes
+            .values()
+            .any(|p| known.get(&p.id.to_string()) != Some(&p.state.lock_recover().revision))
+}
+
+/// Wait, without holding any lock, until a poll with `known` has news or `wait_ms` (capped) is up.
+/// The client sends a poll right behind its keystroke: the shell has usually not echoed yet, and
+/// answering "nothing changed" would cost it a second round trip.
+fn hold_poll(state: &Mutex<State>, conn: &Connection, known: &BTreeMap<String, u64>, wait_ms: u32) {
+    let until = Instant::now() + Duration::from_millis(u64::from(wait_ms)).min(MAX_HOLD);
+    loop {
+        // Read the counter before looking, so a change that lands in between is not missed.
+        let seen = *CHANGES.0.lock_recover();
+        if poll_has_news(&state.lock_recover(), conn, known) {
+            return;
+        }
+        let Some(left) = until.checked_duration_since(Instant::now()) else {
+            return;
+        };
+        let guard = CHANGES.0.lock_recover();
+        let _ = CHANGES.1.wait_timeout_while(guard, left, |n| *n == seen);
+    }
 }
 
 /// Tell the configured sinks when an agent needs you or a long command ends in a workspace that
