@@ -711,6 +711,8 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             undo: true,
             diff: true,
             longpoll: true,
+            notify_waiting: crate::notify::waiting(),
+            notify_dropped: crate::notify::dropped(),
         }),
         Request::Attach {
             workspace,
