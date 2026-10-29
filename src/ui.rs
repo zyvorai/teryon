@@ -222,16 +222,6 @@ fn merge_input(pane: u64, data: &mut Vec<u8>, rx: &Receiver<Command>) -> Option<
     None
 }
 
-fn poll_request(known: &BTreeMap<u64, u64>, diff: bool) -> Request {
-    Request::Poll {
-        known: known
-            .iter()
-            .map(|(id, revision)| (id.to_string(), *revision))
-            .collect(),
-        diff,
-    }
-}
-
 pub(crate) fn worker(
     target: Target,
     workspace: String,
@@ -306,8 +296,6 @@ pub(crate) fn worker(
                             bail!("resumed after {} s", ticked.elapsed().as_secs());
                         }
                         ticked = Instant::now();
-                        // The answer to a poll that went out right behind a keystroke.
-                        let mut early_state: Option<(Response, Instant)> = None;
                         let received = match stash.take() {
                             Some(command) => Ok(command),
                             None => rx.recv_timeout(poll_wait(Instant::now(), hot_until)),
@@ -445,18 +433,7 @@ pub(crate) fn worker(
                                     Command::Stop | Command::Discard => unreachable!(),
                                 };
                                 let is_input = matches!(req, Request::Input { .. });
-                                // What you typed is always followed by a poll to see the result. Send both
-                                // before reading either answer, so they share one round trip instead of two.
-                                let mut pipelined = None;
-                                let outcome = (|| -> Result<Response> {
-                                    rpc.send(&req)?;
-                                    if is_input {
-                                        rpc.send(&poll_request(&known, diff_ok))?;
-                                        pipelined = Some(Instant::now());
-                                    }
-                                    rpc.recv()
-                                })();
-                                match outcome {
+                                match rpc.call(req) {
                                     Ok(Response::Created { pane }) => {
                                         let _ = tx.send(Update::Created(pane));
                                     }
@@ -472,11 +449,6 @@ pub(crate) fn worker(
                                         let _ = tx.send(Update::Message(e.to_string()));
                                     }
                                     Err(e) => return Err(e),
-                                }
-                                // Read that poll's answer now: nothing else may be sent before it, or the
-                                // answers would be matched to the wrong requests.
-                                if let Some(sent_at) = pipelined {
-                                    early_state = Some((rpc.recv()?, sent_at));
                                 }
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -498,13 +470,14 @@ pub(crate) fn worker(
                                 ));
                             }
                         }
-                        let (state, polled) = match early_state.take() {
-                            Some(sent) => sent,
-                            None => {
-                                let polled = Instant::now();
-                                (rpc.call(poll_request(&known, diff_ok))?, polled)
-                            }
-                        };
+                        let polled = Instant::now();
+                        let state = rpc.call(Request::Poll {
+                            known: known
+                                .iter()
+                                .map(|(id, revision)| (id.to_string(), *revision))
+                                .collect(),
+                            diff: diff_ok,
+                        })?;
                         let poll_ms = polled.elapsed().as_millis() as u64;
                         if let Response::State { mut panes } = state {
                             // Diffs are turned back into whole screens here, so everything past this
