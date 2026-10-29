@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.23.0
 
 - Answer an agent from your phone: with `[notify] ntfy_url` and `reply = true`, the "needs you" push carries Approve and Deny buttons. A tap posts a one-time token to `<ntfy_url>-reply`, which the daemon follows with an outbound `curl` stream (nothing listens on the Mac). A token answers one pane once within 30 minutes and only while the pane still shows a prompt; the phone gets a quiet "Approved", "Denied" or "Not sent" follow-up
 - A corner card in the desktop app when an agent in another pane needs you while the window is in front: the question, **Approve**, **Deny** and **Go to pane**
