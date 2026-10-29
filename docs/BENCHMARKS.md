@@ -62,32 +62,48 @@ and tmux server, so it needs no sudo, changes no system setting and never touche
 python3 scripts/bench_net.py --binary target/release/teryon --rtts 0,50,150,300 --samples 10 --outage
 ```
 
-One run (10 samples per cell after 3 warm-ups, median / p95 in ms, load average about 2 on a
-10-core Apple Silicon Mac, TERYON 0.22.0, tmux 3.8):
+The same harness was run three times on the same machine, once for each change to the client, so the
+effect of each is visible. Median ms, 10 samples per cell after 3 warm-ups, TERYON 0.22.0 and tmux 3.8 on a
+10-core Apple Silicon Mac. The load average was 2.0 to 3.9 across the runs, so a difference of a few
+percent is within noise. The tmux column is from the last run; it varied by a few ms between runs.
 
-| Added RTT | teryon key echo | tmux key echo | teryon burst | tmux burst |
-|---|---|---|---|---|
-| 0 ms | 40 / 76 | 26 / 40 | 502 / 537 | 26 / 37 |
-| 50 ms | 188 / 232 | 68 / 80 | 2492 / 2633 | 78 / 87 |
-| 150 ms | 419 / 449 | 168 / 191 | 6364 / 6872 | 176 / 193 |
-| 300 ms | 675 / 710 | 312 / 335 | 12272 / 13217 | 321 / 341 |
-
-*Key echo* is one typed character until it is drawn. *Burst* is a 20-byte command written at once (a
+*Key echo* is one typed character until it is drawn. *Paste* is a 20-byte command written at once (a
 paste or fast typing) until its output line is drawn.
+
+**Key echo**
+
+| Added RTT | tmux | teryon, first measured (#54) | + keystroke merging (#55) | + held poll (#56) |
+|---|---|---|---|---|
+| 0 ms | 26 | 40 | 39 | 37 |
+| 50 ms | 73 | 188 | 187 | 77 |
+| 150 ms | 171 | 419 | 410 | 227 |
+| 300 ms | 314 | 675 | 681 | 370 |
+
+**Paste**
+
+| Added RTT | tmux | teryon, first measured (#54) | + keystroke merging (#55) | + held poll (#56) |
+|---|---|---|---|---|
+| 0 ms | 28 | 502 | 80 | 81 |
+| 50 ms | 75 | 2492 | 195 | 217 |
+| 150 ms | 177 | 6364 | 427 | 517 |
+| 300 ms | 315 | 12272 | 877 | 959 |
 
 What this shows:
 
-- **TERYON handles keystrokes one round trip at a time.** A single key costs about 2.2 to 3.8 times
-  the RTT, against about 1.1 times for tmux. A burst is that cost multiplied by its length, so a
-  20-byte paste takes about 12 s at 300 ms RTT, while tmux takes the RTT. This matches the
-  "request/response polling still adds latency" limit in `LIMITATIONS.md`, now with numbers.
-- **On a link with no delay TERYON is fine.** 40 ms per key is not noticeable.
-- **Outage recovery shows no difference.** After every connection is reset, both tools were
-  answering again within the harness's 0.6 s retry window (0.65 s in all 3 trials each). The
-  harness cannot resolve finer than that, and it restarts the tmux client instantly, which a
-  person cannot do.
+- **Key echo is now close to tmux.** The client used to send a key and then poll for it in a second round
+  trip, about 2.3 times the RTT. The held poll (#56) brings that to about 1.2 times at 300 ms, against
+  about 1.05 for tmux. At 50 ms it is level with tmux.
+- **Pasting is no longer the problem it was.** Merging queued keystrokes (#55) made a 20-byte paste at
+  300 ms about 14 times faster (12.3 s to 0.9 s). It is still about three round trips against tmux's one.
+- **The held poll has a cost.** Pasting got 9 to 21 percent slower at 150 ms and above, probably because
+  keystrokes sent while a poll is being held wait for the hold to end. That may be partly noise (the
+  machine was busier in that run); `ECHO_HOLD_MS` in `src/ui.rs` trades echo speed against it.
+- **On a link with no delay TERYON is fine.** 37 ms per key is not noticeable.
+- **Outage recovery shows no difference.** After every connection is reset, both tools were answering
+  again within the harness's 0.6 s retry window (0.65 to 0.67 s in every trial, in all three runs). The harness
+  cannot resolve finer than that, and it restarts the tmux client instantly, which a person cannot do.
 - **No claim about packet loss, Mosh or a real network.** A TCP proxy cannot lose packets, and UDP is
-  not covered. Both daemons share this machine's CPU. Treat the figures as one machine, one run.
+  not covered. Both daemons share this machine's CPU. Treat the figures as one machine, three runs.
 
 The method took three corrections before the numbers held, which is why the script's checks matter:
 a "wait until quiet" helper that never returns for a client that repaints every 43 ms, a text
