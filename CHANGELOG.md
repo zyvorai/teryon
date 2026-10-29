@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Answer an agent from your phone: with `[notify] ntfy_url` and `reply = true`, the "needs you" push carries Approve and Deny buttons. A tap posts a one-time token to `<ntfy_url>-reply`, which the daemon follows with an outbound `curl` stream (nothing listens on the Mac). A token answers one pane once within 30 minutes and only while the pane still shows a prompt; the phone gets a quiet "Approved", "Denied" or "Not sent" follow-up
+- A corner card in the desktop app when an agent in another pane needs you while the window is in front: the question, **Approve**, **Deny** and **Go to pane**
+- A clearer "needs you" notification: the banner is titled "Claude needs you", names the workspace and pane, quotes the question the agent asks and plays a sound (finished and long-command banners are silent); ntfy gets high priority and a bell, the webhook gains a `detail` field. `teryon notify test [--done]` shows a sample and sends it once to your sinks
+- Notifications are retried: a sink that refuses one or cannot be reached is tried again after 5 s, 30 s, 2 min, 10 min and 30 min (at most 32 waiting); `teryon doctor` shows how many wait and how many were dropped
+- Faster typing over a slow link: queued keystrokes are merged into one request, and the daemon holds a poll up to 250 ms for news. At 300 ms round trip a single key echoes in about 370 ms (was 681) and a paste takes about 0.9 s (was 12.3 s); `scripts/bench_net.py` reproduces the numbers
+- The top bar colours link latency and memory only when they are bad
+- Fix: a notification message starting with `-` made the macOS banner fail
+
 ## 0.22.0
 
 - Per-project environment: an `[env]` table in `.teryon.toml` (variables and `path_prepend`) is loaded by the zsh, bash and fish integrations when you `cd` into the project and undone when you leave, restoring any value it replaced. It loads only after `teryon env allow` in that directory, editing the table asks again, and `PATH`, `HOME`, `LD_PRELOAD` and the like cannot be set. `[shell] env = false` turns it off
