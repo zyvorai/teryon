@@ -28,7 +28,7 @@ A prioritized, higher-level roadmap lives in [ROADMAP.md](../ROADMAP.md).
 ## Next engineering milestones
 
 1. Exercise the release on physical Apple Silicon hardware, including laptop sleep, mini sleep, long builds, zsh plugins, Vim/Neovim, SSH jump hosts and long-loss network conditions, and look at the desktop features added in 0.20 in a real window (pane-tree dividers, the agent Changes button, Kitty images, the update toast), which are covered by tests but have not been seen on screen.
-2. Measure latency, memory and bandwidth against established tools with published reproducible workloads. A local harness exists (`scripts/bench.py`, [BENCHMARKS.md](BENCHMARKS.md)); an emulated-network comparison and the interactive client path are still missing.
+2. Measure latency, memory and bandwidth against established tools with published reproducible workloads. A local harness exists (`scripts/bench.py`, [BENCHMARKS.md](BENCHMARKS.md)); `scripts/bench_net.py` adds the interactive client over an emulated slow link (TERYON is about twice as slow as tmux per keystroke there). Packet loss and Mosh are still missing.
 3. Run an agent through `teryon sandbox` for a long session on macOS and Linux and widen the writable list only where real tools need it.
 4. Save the pane-tree shape, and add cross-window tab dragging and multi-monitor layouts.
 5. Build the macOS packages in CI without putting signing material in the repository, and decide whether the app should ever install updates itself.

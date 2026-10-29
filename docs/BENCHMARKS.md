@@ -50,3 +50,46 @@ differences as indicative only; repeat on an idle machine before quoting them.
 Reading it honestly: on this local path the two are close on latency and throughput, and TERYON's
 daemon uses more memory (it keeps a parsed screen and scrollback per pane). Nothing here supports a
 speed claim in either direction.
+
+## Over an emulated slow link (`scripts/bench_net.py`)
+
+This runs the real interactive clients, `teryon connect` and `ssh -tt host tmux new -A`, under a
+pseudo-terminal, through a userspace TCP proxy that adds a fixed one-way delay plus up to 10 ms of
+jitter. It starts a private `sshd` on a loopback port with its own keys and a private TERYON daemon
+and tmux server, so it needs no sudo, changes no system setting and never touches your real sessions.
+
+```bash
+python3 scripts/bench_net.py --binary target/release/teryon --rtts 0,50,150,300 --samples 10 --outage
+```
+
+One run (10 samples per cell after 3 warm-ups, median / p95 in ms, load average about 2 on a
+10-core Apple Silicon Mac, TERYON 0.22.0, tmux 3.8):
+
+| Added RTT | teryon key echo | tmux key echo | teryon burst | tmux burst |
+|---|---|---|---|---|
+| 0 ms | 40 / 76 | 26 / 40 | 502 / 537 | 26 / 37 |
+| 50 ms | 188 / 232 | 68 / 80 | 2492 / 2633 | 78 / 87 |
+| 150 ms | 419 / 449 | 168 / 191 | 6364 / 6872 | 176 / 193 |
+| 300 ms | 675 / 710 | 312 / 335 | 12272 / 13217 | 321 / 341 |
+
+*Key echo* is one typed character until it is drawn. *Burst* is a 20-byte command written at once (a
+paste or fast typing) until its output line is drawn.
+
+What this shows:
+
+- **TERYON handles keystrokes one round trip at a time.** A single key costs about 2.2 to 3.8 times
+  the RTT, against about 1.1 times for tmux. A burst is that cost multiplied by its length, so a
+  20-byte paste takes about 12 s at 300 ms RTT, while tmux takes the RTT. This matches the
+  "request/response polling still adds latency" limit in `LIMITATIONS.md`, now with numbers.
+- **On a link with no delay TERYON is fine.** 40 ms per key is not noticeable.
+- **Outage recovery shows no difference.** After every connection is reset, both tools were
+  answering again within the harness's 0.6 s retry window (0.65 s in all 3 trials each). The
+  harness cannot resolve finer than that, and it restarts the tmux client instantly, which a
+  person cannot do.
+- **No claim about packet loss, Mosh or a real network.** A TCP proxy cannot lose packets, and UDP is
+  not covered. Both daemons share this machine's CPU. Treat the figures as one machine, one run.
+
+The method took three corrections before the numbers held, which is why the script's checks matter:
+a "wait until quiet" helper that never returns for a client that repaints every 43 ms, a text
+matcher that missed output interleaved with the top bar (it now keeps a small screen model), and
+stale output from an earlier link setting matching new probes (every marker is now unique).
