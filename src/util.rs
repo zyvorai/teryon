@@ -43,22 +43,67 @@ pub fn clock_hhmm() -> String {
         format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
     }
 }
-/// macOS notification; the message is passed as argv and never interpolated. No-op elsewhere.
-pub fn notify(message: &str) {
+/// A macOS notification banner: a bold title, a subtitle under it, the body, and optionally a
+/// system sound (`Glass`, `Tink`, ...).
+pub struct Banner<'a> {
+    pub title: &'a str,
+    pub subtitle: &'a str,
+    pub body: &'a str,
+    pub sound: Option<&'a str>,
+}
+
+/// The `osascript` arguments that show `banner`. The text goes in as arguments, never into the
+/// script, and `--` keeps a text that starts with `-` from being read as an option.
+pub fn banner_args(banner: &Banner) -> Vec<String> {
+    let sound = if banner.sound.is_some() {
+        " sound name (item 4 of argv)"
+    } else {
+        ""
+    };
+    let mut args: Vec<String> = [
+        "-e",
+        "on run argv",
+        "-e",
+        &format!(
+            "display notification (item 1 of argv) with title (item 2 of argv) subtitle (item 3 of argv){sound}"
+        ),
+        "-e",
+        "end run",
+        "--",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    args.extend([banner.body, banner.title, banner.subtitle].map(String::from));
+    args.extend(banner.sound.map(String::from));
+    args
+}
+
+/// Show `banner` and say whether macOS accepted it. No-op (and `false`) elsewhere.
+pub fn notify_banner(banner: &Banner) -> bool {
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("osascript")
-        .args([
-            "-e",
-            "on run argv",
-            "-e",
-            "display notification (item 1 of argv) with title \"TERYON\"",
-            "-e",
-            "end run",
-        ])
-        .arg(message)
-        .status();
+    {
+        std::process::Command::new("osascript")
+            .args(banner_args(banner))
+            .status()
+            .is_ok_and(|s| s.success())
+    }
     #[cfg(not(target_os = "macos"))]
-    let _ = message;
+    {
+        let _ = banner;
+        false
+    }
+}
+
+/// A plain macOS notification titled TERYON; the message is passed as an argument and never
+/// interpolated. No-op elsewhere.
+pub fn notify(message: &str) {
+    notify_banner(&Banner {
+        title: "TERYON",
+        subtitle: "",
+        body: message,
+        sound: None,
+    });
 }
 /// A short system sound (macOS); silent elsewhere.
 pub fn beep() {
@@ -127,6 +172,47 @@ impl<T> LockRecover<T> for std::sync::Mutex<T> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_banner_passes_its_text_as_arguments_after_a_separator() {
+        let args = banner_args(&Banner {
+            title: "Claude needs you",
+            subtitle: "demo · pane 2",
+            body: "Apply this edit?\" & (do shell script \"x\") & \"",
+            sound: Some("Glass"),
+        });
+        let sep = args.iter().position(|a| a == "--").unwrap();
+        assert_eq!(
+            &args[sep + 1..],
+            [
+                "Apply this edit?\" & (do shell script \"x\") & \"",
+                "Claude needs you",
+                "demo · pane 2",
+                "Glass"
+            ]
+        );
+        // Nothing the caller supplied reaches the script text.
+        let script = args[..sep].join("\n");
+        assert!(
+            !script.contains("shell script") && !script.contains("Claude"),
+            "{script}"
+        );
+        assert!(script.contains("sound name (item 4 of argv)"));
+    }
+    #[test]
+    fn a_banner_without_a_sound_has_no_sound_clause() {
+        let args = banner_args(&Banner {
+            title: "T",
+            subtitle: "",
+            body: "-starts with a dash",
+            sound: None,
+        });
+        assert!(!args.join("\n").contains("sound name"));
+        assert_eq!(args.last().map(String::as_str), Some(""));
+        assert_eq!(
+            args[args.iter().position(|a| a == "--").unwrap() + 1],
+            "-starts with a dash"
+        );
+    }
     #[test]
     fn atomic_write_ignores_a_stale_loose_temp_file() {
         use std::os::unix::fs::PermissionsExt;

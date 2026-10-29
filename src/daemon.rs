@@ -1119,22 +1119,27 @@ fn watch_panes(state: &Mutex<State>) {
                     continue;
                 }
                 for event in events {
-                    let (name, message) = match event {
-                        Event::AgentNeedsYou(k) if cfg.agents => (
-                            "agent_needs_you",
-                            format!("{} needs you in {ws} (pane {})", k.name(), pane.id),
+                    let note = match event {
+                        Event::AgentNeedsYou(k) if cfg.agents => Note::agent_needs_you(
+                            k.name(),
+                            &ws,
+                            pane.id,
+                            crate::agents::question(&rows()),
                         ),
-                        Event::AgentDone(k) if cfg.agents => (
-                            "agent_done",
-                            format!("{} finished in {ws} (pane {})", k.name(), pane.id),
+                        Event::AgentDone(k) if cfg.agents => Note::agent_done(
+                            k.name(),
+                            &ws,
+                            pane.id,
+                            crate::agents::summary(&rows()),
                         ),
                         Event::CommandDone {
                             program,
                             exit,
                             secs,
-                        } if cfg.commands => (
-                            "command_done",
-                            format!(
+                        } if cfg.commands => Note::command_done(
+                            &ws,
+                            pane.id,
+                            &format!(
                                 "{} finished in {secs} s (exit {}) in {ws}",
                                 clean(&program, 40),
                                 exit.map_or("?".to_string(), |c| c.to_string())
@@ -1142,16 +1147,7 @@ fn watch_panes(state: &Mutex<State>) {
                         ),
                         _ => continue,
                     };
-                    send(
-                        &cfg,
-                        Note {
-                            event: name,
-                            title: "TERYON".into(),
-                            message: clean(&message, 200),
-                            workspace: ws.clone(),
-                            pane: pane.id,
-                        },
-                    );
+                    send(&cfg, note);
                 }
             }
         }

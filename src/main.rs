@@ -316,6 +316,9 @@ enum Commands {
     /// Alt-S in the shell integration picks one and types it for you.
     #[command(subcommand)]
     Snip(SnipCommand),
+    /// Try the notifications: show a sample on this Mac and send it to the sinks in `[notify]`.
+    #[command(subcommand)]
+    Notify(NotifyCommand),
     /// Read pasted text on stdin and print why it needs confirming (nothing if it does not); used by
     /// the zsh paste guard.
     #[command(hide = true)]
@@ -624,6 +627,16 @@ enum EnvCommand {
         names: String,
         #[arg(long)]
         cwd: Option<PathBuf>,
+    },
+}
+#[derive(Subcommand)]
+enum NotifyCommand {
+    /// Show a sample "agent needs you" notification here (a banner with a sound) and send it once to
+    /// the ntfy and webhook sinks in `[notify]`, saying whether each accepted it.
+    Test {
+        /// A sample "agent finished" notification instead.
+        #[arg(long)]
+        done: bool,
     },
 }
 #[derive(Subcommand)]
@@ -2021,6 +2034,47 @@ fn run() -> Result<i32> {
                         }
                     }
                 },
+            }
+        }
+        Commands::Notify(NotifyCommand::Test { done }) => {
+            use teryon::notify::{try_sinks, Note};
+            let cfg = config::load().unwrap_or_default();
+            let note = if done {
+                Note::agent_done("Claude", "demo", 2, Some("All 6 tests pass".into()))
+            } else {
+                Note::agent_needs_you(
+                    "Claude",
+                    "demo",
+                    2,
+                    Some("Apply this edit to src/db.rs? (+18 -3)".into()),
+                )
+            };
+            println!("{} / {} / {}", note.title, note.place(), note.body());
+            if cfg!(target_os = "macos") {
+                let shown = note.show_banner();
+                println!(
+                    "macOS banner: {}",
+                    if shown { "shown" } else { "macOS refused it" }
+                );
+            } else {
+                println!("macOS banner: not on this system");
+            }
+            let sent = try_sinks(&cfg.notify, &note);
+            if sent.is_empty() {
+                println!("No ntfy_url or webhook_url in [notify]: nothing else to send to.");
+            }
+            for (sink, ok) in &sent {
+                println!(
+                    "{sink}: {}",
+                    if *ok {
+                        "accepted"
+                    } else {
+                        "FAILED (is curl installed and the URL reachable?)"
+                    }
+                );
+            }
+            if sent.iter().any(|(_, ok)| !ok) {
+                std::process::exit(1);
             }
         }
         Commands::Snip(cmd) => {

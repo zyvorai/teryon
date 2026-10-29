@@ -211,8 +211,13 @@ pane's directory. Without the integration everything else keeps working and ⌘�
 * **Agent overview** (⌘⇧A): lists the AI agents in this workspace. With `agent_quick_approve = true` a waiting
   agent gets Approve / Deny buttons. `teryon agents --all` lists agents across every workspace and host.
 * **Host health** (window 1100 px or wider): load, memory and a heat warning for the machine the daemon runs on.
-* **Notifications**: besides the macOS notification, a `[notify]` section sends the same events to ntfy or a
-  webhook, from the app while it is in the background and from the daemon while no client is attached.
+* **Notifications**: when an agent needs you the macOS banner is titled "Claude needs you", names the workspace
+  and pane under it, shows the question the agent is asking ("Apply this edit?") and plays a sound; "finished" and
+  long-command banners are silent. A `[notify]` section sends the same events to ntfy (high priority and a bell
+  for "needs you") or a webhook (JSON with `title`, `message`, `event`, `workspace`, `pane` and `detail`, the
+  question), from the app while it is in the background and from the daemon while no client is attached.
+  `teryon notify test [--done]` shows a sample here and sends it once to your sinks, saying whether each accepted it.
+  The banner carries the Script Editor icon: macOS ties a notification's icon to the program that posts it.
 
 ## Configuration
 
