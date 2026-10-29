@@ -43,6 +43,7 @@ pub mod protocol;
 pub mod recent;
 pub mod recipe;
 pub mod record;
+pub mod reply;
 pub mod sandbox;
 pub mod screensync;
 pub mod scrollsearch;

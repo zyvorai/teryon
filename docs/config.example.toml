@@ -113,6 +113,7 @@ destination = "susant@mini.local"
 # [notify]
 # ntfy_url = "https://ntfy.sh/your-private-topic"
 # webhook_url = "https://example.com/hook"   # receives {"title","message","event","workspace","pane"}
+# reply = false            # Approve/Deny buttons on the ntfy "needs you" push; the daemon listens on "<ntfy_url>-reply"
 # macos = false            # a macOS notification on the machine running the daemon
 # agents = true            # an AI agent needs you or finished
 # commands = true          # a command that ran at least after_seconds finished (needs shell integration)

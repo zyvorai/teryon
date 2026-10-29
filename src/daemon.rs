@@ -1049,7 +1049,34 @@ fn reap_graveyards(state: &Mutex<State>) {
     }
 }
 
-fn watch_panes(state: &Mutex<State>) {
+/// Type an Approve or Deny from the phone into the pane that asked, if it still asks. A prompt that
+/// was already answered at the keyboard, or an agent that moved on, is left alone.
+fn apply_answer(state: &Mutex<State>, answer: crate::reply::Answer, entry: &crate::reply::Entry) {
+    let pane = {
+        let st = state.lock_recover();
+        st.workspaces
+            .get(&entry.workspace)
+            .and_then(|w| w.panes.get(&entry.pane))
+            .cloned()
+    };
+    let Some(pane) = pane else { return };
+    let still_asking = {
+        let st = pane.state.lock_recover();
+        if st.exited.is_some() {
+            false
+        } else {
+            let screen = st.parser.screen();
+            let (_, cols) = screen.size();
+            let rows: Vec<String> = screen.rows(0, cols).collect();
+            crate::agents::status(&rows, Duration::from_secs(60)) == crate::agents::Status::NeedsYou
+        }
+    };
+    if still_asking {
+        let _ = pane.input.try_send(answer.keys(entry.kind).to_vec());
+    }
+}
+
+fn watch_panes(state: &Arc<Mutex<State>>) {
     use crate::notify::{clean, send, Note};
     use crate::watch::{Event, Tracker, TICK};
     let mut trackers: HashMap<(String, u64), Tracker> = HashMap::new();
@@ -1067,6 +1094,12 @@ fn watch_panes(state: &Mutex<State>) {
                 .ok()
                 .filter(|c| c.notify.validate().is_ok() && c.host.validate().is_ok());
             (cfg, host_cfg) = loaded.map(|c| (c.notify, c.host)).unwrap_or_default();
+            let weak = Arc::downgrade(state);
+            crate::reply::listen(cfg.reply_url(), move |answer, entry| {
+                if let Some(state) = weak.upgrade() {
+                    apply_answer(&state, answer, &entry);
+                }
+            });
         }
         if !cfg.active() && !host_cfg.keep_awake {
             trackers.clear();
@@ -1119,6 +1152,10 @@ fn watch_panes(state: &Mutex<State>) {
                     continue;
                 }
                 for event in events {
+                    let needs = match &event {
+                        Event::AgentNeedsYou(k) => Some(*k),
+                        _ => None,
+                    };
                     let note = match event {
                         Event::AgentNeedsYou(k) if cfg.agents => Note::agent_needs_you(
                             k.name(),
@@ -1147,6 +1184,10 @@ fn watch_panes(state: &Mutex<State>) {
                         ),
                         _ => continue,
                     };
+                    let mut note = note;
+                    if let (Some(kind), Some(url)) = (needs, cfg.reply_url()) {
+                        note.reply = crate::reply::issue(&ws, pane.id, kind).map(|t| (url, t));
+                    }
                     send(&cfg, note);
                 }
             }

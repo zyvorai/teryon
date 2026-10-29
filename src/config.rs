@@ -76,6 +76,9 @@ pub struct NotifyConfig {
     pub ntfy_url: Option<String>,
     /// A webhook that receives `{"title","message","event","workspace","pane"}` as JSON.
     pub webhook_url: Option<String>,
+    /// Put Approve and Deny buttons on the ntfy "needs you" push. They post to a second topic,
+    /// `<ntfy_url>-reply`, which the daemon listens on (outbound only); needs `ntfy_url`.
+    pub reply: bool,
     /// Tell me when an AI agent needs me or finishes.
     pub agents: bool,
     /// Tell me when a command that ran at least `after_seconds` finishes (needs shell integration).
@@ -88,6 +91,7 @@ impl Default for NotifyConfig {
             macos: false,
             ntfy_url: None,
             webhook_url: None,
+            reply: false,
             agents: true,
             commands: true,
             after_seconds: 30,
@@ -99,7 +103,18 @@ impl NotifyConfig {
     pub fn active(&self) -> bool {
         self.macos || self.ntfy_url.is_some() || self.webhook_url.is_some()
     }
+    /// The topic the Approve and Deny buttons post to, when replies are on.
+    pub fn reply_url(&self) -> Option<String> {
+        let url = self.ntfy_url.as_ref().filter(|_| self.reply)?;
+        Some(format!("{}-reply", url.trim_end_matches('/')))
+    }
     pub fn validate(&self) -> Result<()> {
+        if self.reply && self.ntfy_url.is_none() {
+            bail!("notify.reply needs notify.ntfy_url");
+        }
+        if self.reply && self.ntfy_url.as_deref().is_some_and(|u| u.contains(',')) {
+            bail!("notify.ntfy_url must not contain a comma when notify.reply is on");
+        }
         for (name, url) in [
             ("ntfy_url", &self.ntfy_url),
             ("webhook_url", &self.webhook_url),
@@ -707,6 +722,27 @@ mod notify_tests {
         cfg.desktop.validate().unwrap();
         let cfg: Config = toml::from_str("[desktop]\nquiet_poll_ms = 5000\n").unwrap();
         assert!(cfg.desktop.validate().is_err());
+    }
+    #[test]
+    fn replies_need_an_ntfy_topic_and_listen_on_its_reply_twin() {
+        let on: Config =
+            toml::from_str("[notify]\nntfy_url = \"https://ntfy.sh/mine/\"\nreply = true\n")
+                .unwrap();
+        on.notify.validate().unwrap();
+        assert_eq!(
+            on.notify.reply_url().as_deref(),
+            Some("https://ntfy.sh/mine-reply")
+        );
+        let off: Config =
+            toml::from_str("[notify]\nntfy_url = \"https://ntfy.sh/mine\"\n").unwrap();
+        assert_eq!(off.notify.reply_url(), None);
+        for bad in [
+            "[notify]\nreply = true\n",
+            "[notify]\nntfy_url = \"https://ntfy.sh/a,b\"\nreply = true\n",
+        ] {
+            let cfg: Config = toml::from_str(bad).unwrap();
+            assert!(cfg.notify.validate().is_err(), "{bad}");
+        }
     }
     #[test]
     fn notify_section_parses_and_is_validated() {
