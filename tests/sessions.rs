@@ -115,6 +115,7 @@ impl Client {
         let Response::State { panes } = self.call(Request::Poll {
             known: BTreeMap::new(),
             diff: false,
+            wait_ms: 0,
         }) else {
             panic!("no state")
         };
@@ -306,7 +307,11 @@ fn resize_unicode_color_and_incremental_snapshot() {
     parser.process(s[0].screen.as_ref().unwrap());
     assert!(parser.screen().contents().contains("λ界"));
     let known = s.iter().map(|p| (p.id.to_string(), p.revision)).collect();
-    let Response::State { panes } = c.call(Request::Poll { known, diff: false }) else {
+    let Response::State { panes } = c.call(Request::Poll {
+        known,
+        diff: false,
+        wait_ms: 0,
+    }) else {
         panic!()
     };
     assert!(panes[0].screen.is_none());
@@ -1110,6 +1115,7 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         let Response::State { panes } = with_diff.call(Request::Poll {
             known: known_d.clone(),
             diff: true,
+            wait_ms: 0,
         }) else {
             panic!("no state")
         };
@@ -1150,6 +1156,7 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         let Response::State { panes } = whole.call(Request::Poll {
             known: known_w.clone(),
             diff: false,
+            wait_ms: 0,
         }) else {
             panic!("no state")
         };
@@ -1353,5 +1360,119 @@ fn a_program_can_ask_whether_kitty_graphics_work_and_gets_an_answer() {
     assert!(
         text.contains("3d33313b4f4b1b5c"),
         "i=31;OK ESC \\ : {text:?}"
+    );
+}
+
+/// Revisions of every pane, as a client would send them back in `Poll::known`.
+fn known_of(panes: &[PaneView]) -> BTreeMap<String, u64> {
+    panes
+        .iter()
+        .map(|p| (p.id.to_string(), p.revision))
+        .collect()
+}
+
+/// A shell that has stopped drawing, so a poll with its revisions has nothing to learn.
+fn settled(c: &mut Client) -> Vec<PaneView> {
+    let mut last = c.snapshot();
+    for _ in 0..10 {
+        thread::sleep(Duration::from_millis(300));
+        let now = c.snapshot();
+        if known_of(&now) == known_of(&last) {
+            return now;
+        }
+        last = now;
+    }
+    panic!("shell never settled");
+}
+
+fn poll_waiting(
+    c: &mut Client,
+    known: BTreeMap<String, u64>,
+    wait_ms: u32,
+) -> (Duration, Vec<PaneView>) {
+    let start = Instant::now();
+    let Response::State { panes } = c.call(Request::Poll {
+        known,
+        diff: false,
+        wait_ms,
+    }) else {
+        panic!("no state")
+    };
+    (start.elapsed(), panes)
+}
+
+#[test]
+fn a_poll_with_nothing_new_is_held_for_the_wait_and_then_answered() {
+    let d = Daemon::start_with(&[("SHELL", "/bin/sh")]);
+    let mut c = d.client();
+    assert!(matches!(c.attach("hold", false), Response::Attached { .. }));
+    let known = known_of(&settled(&mut c));
+    let (took, _) = poll_waiting(&mut c, known.clone(), 0);
+    assert!(
+        took < Duration::from_millis(100),
+        "no wait asked, got {took:?}"
+    );
+    let (took, panes) = poll_waiting(&mut c, known.clone(), 200);
+    assert!(
+        took >= Duration::from_millis(180),
+        "answered early: {took:?}"
+    );
+    assert!(took < Duration::from_millis(900), "held too long: {took:?}");
+    assert_eq!(known_of(&panes), known, "nothing should have changed");
+}
+
+#[test]
+fn a_held_poll_is_capped_whatever_the_client_asks_for() {
+    let d = Daemon::start_with(&[("SHELL", "/bin/sh")]);
+    let mut c = d.client();
+    assert!(matches!(c.attach("cap", false), Response::Attached { .. }));
+    let known = known_of(&settled(&mut c));
+    let (took, _) = poll_waiting(&mut c, known, 60_000);
+    assert!(took >= Duration::from_millis(200), "was not held: {took:?}");
+    assert!(
+        took < Duration::from_secs(2),
+        "hold was not capped: {took:?}"
+    );
+}
+
+#[test]
+fn a_held_poll_is_released_by_the_shells_echo() {
+    let d = Daemon::start_with(&[("SHELL", "/bin/sh")]);
+    let mut typist = d.client();
+    assert!(matches!(
+        typist.attach("echo", false),
+        Response::Attached { .. }
+    ));
+    let panes = settled(&mut typist);
+    let (pane, known) = (panes[0].id, known_of(&panes));
+    let mut watcher = d.client();
+    assert!(matches!(
+        watcher.attach("echo", true),
+        Response::Attached { .. }
+    ));
+    let waiting = thread::spawn(move || poll_waiting(&mut watcher, known, 250));
+    thread::sleep(Duration::from_millis(60));
+    let sent = Instant::now();
+    assert!(matches!(
+        typist.call(Request::Input {
+            pane,
+            seq: 1,
+            data: b"echo hi\r".to_vec(),
+        }),
+        Response::Ack { .. }
+    ));
+    let (took, panes) = waiting.join().unwrap();
+    assert!(
+        sent.elapsed() < Duration::from_millis(200),
+        "the echo should release the poll, took {:?} in all",
+        sent.elapsed()
+    );
+    assert!(
+        took < Duration::from_millis(240),
+        "waited out the whole hold: {took:?}"
+    );
+    assert!(
+        panes[0].revision > 0 && panes[0].screen.is_some(),
+        "the answer carries the new screen"
     );
 }

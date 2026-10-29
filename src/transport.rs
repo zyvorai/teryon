@@ -473,7 +473,16 @@ impl Rpc {
         }
     }
     pub fn call(&mut self, request: Request) -> Result<Response> {
-        write_frame(&mut self.writer, &request)?;
+        self.send(&request)?;
+        self.recv()
+    }
+    /// Write a request without waiting for its answer. Every `send` must be matched by one `recv`,
+    /// in order: the daemon answers a connection's requests one at a time, in the order they came.
+    pub fn send(&mut self, request: &Request) -> Result<()> {
+        write_frame(&mut self.writer, request)
+    }
+    /// Read the answer to the oldest request that has not been answered yet.
+    pub fn recv(&mut self) -> Result<Response> {
         let response = read_frame(&mut self.reader)?.context("connection closed")?;
         if let Response::Error { message } = response {
             bail!("server: {message}");

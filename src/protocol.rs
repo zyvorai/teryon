@@ -34,6 +34,10 @@ pub enum Request {
         /// The client can apply screen diffs (`PaneView::diff_from`); old daemons ignore this.
         #[serde(default)]
         diff: bool,
+        /// Hold this poll for up to this many milliseconds if nothing has changed yet, and answer as
+        /// soon as something does. Old daemons ignore it and answer at once.
+        #[serde(default)]
+        wait_ms: u32,
     },
     Input {
         pane: u64,
@@ -230,6 +234,9 @@ pub enum Response {
         /// The daemon can send screen diffs to a client that asks for them.
         #[serde(default)]
         diff: bool,
+        /// The daemon honours `Poll::wait_ms`.
+        #[serde(default)]
+        longpoll: bool,
     },
     Ack {
         seq: Option<u64>,
@@ -380,6 +387,20 @@ mod tests {
         // Unchanged polls carry no marks at all.
         let quiet = serde_json::to_string(&PaneView::default()).unwrap();
         assert!(!quiet.contains("marks"));
+    }
+    #[test]
+    fn a_poll_from_an_old_client_asks_for_no_wait_and_an_old_info_has_no_longpoll() {
+        let old_poll = r#"{"op":"poll","known":{"1":5}}"#;
+        match serde_json::from_str::<Request>(old_poll).unwrap() {
+            Request::Poll { wait_ms, diff, .. } => assert_eq!((wait_ms, diff), (0, false)),
+            other => panic!("{other:?}"),
+        }
+        let old_info =
+            r#"{"type":"info","os":"macos","arch":"arm64","sessions":1,"panes":2,"pid":3}"#;
+        match serde_json::from_str::<Response>(old_info).unwrap() {
+            Response::Info { longpoll, .. } => assert!(!longpoll),
+            other => panic!("{other:?}"),
+        }
     }
     #[test]
     fn an_old_daemons_info_without_stats_still_parses() {
