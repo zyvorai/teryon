@@ -22,8 +22,15 @@ impl Daemon {
             .prefix("zl-")
             .tempdir_in("/tmp")
             .unwrap();
+        // The panes run a plain /bin/sh with no profile and an empty home. Whatever $SHELL happens to
+        // be on the machine, with its startup files, can take longer than a test waits for when many
+        // tests run at once; that made these tests fail now and then on a busy CI runner.
         let child = Command::new(env!("CARGO_BIN_EXE_teryon"))
             .arg("daemon")
+            .env("SHELL", "/bin/sh")
+            .env("PS1", "$ ")
+            .env("HOME", dir.path())
+            .env_remove("ENV")
             .envs(env.iter().copied())
             .env("TERYON_RUNTIME_DIR", dir.path())
             .stdin(Stdio::null())
@@ -306,15 +313,30 @@ fn resize_unicode_color_and_incremental_snapshot() {
     let mut parser = vt100::Parser::new(31, 117, 0);
     parser.process(s[0].screen.as_ref().unwrap());
     assert!(parser.screen().contents().contains("λ界"));
-    let known = s.iter().map(|p| (p.id.to_string(), p.revision)).collect();
-    let Response::State { panes } = c.call(Request::Poll {
-        known,
-        diff: false,
-        wait_ms: 0,
-    }) else {
-        panic!()
-    };
-    assert!(panes[0].screen.is_none());
+    // A poll that already knows the latest revisions gets no screen back. If the shell drew something
+    // after the check above, take the newer revisions and ask again.
+    let mut known: BTreeMap<String, u64> =
+        s.iter().map(|p| (p.id.to_string(), p.revision)).collect();
+    let mut unchanged = false;
+    for _ in 0..20 {
+        let Response::State { panes } = c.call(Request::Poll {
+            known: known.clone(),
+            diff: false,
+            wait_ms: 0,
+        }) else {
+            panic!()
+        };
+        if panes[0].screen.is_none() {
+            unchanged = true;
+            break;
+        }
+        known = panes
+            .iter()
+            .map(|p| (p.id.to_string(), p.revision))
+            .collect();
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(unchanged, "the screen kept changing; it never settled");
 }
 #[test]
 fn exited_tasks_report_status_and_scrollback_retains_old_output() {
@@ -1110,7 +1132,9 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         p.process(bytes);
         p.screen().contents()
     };
-    let deadline = Instant::now() + Duration::from_secs(8);
+    // The loop ends as soon as both viewers hold the final screen; this is only a limit for a machine
+    // so slow that the script (120 lines, 20 ms apart) has not finished yet.
+    let deadline = Instant::now() + Duration::from_secs(60);
     while Instant::now() < deadline {
         let Response::State { panes } = with_diff.call(Request::Poll {
             known: known_d.clone(),
@@ -1179,6 +1203,14 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
         }
         thread::sleep(Duration::from_millis(10));
     }
+    // Comparing before both viewers reached the final screen would compare two moments of a pane that is
+    // still printing, and report a diff error that is really a slow machine.
+    let shows_end =
+        |b: &Option<Vec<u8>>| b.as_deref().is_some_and(|b| text(b).contains("finished"));
+    assert!(
+        shows_end(&rebuilt) && shows_end(&full_w),
+        "the pane never reached its final screen in time"
+    );
     let (a, b) = (text(&rebuilt.unwrap()), text(&full_w.unwrap()));
     assert!(
         diffs_seen > 5,
