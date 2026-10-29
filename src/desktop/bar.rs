@@ -433,26 +433,26 @@ impl Desktop {
     /// `LINK 12 ms` and `SHELLS ALIVE 3d 04h` as small two-line labels.
     fn link_stats(&self, ui: &mut egui::Ui) {
         let t = &self.theme;
-        let stat = |ui: &mut egui::Ui, name: &str, value: String| {
+        let stat = |ui: &mut egui::Ui, name: &str, value: String, warn: bool| {
             ui.label(
                 RichText::new(value)
                     .monospace()
                     .size(11.5)
-                    .color(color(t.foreground)),
+                    .color(color(if warn { t.warning } else { t.foreground })),
             );
             ui.label(RichText::new(name).size(9.).color(color(t.muted)));
         };
         if let Some(up) = self.link.uptime() {
-            stat(ui, "SHELLS ALIVE", up);
+            stat(ui, "SHELLS ALIVE", up, false);
         }
         if let Some(ms) = self.latency.filter(|_| self.online) {
-            stat(ui, "LINK", format!("{ms} ms"));
+            stat(ui, "LINK", format!("{ms} ms"), link_is_slow(ms));
         }
         if let Some(s) = self.link.stats().filter(|_| self.online) {
             let (load, mem, heat) = health_labels(s);
-            stat(ui, "LOAD", load);
+            stat(ui, "LOAD", load, false);
             if let Some(m) = mem {
-                stat(ui, "MEM", m);
+                stat(ui, "MEM", m, s.mem_used_pct.is_some_and(memory_is_high));
             }
             if let Some(h) = heat {
                 ui.label(RichText::new(h).size(11.5).color(color(t.warning)));
@@ -606,6 +606,19 @@ fn tab_label(panes: &BTreeMap<u64, Pane>, focus: u64, fallback: &str, now: f64) 
     let name: String = name.chars().take(22).collect();
     format!("{icon}  {name}")
 }
+/// Round trips slower than this get the warning colour (the narrow bar already only shows them then).
+const SLOW_LINK_MS: u64 = 150;
+/// Memory in use at or above this percentage gets the warning colour.
+const HIGH_MEMORY_PCT: u8 = 90;
+
+/// Steady numbers stay quiet; the ones that mean trouble are called out, as heat already is.
+fn link_is_slow(ms: u64) -> bool {
+    ms > SLOW_LINK_MS
+}
+fn memory_is_high(pct: u8) -> bool {
+    pct >= HIGH_MEMORY_PCT
+}
+
 /// Text for the host health labels: load, memory, and a heat warning only when throttled.
 fn health_labels(s: &crate::hoststats::HostStats) -> (String, Option<String>, Option<String>) {
     (
@@ -619,6 +632,13 @@ fn health_labels(s: &crate::hoststats::HostStats) -> (String, Option<String>, Op
 mod health_tests {
     use super::*;
     use crate::hoststats::HostStats;
+    #[test]
+    fn only_trouble_is_called_out() {
+        assert!(!link_is_slow(8) && !link_is_slow(150));
+        assert!(link_is_slow(151) && link_is_slow(900));
+        assert!(!memory_is_high(65) && !memory_is_high(89));
+        assert!(memory_is_high(90) && memory_is_high(98));
+    }
     #[test]
     fn heat_shows_only_when_throttled() {
         let mut s = HostStats {
