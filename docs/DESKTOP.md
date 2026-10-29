@@ -218,6 +218,11 @@ pane's directory. Without the integration everything else keeps working and âŒ˜â
   question), from the app while it is in the background and from the daemon while no client is attached.
   `teryon notify test [--done]` shows a sample here and sends it once to your sinks, saying whether each accepted it.
   The banner carries the Script Editor icon: macOS ties a notification's icon to the program that posts it.
+* **Corner card**: while the window is in front, an agent that starts waiting in a pane you are not looking at
+  gets a card in the top-right corner (agent, workspace and pane, the question) with **Approve**, **Deny** (the
+  same switch as the agents overview, `agent_quick_approve`) and **Go to pane**. It goes away when the agent is
+  answered, when you dismiss it, or after two minutes; at most three show at once. With the window in the
+  background the macOS banner does this instead; `agent_notifications = false` turns both off.
 * **Answering from your phone**: with `[notify] ntfy_url = "https://ntfy.sh/<topic>"` and `reply = true`, the
   daemon's "needs you" push carries **Approve** and **Deny** buttons. Tapping one posts a one-time token to the
   topic `<topic>-reply`, which the daemon listens on (it only makes outbound connections; nothing is opened on the
