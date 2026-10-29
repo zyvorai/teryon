@@ -237,6 +237,11 @@ pub enum Response {
         /// The daemon honours `Poll::wait_ms`.
         #[serde(default)]
         longpoll: bool,
+        /// Notifications waiting to be retried, and given up on since the daemon started.
+        #[serde(default)]
+        notify_waiting: usize,
+        #[serde(default)]
+        notify_dropped: usize,
     },
     Ack {
         seq: Option<u64>,
@@ -398,7 +403,12 @@ mod tests {
         let old_info =
             r#"{"type":"info","os":"macos","arch":"arm64","sessions":1,"panes":2,"pid":3}"#;
         match serde_json::from_str::<Response>(old_info).unwrap() {
-            Response::Info { longpoll, .. } => assert!(!longpoll),
+            Response::Info {
+                longpoll,
+                notify_waiting,
+                notify_dropped,
+                ..
+            } => assert!(!longpoll && notify_waiting == 0 && notify_dropped == 0),
             other => panic!("{other:?}"),
         }
     }

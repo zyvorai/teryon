@@ -22,9 +22,13 @@ static RETRYING: AtomicUsize = AtomicUsize::new(0);
 static DROPPED: AtomicUsize = AtomicUsize::new(0);
 
 /// How many notifications have been given up on since this process started.
-#[allow(dead_code)]
 pub fn dropped() -> usize {
     DROPPED.load(Ordering::Relaxed)
+}
+
+/// How many notifications are waiting for their next retry right now.
+pub fn waiting() -> usize {
+    RETRYING.load(Ordering::SeqCst)
 }
 
 /// One notification: `event` is a stable machine name such as `agent_needs_you`.

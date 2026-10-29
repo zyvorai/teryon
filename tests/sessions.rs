@@ -1508,3 +1508,22 @@ fn a_held_poll_is_released_by_the_shells_echo() {
         "the answer carries the new screen"
     );
 }
+
+#[test]
+fn info_reports_notifications_waiting_and_dropped() {
+    let d = Daemon::start();
+    let mut c = d.client();
+    let Response::Info {
+        notify_waiting,
+        notify_dropped,
+        ..
+    } = c.call(Request::Info)
+    else {
+        panic!("no info")
+    };
+    assert_eq!(
+        (notify_waiting, notify_dropped),
+        (0, 0),
+        "nothing was sent yet"
+    );
+}
