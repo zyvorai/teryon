@@ -42,6 +42,8 @@ pub struct Note {
     pub pane: u64,
     /// What the agent is asking or did ("Apply this edit?"), when known.
     pub detail: Option<String>,
+    /// The reply topic and one-time token for the Approve and Deny buttons of an ntfy push.
+    pub reply: Option<(String, String)>,
 }
 
 /// Sound for a notification that needs an answer; the others are silent.
@@ -65,6 +67,7 @@ impl Note {
             workspace: workspace.into(),
             pane,
             detail: question,
+            reply: None,
         }
     }
     /// An agent finished. `summary` is where it got to, if it could be read.
@@ -79,6 +82,7 @@ impl Note {
             workspace: workspace.into(),
             pane,
             detail: summary,
+            reply: None,
         }
     }
     /// A long command ended; `text` says which and how.
@@ -90,6 +94,7 @@ impl Note {
             workspace: workspace.into(),
             pane,
             detail: None,
+            reply: None,
         }
     }
     /// Where it happened: "demo · pane 2".
@@ -132,6 +137,9 @@ impl Note {
         let mut headers = vec![("Title", self.title.clone()), ("Tags", tags.to_string())];
         if let Some(p) = priority {
             headers.push(("Priority", p.to_string()));
+        }
+        if let Some((url, token)) = &self.reply {
+            headers.push(("Actions", crate::reply::actions_header(url, token)));
         }
         (headers, format!("{}\n{}", self.body(), self.place()))
     }

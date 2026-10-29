@@ -63,7 +63,7 @@ What has shipped and what is still open, based on the current limitations (`docs
 ### AI, agents and collaboration
 - Agent workspace presets and richer MCP tools for long-running tasks; test-result views for agents.
 - Multi-user shared workspaces (invitation links, roles, optional screen broadcasting).
-- Bidirectional file sync and a richer editor integration (Quick Look and "Edit in $EDITOR" exist); answering an agent from the notification itself, and a mobile companion.
+- Bidirectional file sync and a richer editor integration (Quick Look and "Edit in $EDITOR" exist); answering with more than Approve and Deny, answering from the macOS banner itself (needs a signed native notification), and a mobile companion.
 
 ### Not planned
 - A native Windows client.

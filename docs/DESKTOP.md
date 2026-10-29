@@ -218,6 +218,13 @@ pane's directory. Without the integration everything else keeps working and âŒ˜â
   question), from the app while it is in the background and from the daemon while no client is attached.
   `teryon notify test [--done]` shows a sample here and sends it once to your sinks, saying whether each accepted it.
   The banner carries the Script Editor icon: macOS ties a notification's icon to the program that posts it.
+* **Answering from your phone**: with `[notify] ntfy_url = "https://ntfy.sh/<topic>"` and `reply = true`, the
+  daemon's "needs you" push carries **Approve** and **Deny** buttons. Tapping one posts a one-time token to the
+  topic `<topic>-reply`, which the daemon listens on (it only makes outbound connections; nothing is opened on the
+  Mac). Approve types the agent's own "yes" (Enter, or `y` for aider), Deny its "no" (Esc, or `n`). A token works
+  once, for one pane, for 30 minutes, and only while that pane is still asking; a prompt you already answered at
+  the keyboard is left alone. Anyone who can read your topic can answer, so use a long random topic name (or a
+  self-hosted ntfy with access control). Needs `curl`.
 
 ## Configuration
 
