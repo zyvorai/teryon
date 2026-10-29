@@ -53,6 +53,9 @@ impl Desktop {
         let now = Instant::now();
         let notify = self.cfg.agent_notifications && !self.window_focused;
         let mut notes: Vec<crate::notify::Note> = Vec::new();
+        // With the window in front, an agent in a pane you are not looking at gets a card instead.
+        let carding = self.cfg.agent_notifications && self.window_focused;
+        let mut cards: Vec<(u64, Kind, Option<String>)> = Vec::new();
         for (id, pane) in self.panes.iter_mut() {
             let fg = pane
                 .info
@@ -100,6 +103,11 @@ impl Desktop {
                 tr.status = Some(next);
                 tr.since = now;
                 let name = tr.kind.map_or("Agent", Kind::name);
+                if prev.is_some() && carding && next == Status::NeedsYou && *id != self.focus {
+                    if let Some(kind) = tr.kind {
+                        cards.push((*id, kind, asked.clone()));
+                    }
+                }
                 if prev.is_some() && notify {
                     match next {
                         Status::NeedsYou => notes.push(crate::notify::Note::agent_needs_you(
@@ -119,6 +127,10 @@ impl Desktop {
                 }
             }
         }
+        for (id, kind, question) in cards {
+            self.raise_card(id, kind, question);
+        }
+        self.prune_cards();
         for note in notes {
             note.show_banner();
             crate::notify::send_remote(&self.notify_cfg, note);
@@ -540,6 +552,61 @@ mod tests {
         let list = app.agents_list();
         assert_eq!(list[0].0, 2);
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn a_card_appears_for_an_agent_in_another_pane_and_goes_when_it_is_answered() {
+        let (mut app, _rx) = app_with_screen("");
+        app.window_focused = true;
+        app.cfg.agent_notifications = true;
+        app.focus = 1;
+        agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
+        app.agents_update();
+        assert!(app.extra.cards.is_empty(), "nothing asks yet");
+        let mut parser = vt100::Parser::new(10, 60, 0);
+        parser.process("Apply this edit?\r\nDo you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
+        let pane = app.panes.get_mut(&2).unwrap();
+        pane.parser = parser;
+        pane.track.computed -= Duration::from_secs(5);
+        app.agents_update();
+        assert_eq!(app.extra.cards.len(), 1);
+        assert_eq!(app.extra.cards[0].pane, 2);
+        assert_eq!(
+            app.extra.cards[0].question.as_deref(),
+            Some("Do you want to proceed?")
+        );
+        // The card draws, then goes once the agent stops asking.
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.cards_ui(ctx));
+        assert_eq!(app.extra.cards.len(), 1);
+        let pane = app.panes.get_mut(&2).unwrap();
+        pane.parser = vt100::Parser::new(10, 60, 0);
+        pane.track.changed = Instant::now();
+        pane.track.computed -= Duration::from_secs(5);
+        app.agents_update();
+        assert!(app.extra.cards.is_empty());
+    }
+
+    #[test]
+    fn no_card_for_the_pane_you_are_in_or_when_the_window_is_behind() {
+        for (focused, focus) in [(true, 2), (false, 1)] {
+            let (mut app, _rx) = app_with_screen("");
+            app.window_focused = focused;
+            app.cfg.agent_notifications = true;
+            app.focus = focus;
+            agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
+            app.agents_update();
+            let mut parser = vt100::Parser::new(10, 60, 0);
+            parser.process("Do you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
+            let pane = app.panes.get_mut(&2).unwrap();
+            pane.parser = parser;
+            pane.track.computed -= Duration::from_secs(5);
+            app.agents_update();
+            assert!(
+                app.extra.cards.is_empty(),
+                "focused={focused} focus={focus}"
+            );
+        }
     }
 
     #[test]

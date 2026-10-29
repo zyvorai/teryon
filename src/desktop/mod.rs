@@ -27,6 +27,7 @@ mod away;
 mod bar;
 mod blockmenu;
 mod blur;
+mod cards;
 mod cmdhist;
 mod dropzone;
 mod files;
@@ -119,6 +120,8 @@ struct SessionExtra {
     away_items: Vec<away::AwayItem>,
     away_checked: bool,
     away_touched: Option<Instant>,
+    /// Corner cards for agents that need you while this window is in front.
+    cards: Vec<cards::Card>,
 }
 /// Everything that belongs to one attached workspace; parked tabs keep theirs here.
 struct Session {
@@ -1186,6 +1189,7 @@ impl Desktop {
         self.ai_panel(ctx);
         self.agents_overview(ctx);
         self.away_ui(ctx);
+        self.cards_ui(ctx);
         self.ports_ui(ctx);
         self.host_ui(ctx);
         if let Some(id) = self.explain_req.take() {
