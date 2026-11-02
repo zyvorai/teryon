@@ -237,11 +237,15 @@ fn exclusive_controller_and_readonly_are_enforced_server_side() {
         Response::Error { .. }
     ));
     drop(controller);
-    thread::sleep(Duration::from_millis(100));
-    assert!(matches!(
-        other.attach("leases", false),
-        Response::Attached { .. }
-    ));
+    // The daemon notices the closed connection on its own schedule, so ask until the lease is free.
+    let free = Instant::now() + Duration::from_secs(10);
+    while !matches!(other.attach("leases", false), Response::Attached { .. }) {
+        assert!(
+            Instant::now() < free,
+            "the controller lease was never released"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 #[test]
 fn input_sequence_deduplicates_and_rejects_gaps() {
@@ -637,18 +641,23 @@ fn generated_shell_integration_works_in_real_interactive_shells() {
                 data: text.into_bytes(),
             });
         };
-        thread::sleep(Duration::from_millis(600));
+        // A shell still starting up may drop what is typed, so ask until it answers (the typed command
+        // line shows `%s`, only the answer shows 42).
+        let ready = Instant::now() + Duration::from_secs(30);
+        while !c.capture(pane).contains("SH_READY_42") {
+            assert!(Instant::now() < ready, "{shell}: never became ready");
+            send(&mut c, "printf 'SH_READY_%s\\n' 42\r".into());
+            thread::sleep(Duration::from_millis(300));
+        }
         let load = if shell == "fish" {
             format!("{bin} shell-init fish | source\r")
         } else {
             format!("eval \"$({bin} shell-init {shell})\"\r")
         };
         send(&mut c, load);
-        thread::sleep(Duration::from_millis(500));
         send(&mut c, "false\r".into());
-        thread::sleep(Duration::from_millis(400));
         send(&mut c, "cd /usr && true\r".into());
-        let deadline = Instant::now() + Duration::from_secs(6);
+        let deadline = Instant::now() + Duration::from_secs(20);
         let view = loop {
             let v = c.snapshot().into_iter().find(|p| p.id == pane).unwrap();
             let done: Vec<Option<i32>> = v
