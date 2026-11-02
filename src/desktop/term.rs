@@ -31,6 +31,26 @@ pub(super) struct Scrollback {
     pub buf: Vec<Vec<char>>,
     /// Absolute number of `lines[0]` (from the daemon), to match shell-integration marks to text.
     pub first_line: u64,
+    /// Mouse selection over `lines`: ((line, col), (line, col)), in drag order.
+    pub msel: Option<((usize, usize), (usize, usize))>,
+}
+
+/// Text between two (line, column) points of plain history, both ends included, trailing blanks trimmed.
+pub(super) fn history_text(lines: &[String], a: (usize, usize), b: (usize, usize)) -> String {
+    let (from, to) = if a <= b { (a, b) } else { (b, a) };
+    let mut out = Vec::new();
+    for i in from.0..=to.0.min(lines.len().saturating_sub(1)) {
+        let chars: Vec<char> = lines.get(i).map_or_else(Vec::new, |l| l.chars().collect());
+        let c0 = if i == from.0 { from.1 } else { 0 };
+        let c1 = if i == to.0 {
+            to.1.saturating_add(1)
+        } else {
+            chars.len()
+        };
+        let part: String = chars.iter().skip(c0).take(c1.saturating_sub(c0)).collect();
+        out.push(part.trim_end().to_string());
+    }
+    out.join("\n")
 }
 
 /// "1.2 s", "340 ms", "2m 05s".
@@ -146,6 +166,9 @@ impl Desktop {
     }
     /// Scroll a pane's history: positive `lines` go back in time, negative return towards the live screen.
     pub(super) fn scroll_by(&mut self, id: u64, lines: isize) {
+        if self.selection.is_some_and(|s| s.pane == id) {
+            self.selection = None;
+        }
         let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
         if lines > 0 {
             let step = lines.unsigned_abs();
@@ -168,6 +191,7 @@ impl Desktop {
                             then: None,
                             buf: Vec::new(),
                             first_line: 0,
+                            msel: None,
                         },
                     );
                     self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
@@ -332,6 +356,7 @@ impl Desktop {
             then,
             buf: Vec::new(),
             first_line: 0,
+            msel: None,
         }
     }
     /// The retained text between absolute lines `c` (first output line) and `d` (the next prompt).
@@ -495,6 +520,7 @@ impl Desktop {
                         then: Some(Then::CopyMode),
                         buf: Vec::new(),
                         first_line: 0,
+                        msel: None,
                     },
                 );
                 self.send(Command::Capture(id, CapturePurpose::Scrollback(id)));
@@ -1042,6 +1068,40 @@ impl Desktop {
                     _ => self.selection = None,
                 }
             }
+        } else if let Some(sb) = self.scrollback.get_mut(&id).filter(|s| !s.loading) {
+            // History view: drag selects, and copies when `copy_on_select` is on.
+            let start = sb
+                .lines
+                .len()
+                .saturating_sub(sb.offset)
+                .saturating_sub(usize::from(rows));
+            let at = |p: Pos2| {
+                let (r, c) = cell_at(p);
+                (start + usize::from(r), usize::from(c))
+            };
+            if response.drag_started() {
+                if let Some(p) = response.interact_pointer_pos() {
+                    sb.msel = Some((at(p), at(p)));
+                    response.request_focus();
+                }
+            }
+            if response.dragged() {
+                if let (Some(p), Some(sel)) = (response.interact_pointer_pos(), sb.msel.as_mut()) {
+                    sel.1 = at(p);
+                }
+            }
+            if response.drag_stopped() && self.cfg.copy_on_select {
+                if let Some((a, b)) = sb.msel {
+                    let text = history_text(&sb.lines, a, b);
+                    if !text.is_empty() {
+                        self.copy_text = Some(text);
+                    }
+                }
+            }
+            if response.clicked() {
+                sb.msel = None;
+                response.request_focus();
+            }
         } else if response.clicked() {
             response.request_focus();
         }
@@ -1179,6 +1239,21 @@ impl Desktop {
                 if let Some(cm) = &sb.copy {
                     for col in 0..usize::from(cols) {
                         if cm.selected(row, col) {
+                            painter.rect_filled(
+                                Rect::from_min_size(
+                                    Pos2::new(rect.left() + pad_left + col as f32 * cw, y),
+                                    Vec2::new(cw, ch),
+                                ),
+                                0.,
+                                color(t.accent).gamma_multiply(0.4),
+                            );
+                        }
+                    }
+                }
+                if let Some((a, b)) = sb.msel {
+                    let (from, to) = if a <= b { (a, b) } else { (b, a) };
+                    for col in 0..usize::from(cols) {
+                        if (row, col) >= from && (row, col) <= to {
                             painter.rect_filled(
                                 Rect::from_min_size(
                                     Pos2::new(rect.left() + pad_left + col as f32 * cw, y),
@@ -1820,4 +1895,17 @@ fn paint_gradient(painter: &egui::Painter, rect: Rect, stops: &[Color32], angle:
         }
     }
     painter.add(egui::Shape::mesh(mesh));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_text;
+    #[test]
+    fn history_selection_reads_across_lines() {
+        let l: Vec<String> = ["alpha beta", "gamma  ", "delta"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(history_text(&l, (0, 6), (0, 9)), "beta");
+        assert_eq!(history_text(&l, (2, 1), (0, 6)), "beta\ngamma\nde");
+    }
 }

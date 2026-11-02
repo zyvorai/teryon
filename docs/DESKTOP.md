@@ -138,9 +138,10 @@ terminal's font.
 ## Terminal behavior
 
 * **Selection**: drag; double-click selects a word, triple-click a line, ⌥-drag a rectangle,
-  Shift-click extends. ⌘C copies; `copy_on_select = true` copies as soon as you finish selecting.
-  Programs that track the mouse (Claude Code, vim) get your drags; hold ⇧ to select instead, or set
-  `drag_selects = true` so a drag selects and only plain clicks reach the program.
+  Shift-click extends. Finishing a selection copies it (`copy_on_select`, on by default; ⌘C copies again).
+  Dragging selects even in programs that track the mouse (Claude Code, vim); only plain clicks and the
+  wheel reach them. Set `drag_selects = false` to give the program your drags, and hold ⇧ to select then.
+  Scrolled-back history can be dragged over too. Typing or scrolling clears a selection.
 * **Links**: ⌘-click opens plain-text `http(s)://` URLs and links programs mark with OSC 8 (`ls --hyperlink`,
   `eza --hyperlink`, `rg --hyperlink-format`, `delta`). Hovering an OSC 8 link shows where it really goes. Only `http`, `https` and
   `mailto` links open; `file:` and app links are ignored, because the text shown for a link is not its target.
@@ -259,9 +260,9 @@ binding using `teryon config --keys`.
 | `tab_bar` | `off` | `bottom` adds a strip of rounded tabs and a clock under a `chrome = "none"` window |
 | `tab_bar_bg`, `tab_active_bg`, `tab_active_fg`, `tab_inactive_bg`, `tab_inactive_fg` | from the theme | `#RRGGBB` colors of the tab strip |
 | `unfocused_opacity` | 0.82 | Brightness of unfocused panes |
-| `copy_on_select` | false | Copy a selection when it is finished |
+| `copy_on_select` | true | Copy a selection when it is finished |
 | `check_updates` | false | Once a day at start-up, ask GitHub whether a newer TERYON is out and say so in a toast ("Check for updates" in the palette asks any time and opens the release page; nothing is ever installed by the app) |
-| `drag_selects` | false | Drag selects locally even when the program tracks the mouse |
+| `drag_selects` | true | Drag selects locally even when the program tracks the mouse |
 | `quiet_poll_ms` | 250 | Gap between polls of a session with no input or output for 5 s (0 = always 60 ms). About 4× fewer requests while nothing happens; output after a quiet spell can show up this much later (typing and any screen change return to 6 ms polling at once) |
 | `scrollback_lines` | 10000 | History lines kept in the scrollback view |
 | `pane_titles` | auto | `auto`, `always`, `never` |
