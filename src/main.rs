@@ -503,6 +503,14 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+    /// Show what the AI agents in a workspace changed: commits on their branch since it left main, the
+    /// uncommitted diff and new files. Local workspaces only; it just reads the Git repository.
+    AgentDiff {
+        /// Only this pane (default: every agent pane in the workspace).
+        pane: Option<u64>,
+        #[arg(short, long, default_value = "default")]
+        workspace: String,
+    },
     /// Watch the AI coding agents and flag one that has worked without a pause for longer than --max.
     AgentGuard {
         /// Hosts to watch (default: local).
@@ -1094,6 +1102,45 @@ fn run() -> Result<i32> {
             }
             if shown == 0 {
                 println!("No AI agents running.");
+            }
+        }
+        Commands::AgentDiff { pane, workspace } => {
+            use teryon::mcp::Backend;
+            let mut backend = teryon::mcp::Real {
+                remote_bin: bin.clone(),
+            };
+            let panes = backend.panes("local", &workspace)?;
+            let wanted: Vec<u64> = match pane {
+                Some(p) => {
+                    if !panes.iter().any(|v| v.id == p) {
+                        bail!("workspace {workspace:?} has no pane {p}");
+                    }
+                    vec![p]
+                }
+                None => teryon::mcp::agent_rows(&mut backend, "local", &workspace)?
+                    .into_iter()
+                    .map(|(id, _, _)| id)
+                    .collect(),
+            };
+            if wanted.is_empty() {
+                bail!("no AI agents in workspace {workspace:?}");
+            }
+            let mut seen: Vec<std::path::PathBuf> = Vec::new();
+            for id in wanted {
+                let Some(view) = panes.iter().find(|v| v.id == id) else {
+                    continue;
+                };
+                let report = teryon::agentdiff::report(std::path::Path::new(&view.cwd))?;
+                // Agents sharing a repository share its changes: say so once.
+                if seen.contains(&report.root) {
+                    println!(
+                        "pane {id}: same repository as above ({})",
+                        report.root.display()
+                    );
+                    continue;
+                }
+                println!("pane {id}: {}", teryon::agentdiff::render(&report));
+                seen.push(report.root);
             }
         }
         Commands::AgentGuard {

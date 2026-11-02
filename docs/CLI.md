@@ -39,6 +39,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |
 | `wake HOST [--wait [--timeout SECS] [--connect]]` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
 | `agents [HOST...] [--all]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
+| `agent-diff [PANE] [-w WORKSPACE]` | What the agents in a local workspace changed: commits on their branch since it left main, the uncommitted diff stat and new files (read-only `git` queries in each pane's directory; agents sharing a repository are shown once) |
 | `agent-guard [HOST...] [--all] [--max 30m] [--interval 15] [--interrupt] [--looks N]` | Watch the agents and report one that has worked longer than `--max` without a pause (printed and sent to your `[notify]` sinks, once per stretch of work); `--interrupt` also presses Esc in that pane |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
 | `completions SHELL` | Shell completion script (bash, zsh, fish, elvish, powershell) |
