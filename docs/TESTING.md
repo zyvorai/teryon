@@ -28,14 +28,17 @@ Run on the Apple Silicon Mac the release was prepared on (2026-11-02), at the re
 | `cargo test --all-targets --all-features --locked` | **Passed**; the library suite with the desktop feature is **505 passed** |
 | `cargo clippy --all-targets --features desktop --locked` and `cargo fmt --check` | **Clean** |
 | Pull-request checks (macOS, Ubuntu, ssh) | **Passed** on every 0.24.0 pull request; the tag's release workflow succeeded and attached the Linux and macOS arm64 archives |
-| Signed packages | **Not built yet**: `TERYON-0.24.0.dmg` and `.pkg` from `scripts/release-macos.sh` have not been made, notarized or uploaded |
+| Signed package | `TERYON-0.24.0.dmg` built from the `v0.24.0` tag with `SKIP_PKG=1 scripts/release-macos.sh`; Apple's notary service answered **Accepted** and `stapler` stapled and validated it |
+| Published files | The `.dmg` and `SHA256SUMS-macos-0.24.0` were uploaded to the GitHub release, then the `.dmg` was downloaded again and matched the checksum |
+| Homebrew cask | Updated to 0.24.0 with that checksum; `brew audit --cask --online` exited 0 |
 
 Notes:
 
 - The macOS-only flake in `a_real_repository_reports_its_branch_and_dirty_files` (a 250 ms `git status` timeout on a slow runner) is fixed by giving the test a 30 s timeout; production behaviour is unchanged.
 - The new drag-to-copy behaviour (`drag_selects` and `copy_on_select` on by default, mouse selection in scrolled-back history) is covered by a unit test for the history text and the existing selection tests. Nobody has tried it by hand in a real window, in Claude Code or elsewhere; a selection over live output follows screen positions, and a drag during the scroll glide can land a line off.
 - `agents --json` has not been tried against a live agent pane.
-- The Homebrew cask is still at 0.22.0 and was not updated, because it needs the signed `.dmg` and its checksum.
+- There is no `.pkg` for 0.24.0: the Mac it was built on has no Developer ID Installer identity, so only the `.dmg` was made.
+- `spctl` was not run, the `.dmg` was not opened on a clean Mac, and `brew install` of the new cask was not tried; only the audit ran.
 
 ## Previous local run (macOS, 0.23.0)
 
