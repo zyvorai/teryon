@@ -131,6 +131,23 @@ fn clip(cmd: &str) -> String {
     s
 }
 
+/// The report as JSON: `[{project, runs, failures, total_ms, slowest: [{cmd, ms}], failing: [{cmd, count}]}]`.
+pub fn to_json(projects: &[Project]) -> serde_json::Value {
+    projects
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "project": p.name,
+                "runs": p.runs,
+                "failures": p.failures,
+                "total_ms": p.total_ms,
+                "slowest": p.slowest.iter().map(|(c, ms)| serde_json::json!({"cmd": c, "ms": ms})).collect::<Vec<_>>(),
+                "failing": p.failing.iter().map(|(c, n)| serde_json::json!({"cmd": c, "count": n})).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
 pub fn render(projects: &[Project], days: u64) -> String {
     if projects.is_empty() {
         return format!("No commands recorded in the last {days} day(s).\n");
@@ -252,6 +269,10 @@ mod tests {
         assert_eq!(a.failing, vec![("cargo test".to_string(), 2)]);
         assert_eq!(r[1].name, "~/b");
         assert!(render(&r, 7).contains("2 failed (50%)"));
+        let j = to_json(&r);
+        assert_eq!(j[0]["project"], "~/a");
+        assert_eq!(j[0]["slowest"][0]["ms"], 90_000);
+        assert_eq!(j[0]["failing"][0]["count"], 2);
     }
 
     #[test]

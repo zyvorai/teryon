@@ -29,3 +29,15 @@ fn an_unreachable_host_is_named_and_does_not_stop_the_guard() {
     assert!(err.contains("Watching no-such-host.invalid"), "{err}");
     assert!(err.contains("no-such-host.invalid: unreachable"), "{err}");
 }
+
+#[test]
+fn agents_json_prints_nothing_but_json_lines() {
+    let home = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_teryon"))
+        .env("HOME", home.path())
+        .args(["agents", "no-such-host.invalid", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(out.stdout.is_empty(), "{:?}", out.stdout);
+}

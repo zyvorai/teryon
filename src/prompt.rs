@@ -135,8 +135,11 @@ fn run_git(dir: &Path, timeout: Duration) -> Option<String> {
 }
 /// Git state for `dir`: full when `git status` answers in time, otherwise just the branch.
 pub fn collect_git(dir: &Path) -> Option<Git> {
+    collect_git_within(dir, GIT_TIMEOUT)
+}
+fn collect_git_within(dir: &Path, timeout: Duration) -> Option<Git> {
     head_branch(dir)?;
-    match run_git(dir, GIT_TIMEOUT).and_then(|t| parse_status(&t)) {
+    match run_git(dir, timeout).and_then(|t| parse_status(&t)) {
         Some(git) => Some(git),
         None => head_branch(dir).map(|branch| Git {
             branch,
@@ -367,7 +370,7 @@ mod tests {
             return;
         }
         std::fs::write(dir.path().join("a.txt"), "x").unwrap();
-        let g = collect_git(dir.path()).unwrap();
+        let g = collect_git_within(dir.path(), Duration::from_secs(30)).unwrap();
         assert_eq!(
             (g.branch.as_str(), g.untracked, g.partial),
             ("trunk", 1, false)

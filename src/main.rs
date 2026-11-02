@@ -502,6 +502,9 @@ enum Commands {
         /// Look at this machine and every configured host.
         #[arg(long)]
         all: bool,
+        /// One JSON object per agent per line, for scripts (nothing else is printed).
+        #[arg(long)]
+        json: bool,
     },
     /// Show what the AI agents in a workspace changed: commits on their branch since it left main, the
     /// uncommitted diff and new files. Local workspaces only; it just reads the Git repository.
@@ -614,6 +617,9 @@ enum HistCommand {
         /// Commands to list per project.
         #[arg(long, default_value_t = 3)]
         top: usize,
+        /// Print JSON (an array of projects) instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Find the newest past command containing every word of QUERY and show where it ran. Prints
     /// `cd DIR && COMMAND` (so you can paste or `eval` it); with --run, runs it in that directory.
@@ -1064,7 +1070,7 @@ fn run() -> Result<i32> {
                 no_splash,
             )?
         }
-        Commands::Agents { hosts, all } => {
+        Commands::Agents { hosts, all, json } => {
             let mut names = hosts;
             if all {
                 names.push("local".into());
@@ -1090,17 +1096,25 @@ fn run() -> Result<i32> {
                     for (id, kind, status) in
                         teryon::mcp::agent_rows(&mut backend, &host, &w.name).unwrap_or_default()
                     {
-                        println!(
-                            "{host}\t{}\tpane {id}\t{}\t{}",
-                            w.name,
-                            kind.name(),
-                            status.label()
-                        );
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::json!({"host": host, "workspace": w.name, "pane": id,
+                                    "agent": kind.name(), "status": status.label()})
+                            );
+                        } else {
+                            println!(
+                                "{host}\t{}\tpane {id}\t{}\t{}",
+                                w.name,
+                                kind.name(),
+                                status.label()
+                            );
+                        }
                         shown += 1;
                     }
                 }
             }
-            if shown == 0 {
+            if shown == 0 && !json {
                 println!("No AI agents running.");
             }
         }
@@ -1996,7 +2010,12 @@ fn run() -> Result<i32> {
                 return Ok(1);
             }
         }
-        Commands::Hist(HistCommand::Report { days, host, top }) => {
+        Commands::Hist(HistCommand::Report {
+            days,
+            host,
+            top,
+            json,
+        }) => {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
@@ -2010,7 +2029,14 @@ fn run() -> Result<i32> {
                 top,
                 &home,
             );
-            print!("{}", teryon::histtools::render(&projects, days));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&teryon::histtools::to_json(&projects))?
+                );
+            } else {
+                print!("{}", teryon::histtools::render(&projects, days));
+            }
         }
         Commands::Hist(HistCommand::Replay { failed, run, query }) => {
             let now = std::time::SystemTime::now()
