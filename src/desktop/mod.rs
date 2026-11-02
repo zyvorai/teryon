@@ -720,6 +720,9 @@ impl Desktop {
     }
     fn input(&mut self, data: Vec<u8>) {
         self.scrollback.remove(&self.focus);
+        if self.selection.is_some_and(|s| s.pane == self.focus) {
+            self.selection = None;
+        }
         if data.len() > MAX_INPUT {
             self.notice = "Paste too large; transfer a file instead".into();
             return;
