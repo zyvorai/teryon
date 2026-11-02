@@ -19,7 +19,25 @@ Counts overlap across compiler/configuration runs; the totals should not be adde
 
 The runner's initial Rust 1.99.1 optimized build produced dependency archive/link errors. Pinning Rust 1.94.0 resolved that release-build issue; the pinned compiler is used by the repository and workflow definitions.
 
-## Latest local run (macOS, 0.23.0)
+## Latest local run (macOS, 0.24.0)
+
+Run on the Apple Silicon Mac the release was prepared on (2026-11-02), at the release commit with the committed lockfile and the locally installed compiler (not the pinned 1.94.0):
+
+| Check | Result |
+|---|---|
+| `cargo test --all-targets --all-features --locked` | **Passed**; the library suite with the desktop feature is **505 passed** |
+| `cargo clippy --all-targets --features desktop --locked` and `cargo fmt --check` | **Clean** |
+| Pull-request checks (macOS, Ubuntu, ssh) | **Passed** on every 0.24.0 pull request; the tag's release workflow succeeded and attached the Linux and macOS arm64 archives |
+| Signed packages | **Not built yet**: `TERYON-0.24.0.dmg` and `.pkg` from `scripts/release-macos.sh` have not been made, notarized or uploaded |
+
+Notes:
+
+- The macOS-only flake in `a_real_repository_reports_its_branch_and_dirty_files` (a 250 ms `git status` timeout on a slow runner) is fixed by giving the test a 30 s timeout; production behaviour is unchanged.
+- The new drag-to-copy behaviour (`drag_selects` and `copy_on_select` on by default, mouse selection in scrolled-back history) is covered by a unit test for the history text and the existing selection tests. Nobody has tried it by hand in a real window, in Claude Code or elsewhere; a selection over live output follows screen positions, and a drag during the scroll glide can land a line off.
+- `agents --json` has not been tried against a live agent pane.
+- The Homebrew cask is still at 0.22.0 and was not updated, because it needs the signed `.dmg` and its checksum.
+
+## Previous local run (macOS, 0.23.0)
 
 Run on the same Apple Silicon Mac mini (2026-10-29), on a copy of the `v0.23.0` source with the committed lockfile and the compiler installed there (Rust 1.99.0, not the pinned 1.94.0):
 
