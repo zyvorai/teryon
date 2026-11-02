@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `teryon agent-guard`: a time budget for AI agents. It watches the agents on this machine or your hosts and reports one that has worked longer than `--max` (default 30 min) without a pause — on the terminal and through your `[notify]` sinks, once per stretch of work; `--interrupt` also presses Esc in that pane
+
 ## 0.23.0
 
 - Answer an agent from your phone: with `[notify] ntfy_url` and `reply = true`, the "needs you" push carries Approve and Deny buttons. A tap posts a one-time token to `<ntfy_url>-reply`, which the daemon follows with an outbound `curl` stream (nothing listens on the Mac). A token answers one pane once within 30 minutes and only while the pane still shows a prompt; the phone gets a quiet "Approved", "Denied" or "Not sent" follow-up

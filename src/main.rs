@@ -503,6 +503,26 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+    /// Watch the AI coding agents and flag one that has worked without a pause for longer than --max.
+    AgentGuard {
+        /// Hosts to watch (default: local).
+        hosts: Vec<String>,
+        /// Watch this machine and every configured host.
+        #[arg(long)]
+        all: bool,
+        /// How long an agent may work without a pause: 30s, 45m, 2h (bare numbers are minutes).
+        #[arg(long, default_value = "30m")]
+        max: String,
+        /// Seconds between looks.
+        #[arg(long, default_value_t = 15, value_name = "SECS")]
+        interval: u64,
+        /// Also press Esc in the pane, which makes the agent stop what it is doing.
+        #[arg(long)]
+        interrupt: bool,
+        /// Stop after this many looks (default: until Ctrl+C).
+        #[arg(long, value_name = "N")]
+        looks: Option<u64>,
+    },
     /// Overview of every configured host: reachability, system, workspaces and panes.
     Dashboard {
         /// Include this machine (starts the local service if needed).
@@ -1074,6 +1094,71 @@ fn run() -> Result<i32> {
             }
             if shown == 0 {
                 println!("No AI agents running.");
+            }
+        }
+        Commands::AgentGuard {
+            hosts,
+            all,
+            max,
+            interval,
+            interrupt,
+            looks,
+        } => {
+            use teryon::agentguard::{look, parse_span, span, Tracker};
+            use teryon::mcp::Backend;
+            let limit = parse_span(&max)
+                .with_context(|| format!("--max {max:?}: use a span such as 30s, 45m or 2h"))?;
+            if !(1..=3600).contains(&interval) {
+                bail!("--interval must be 1..3600 seconds");
+            }
+            let cfg = config::load()?;
+            let mut names = hosts;
+            if all {
+                names.push("local".into());
+                names.extend(cfg.hosts.keys().cloned());
+            } else if names.is_empty() {
+                names.push("local".into());
+            }
+            names.dedup();
+            let mut backend = teryon::mcp::Real {
+                remote_bin: bin.clone(),
+            };
+            let mut tracker = Tracker::new(limit);
+            eprintln!(
+                "Watching {} for agents working longer than {}.",
+                names.join(", "),
+                span(limit)
+            );
+            let mut done = 0u64;
+            loop {
+                let (rows, down) = look(&mut backend, &names);
+                for d in down {
+                    eprintln!("{d}");
+                }
+                let seen: Vec<_> = rows.iter().map(|(k, _, s)| (k.clone(), *s)).collect();
+                for over in tracker.observe(std::time::Instant::now(), &seen) {
+                    let (host, ws, pane) = over.key.clone();
+                    let agent = rows
+                        .iter()
+                        .find(|(k, _, _)| *k == over.key)
+                        .map_or("Agent", |(_, kind, _)| kind.name());
+                    let stopped =
+                        interrupt && backend.send(&host, &ws, pane, "\x1b", false).is_ok();
+                    let worked = span(over.worked);
+                    println!(
+                        "{host}\t{ws}\tpane {pane}\t{agent} has worked {worked} without a pause{}",
+                        if stopped { " (interrupted)" } else { "" }
+                    );
+                    teryon::notify::send(
+                        &cfg.notify,
+                        teryon::notify::Note::agent_over_budget(agent, &ws, pane, &worked, stopped),
+                    );
+                }
+                done += 1;
+                if looks.is_some_and(|n| done >= n) {
+                    break;
+                }
+                thread::sleep(Duration::from_secs(interval));
             }
         }
         Commands::Dashboard { local, watch } => {

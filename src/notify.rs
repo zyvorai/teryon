@@ -85,6 +85,28 @@ impl Note {
             reply: None,
         }
     }
+    /// An agent has been working without a pause for longer than the budget set with `agent-guard`.
+    pub fn agent_over_budget(
+        agent: &str,
+        workspace: &str,
+        pane: u64,
+        worked: &str,
+        stopped: bool,
+    ) -> Self {
+        let tail = if stopped { "; interrupted" } else { "" };
+        Self {
+            event: "agent_over_budget",
+            title: format!("{agent} is over its time budget"),
+            message: clean(
+                &format!("{agent} has worked {worked} in {workspace} (pane {pane}){tail}"),
+                200,
+            ),
+            workspace: workspace.into(),
+            pane,
+            detail: None,
+            reply: None,
+        }
+    }
     /// A long command ended; `text` says which and how.
     pub fn command_done(workspace: &str, pane: u64, text: &str) -> Self {
         Self {
