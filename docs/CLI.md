@@ -31,14 +31,14 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `env allow\|deny\|status [DIR]` | Trust, stop trusting, or inspect the `[env]` table of the project's `.teryon.toml` (loaded by the shell integration on `cd`) |
 | `explain -- COMMAND LINE` | Explain a command line part by part (command, each flag, pipes, redirects) from the local manual pages; never runs it |
 | `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
-| `hist report [--days N] [--host H]` | Per project: commands run, failures, slowest and most-failing commands |
+| `hist report [--days N] [--host H] [--json]` | Per project: commands run, failures, slowest and most-failing commands |
 | `hist replay [--failed] [--run] -- WORDS` | Find a past command and print `cd DIR && COMMAND` (or run it where it ran) |
 | `notify test [--done]` | Show a sample "agent needs you" (or "finished") banner on this Mac and send it once to the ntfy and webhook sinks in `[notify]`, saying whether each accepted it |
 | `snip add\|list\|show\|fill\|run\|rm` | Saved commands with `{{placeholders}}` (Alt-S in the shell integration picks one) |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |
 | `wake HOST [--wait [--timeout SECS] [--connect]]` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |
-| `agents [HOST...] [--all]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
+| `agents [HOST...] [--all] [--json]` | List the AI coding agents in every workspace (host, workspace, pane, agent, working / needs you / idle / done); `--all` covers this machine and every configured host |
 | `agent-guard [HOST...] [--all] [--max 30m] [--interval 15] [--interrupt] [--looks N]` | Watch the agents and report one that has worked longer than `--max` without a pause (printed and sent to your `[notify]` sinks, once per stretch of work); `--interrupt` also presses Esc in that pane |
 | `import-ssh [--file PATH] [--dry-run]` | Add `Host` aliases from `~/.ssh/config` to the TERYON config (append-only) |
 | `completions SHELL` | Shell completion script (bash, zsh, fish, elvish, powershell) |

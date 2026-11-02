@@ -76,3 +76,17 @@ fn replay_prints_a_cd_line_and_can_run_the_command_where_it_ran() {
     assert!(!miss.status.success());
     assert!(String::from_utf8_lossy(&miss.stderr).contains("no earlier command matches"));
 }
+
+#[test]
+fn the_report_can_be_printed_as_json_for_scripts() {
+    let (home, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let cwd = work.path().display().to_string();
+    add(home.path(), &cwd, "1", "90000", "cargo test");
+    let out = teryon(home.path(), &["hist", "report", "--json"]);
+    assert!(out.status.success(), "{out:?}");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["runs"], 1);
+    assert_eq!(v[0]["failing"][0]["cmd"], "cargo test");
+    let none = teryon(home.path(), &["hist", "report", "--json", "--host", "x"]);
+    assert_eq!(String::from_utf8_lossy(&none.stdout).trim(), "[]");
+}

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `--json` for scripts: `teryon agents --json` prints one JSON object per agent per line, `teryon hist report --json` an array of projects
 - `teryon agent-guard`: a time budget for AI agents. It watches the agents on this machine or your hosts and reports one that has worked longer than `--max` (default 30 min) without a pause — on the terminal and through your `[notify]` sinks, once per stretch of work; `--interrupt` also presses Esc in that pane
 
 ## 0.23.0
