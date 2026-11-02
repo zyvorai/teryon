@@ -2,7 +2,15 @@
 
 What has shipped and what is still open, based on the current limitations (`docs/LIMITATIONS.md`), what users are likely to hit, and the Mac mini / AI-agent / infrastructure focus.
 
-**Status**: Engineering preview v0.23.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+**Status**: Engineering preview v0.24.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+
+## Shipped in 0.24.0
+
+| Area | What |
+|---|---|
+| Desktop | Drag selects and copies like other terminals (`drag_selects` and `copy_on_select` on by default, also in Claude Code and vim); scrolled-back history can be selected with the mouse; typing or scrolling clears a selection |
+| Agents | `teryon agent-diff` (what the agents changed), `teryon agent-guard` (a time budget for agents), `--json` for `agents` and `hist report` |
+| Tests | Session tests wait for shells and the controller lease instead of sleeping fixed times |
 
 ## Shipped in 0.23.0
 

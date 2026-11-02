@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.24.0
+
 - Desktop selection now works like other terminals: a drag selects and copies (`copy_on_select` and `drag_selects` are on by default, even in Claude Code and vim), scrolled-back history can be dragged over too, and typing or scrolling clears a selection. Set either option to `false` for the old behaviour
 - `--json` for scripts: `teryon agents --json` prints one JSON object per agent per line, `teryon hist report --json` an array of projects
 - `teryon agent-diff [PANE]`: what the AI agents in a workspace changed — the commits on their branch since it left main, the uncommitted diff stat and new files. Read-only, local workspaces
