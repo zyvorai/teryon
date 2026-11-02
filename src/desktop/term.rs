@@ -471,7 +471,7 @@ impl Desktop {
             return;
         };
         if pane.parser.screen().alternate_screen() {
-            self.toast("Copy mode works on the normal screen; use ⌥-drag in full-screen programs");
+            self.toast("Copy mode works on the normal screen; hold ⇧ while dragging to select in full-screen programs");
             return;
         }
         let rows = usize::from(self.view_rows.get(&id).copied().unwrap_or(24));
