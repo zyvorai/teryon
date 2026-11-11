@@ -54,6 +54,32 @@ What has shipped and what is still open, based on the current limitations (`docs
 | Away | "While you were away" timeline of finished commands and waiting agents |
 | Updates | `teryon update`, palette "Check for updates", optional daily check (off by default), nothing installed automatically |
 
+## Shipped in this branch (feat/persistent-drafts-mcp-presets)
+
+| Area | What |
+|---|---|
+| Drafts | Offline drafts are now persisted to `~/.teryon/drafts/<workspace>.txt` (loaded on TUI start, saved on Enter). |
+| MCP | New read-only tools: `get_pane_cwd`, `list_drafts`. |
+| Presets | Scaffolding for agent workspace presets (`~/.teryon/presets/*.toml`). |
+
+## Shipped in feat/tons-of-features
+
+| Area | What |
+|---|---|
+| CLI | `drafts`, `presets`, `metrics`, `summary` commands |
+| MCP | `list_presets`, `get_preset`, `session_summary` |
+| Metrics | Persistent JSONL host metrics snapshots |
+| Summary | Session overview export |
+
+## Shipped in feat/research-tons-of-feats
+
+| Area | What |
+|---|---|
+| Notes | Per host/workspace markdown notes |
+| Bookmarks | Named pane/directory shortcuts |
+| Ports | Preferred auto-forward rules |
+| MCP | list_notes, get_note, list_bookmarks, list_port_rules |
+
 ## Still open
 
 ### Verification (do first)

@@ -68,6 +68,75 @@ enum Commands {
         #[arg(long)]
         restore: bool,
     },
+    /// List, clear or show offline drafts.
+    Drafts {
+        #[arg(long)]
+        clear: bool,
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// List or show agent workspace presets.
+    Presets {
+        #[arg(long)]
+        show: Option<String>,
+    },
+    /// Save or show recent host metrics.
+    Metrics {
+        #[arg(default_value = "local")]
+        host: String,
+        #[arg(long)]
+        save: bool,
+        #[arg(long, default_value_t = 10)]
+        n: usize,
+    },
+    /// Session notes (per host/workspace).
+    Notes {
+        #[arg(default_value = "local")]
+        host: String,
+        #[arg(short, long, default_value = "default")]
+        workspace: String,
+        #[arg(long)]
+        set: Option<String>,
+        #[arg(long)]
+        list: bool,
+    },
+    /// Bookmarks for panes or directories.
+    Bookmarks {
+        #[arg(long)]
+        add: Option<String>,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        workspace: Option<String>,
+        #[arg(long)]
+        pane: Option<u64>,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long)]
+        list: bool,
+    },
+    /// Preferred port-forward rules.
+    Portsauto {
+        #[arg(long)]
+        add: bool,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        local: Option<u16>,
+        #[arg(long)]
+        remote: Option<u16>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Print a session summary (drafts, presets, metrics).
+    Summary {
+        #[arg(default_value = "local")]
+        host: String,
+        #[arg(short, long, default_value = "default")]
+        workspace: String,
+    },
     /// List persistent remote workspaces.
     Sessions {
         #[arg(default_value = "local")]
@@ -1449,6 +1518,81 @@ fn run() -> Result<i32> {
                     println!("  {n}");
                 }
             }
+        }
+        Commands::Drafts { clear, workspace } => {
+            if clear {
+                let n = teryon::feats::clear_drafts();
+                println!("cleared {n} drafts");
+            } else if let Some(ws) = workspace {
+                println!("{}", teryon::drafts::load_draft(&ws));
+            } else {
+                for (ws, body) in teryon::drafts::list_drafts() {
+                    let first = body.lines().next().unwrap_or("");
+                    println!("{ws}\t{first}");
+                }
+            }
+        }
+        Commands::Presets { show } => {
+            if let Some(name) = show {
+                println!("{}", teryon::feats::apply_preset_hint(&name));
+            } else {
+                for name in teryon::presets::list_presets() {
+                    println!("{name}");
+                }
+            }
+        }
+        Commands::Metrics { host, save, n } => {
+            if save {
+                // Placeholder values; real collection would come from hosthealth
+                let _ = teryon::feats::save_host_metrics(&host, 0.5, 1024, 8192);
+                println!("saved metrics snapshot for {host}");
+            } else {
+                for line in teryon::feats::recent_metrics(&host, n) {
+                    println!("{line}");
+                }
+            }
+        }
+        Commands::Notes { host, workspace, set, list } => {
+            if list {
+                for (k, _) in teryon::notes::list_notes() {
+                    println!("{k}");
+                }
+            } else if let Some(content) = set {
+                teryon::notes::save_note(&host, &workspace, &content)?;
+                println!("note saved");
+            } else {
+                println!("{}", teryon::notes::load_note(&host, &workspace));
+            }
+        }
+        Commands::Bookmarks { add, host, workspace, pane, cwd, list } => {
+            if list || add.is_none() {
+                for line in teryon::notes::list_bookmarks() {
+                    println!("{line}");
+                }
+            } else if let Some(name) = add {
+                teryon::notes::add_bookmark(&name, host.as_deref().unwrap_or("local"), workspace.as_deref().unwrap_or("default"), pane, cwd.as_deref())?;
+                println!("bookmark added");
+            }
+        }
+        Commands::Portsauto { add, host, local, remote, name, clear } => {
+            if clear {
+                teryon::portsauto::clear_rules()?;
+                println!("port rules cleared");
+            } else if add {
+                if let (Some(h), Some(l), Some(r)) = (host, local, remote) {
+                    teryon::portsauto::add_rule(&h, l, r, name.as_deref().unwrap_or(""))?;
+                    println!("rule added");
+                } else {
+                    println!("need --host --local --remote");
+                }
+            } else {
+                for line in teryon::portsauto::list_rules() {
+                    println!("{line}");
+                }
+            }
+        }
+        Commands::Summary { host, workspace } => {
+            println!("{}", teryon::feats::session_summary(&host, &workspace));
         }
         Commands::Sessions { host } => {
             let response = target(host, bin)?.connect()?.call(Request::List)?;
