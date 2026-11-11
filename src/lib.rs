@@ -13,6 +13,11 @@ pub mod configedit;
 pub mod copymode;
 pub mod cp;
 pub mod daemon;
+pub mod drafts;
+pub mod feats;
+pub mod notes;
+pub mod portsauto;
+pub mod presets;
 pub mod dashboard;
 #[cfg(feature = "desktop")]
 pub mod desktop;

@@ -1296,6 +1296,7 @@ pub fn run(
             initial,
         )
     });
+    let draft = crate::drafts::load_draft(&workspace);
     let mut app = App {
         target: target.host,
         workspace,
@@ -1310,7 +1311,7 @@ pub fn run(
         theme,
         mode: Mode::Terminal,
         prefix: false,
-        draft: String::new(),
+        draft,
         tx,
         last_size: initial,
         started: Instant::now(),
@@ -1360,9 +1361,10 @@ pub fn run(
                         },
                         Mode::Draft => match k.code {
                             KeyCode::Enter => {
+                                let _ = crate::drafts::save_draft(&app.workspace, &app.draft);
                                 app.mode = Mode::Terminal;
                                 app.notice =
-                                    "Draft saved in memory; use send-draft when ready".into();
+                                    "Draft saved to disk; use send-draft when ready".into();
                             }
                             KeyCode::Backspace => {
                                 app.draft.pop();

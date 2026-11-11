@@ -1,4 +1,27 @@
+## Unreleased — research-driven feature drop
+
+* **Notes**: per host/workspace session notes (`teryon notes`).
+* **Bookmarks**: named shortcuts to panes or directories (`teryon bookmarks`).
+* **Port rules**: preferred automatic forward rules (`teryon portsauto`).
+* **MCP**: `list_notes`, `get_note`, `list_bookmarks`, `list_port_rules`.
+* Research basis: gaps vs remote-shell-mcp, ssh-mcp tools, Zellij/Herdr agent workflows.
+
+## Unreleased — tons of features
+
+* **CLI**: `teryon drafts`, `teryon presets`, `teryon metrics`, `teryon summary`.
+* **MCP**: added `list_presets`, `get_preset`, `session_summary`.
+* **Metrics**: persistent host metrics snapshots under `~/.teryon/metrics/<host>.jsonl`.
+* **Presets**: richer scaffolding and CLI/MCP access.
+* **Session summary**: one-command overview of drafts, presets and recent metrics.
+
 # Changelog
+
+## Unreleased — persistent drafts, MCP tools, presets scaffolding
+
+* **Persistent offline drafts**: drafts are saved to `~/.teryon/drafts/<workspace>.txt` and reloaded when the TUI starts. Leaving the draft editor with Enter writes the file.
+* **MCP**: added `get_pane_cwd` and `list_drafts` read-only tools.
+* **Agent presets**: new `src/presets.rs` scaffolding for workspace presets stored as TOML under `~/.teryon/presets/`.
+
 
 ## Unreleased
 
