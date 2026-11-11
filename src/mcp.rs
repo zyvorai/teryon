@@ -113,6 +113,69 @@ impl<B: Backend> Server<B> {
                 &["pane", "pattern"],
                 true,
             ),
+            tool(
+                "get_pane_cwd",
+                "Return the current working directory of a pane (from the shell integration).",
+                target_props(json!({"pane": {"type": "integer"}})),
+                &["pane"],
+                true,
+            ),
+            tool(
+                "list_drafts",
+                "List offline drafts saved on this machine (workspace name and first line).",
+                json!({}),
+                &[],
+                true,
+            ),
+            tool(
+                "list_presets",
+                "List agent workspace presets available on this machine.",
+                json!({}),
+                &[],
+                true,
+            ),
+            tool(
+                "get_preset",
+                "Show the panes and commands defined in a named preset.",
+                json!({"name": {"type": "string"}}),
+                &["name"],
+                true,
+            ),
+            tool(
+                "session_summary",
+                "Return a short text summary of drafts, presets and recent host metrics.",
+                target_props(json!({})),
+                &[],
+                true,
+            ),
+            tool(
+                "list_notes",
+                "List saved session notes (host-workspace keys).",
+                json!({}),
+                &[],
+                true,
+            ),
+            tool(
+                "get_note",
+                "Return the note text for a host and workspace.",
+                json!({"host": {"type": "string"}, "workspace": {"type": "string"}}),
+                &["host", "workspace"],
+                true,
+            ),
+            tool(
+                "list_bookmarks",
+                "List saved bookmarks (named pane or directory shortcuts).",
+                json!({}),
+                &[],
+                true,
+            ),
+            tool(
+                "list_port_rules",
+                "List preferred automatic port-forward rules.",
+                json!({}),
+                &[],
+                true,
+            ),
         ];
         if self.opts.allow_write {
             t.push(tool(
@@ -343,6 +406,53 @@ impl<B: Backend> Server<B> {
                     }
                     std::thread::sleep(Duration::from_millis(250));
                 }
+            }
+            "get_pane_cwd" => {
+                let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
+                let pane = Self::pane_arg(args)?;
+                let panes = self.backend.panes(&host, &ws)?;
+                let cwd = panes.iter().find(|p| p.id == pane).map(|p| p.cwd.clone()).unwrap_or_default();
+                Ok(if cwd.is_empty() { "unknown".into() } else { cwd })
+            }
+            "list_drafts" => {
+                let drafts = crate::drafts::list_drafts();
+                Ok(if drafts.is_empty() {
+                    "no drafts".into()
+                } else {
+                    drafts.iter().map(|(ws, body)| {
+                        let first = body.lines().next().unwrap_or("").chars().take(80).collect::<String>();
+                        format!("{ws}\t{first}")
+                    }).collect::<Vec<_>>().join("\n")
+                })
+            }
+            "list_presets" => {
+                let names = crate::presets::list_presets();
+                Ok(if names.is_empty() { "no presets".into() } else { names.join("\n") })
+            }
+            "get_preset" => {
+                let name = args["name"].as_str().unwrap_or("");
+                Ok(crate::feats::apply_preset_hint(name))
+            }
+            "session_summary" => {
+                let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
+                Ok(crate::feats::session_summary(&host, &ws))
+            }
+            "list_notes" => {
+                let notes = crate::notes::list_notes();
+                Ok(if notes.is_empty() { "no notes".into() } else { notes.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>().join("\n") })
+            }
+            "get_note" => {
+                let host = args["host"].as_str().unwrap_or("local");
+                let ws = args["workspace"].as_str().unwrap_or("default");
+                Ok(crate::notes::load_note(host, ws))
+            }
+            "list_bookmarks" => {
+                let b = crate::notes::list_bookmarks();
+                Ok(if b.is_empty() { "no bookmarks".into() } else { b.join("\n") })
+            }
+            "list_port_rules" => {
+                let r = crate::portsauto::list_rules();
+                Ok(if r.is_empty() { "no port rules".into() } else { r.join("\n") })
             }
             "new_pane" => {
                 let (host, ws) = self.write_target(args)?;
@@ -676,7 +786,7 @@ mod tests {
         let (msg, err) = call(&mut ro, "new_pane", json!({"command": ["ls"]}));
         assert!(err && msg.contains("--allow-write"), "{msg}");
         let (rw, _) = server(true, &["x"]);
-        assert_eq!(rw.tools().len(), 9);
+        assert_eq!(rw.tools().len(), 18);
         assert!(rw
             .tools()
             .iter()
