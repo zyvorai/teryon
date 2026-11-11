@@ -1401,6 +1401,21 @@ fn run() -> Result<i32> {
                     println!("{p}");
                 }
             }
+            [kind, prefix] if kind == "local-path" => {
+                for p in teryon::complete::local_paths(prefix) {
+                    println!("{p}");
+                }
+            }
+            [kind] if kind == "themes" => {
+                for t in teryon::complete::themes() {
+                    println!("{t}");
+                }
+            }
+            [kind] if kind == "snippets" => {
+                for s in teryon::complete::snippets() {
+                    println!("{s}");
+                }
+            }
             _ => {}
         },
         Commands::Up {

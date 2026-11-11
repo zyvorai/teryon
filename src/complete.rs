@@ -299,3 +299,70 @@ mod tests {
         assert_eq!(candidates("~", ""), ["~/"]);
     }
 }
+
+
+/// Local directory / file candidates for a prefix (handles `~`, `~/`, relative).
+pub fn local_paths(prefix: &str) -> Vec<String> {
+    use std::fs;
+    let home = util::home().ok();
+    let expanded = if prefix == "~" || prefix.starts_with("~/") {
+        if let Some(h) = &home {
+            if prefix == "~" {
+                return vec!["~/".into()];
+            }
+            h.join(prefix.trim_start_matches("~/")).to_string_lossy().to_string()
+        } else {
+            prefix.to_string()
+        }
+    } else {
+        prefix.to_string()
+    };
+    let path = std::path::Path::new(&expanded);
+    let (dir, partial) = if path.is_dir() && expanded.ends_with('/') {
+        (path.to_path_buf(), "")
+    } else {
+        match path.parent() {
+            Some(p) => (p.to_path_buf(), path.file_name().and_then(|n| n.to_str()).unwrap_or("")),
+            None => (std::path::PathBuf::from("."), ""),
+        }
+    };
+    let Ok(entries) = fs::read_dir(&dir) else { return Vec::new(); };
+    let mut out = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !partial.is_empty() && !name.starts_with(partial) { continue; }
+        if partial.is_empty() && name.starts_with('.') { continue; }
+        let full = dir.join(&name);
+        let is_dir = full.is_dir();
+        let mut s = if prefix.starts_with("~/") || prefix == "~" {
+            if let Some(h) = &home {
+                let rel = full.strip_prefix(h).unwrap_or(&full);
+                format!("~/{}", rel.display())
+            } else {
+                full.display().to_string()
+            }
+        } else {
+            full.display().to_string()
+        };
+        if is_dir { s.push('/'); }
+        out.push(s);
+    }
+    out.sort();
+    out
+}
+
+/// Theme names available for completion.
+pub fn themes() -> Vec<String> {
+    // Common built-in theme names; real list lives in themes module if present.
+    vec![
+        "apple-dark", "apple-light", "tokyo-night", "tokyo-night-storm", "tokyo-night-day",
+        "carbon", "catppuccin-mocha", "dracula", "gruvbox", "nord", "rose-pine",
+        "solarized", "obsidian", "pearl", "aurora", "ember", "ocean", "sakura",
+        "forest", "high-contrast",
+    ].into_iter().map(str::to_string).collect()
+}
+
+/// Snippet names.
+pub fn snippets() -> Vec<String> {
+    crate::snippet::load_saved().into_iter().map(|s| s.name).collect()
+}

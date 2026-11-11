@@ -1,3 +1,11 @@
+
+## Unreleased — better shell completions
+
+* `teryon complete local-path PREFIX` — local directory/file completion (handles `~`, `~/`, relative).
+* `teryon complete themes` — built-in theme names.
+* `teryon complete snippets` — saved snippet names.
+* Existing remote-path completion already handles `~/` on remote hosts.
+
 ## Unreleased — research-driven feature drop
 
 * **Notes**: per host/workspace session notes (`teryon notes`).
@@ -13,6 +21,7 @@
 * **Metrics**: persistent host metrics snapshots under `~/.teryon/metrics/<host>.jsonl`.
 * **Presets**: richer scaffolding and CLI/MCP access.
 * **Session summary**: one-command overview of drafts, presets and recent metrics.
+
 
 # Changelog
 
