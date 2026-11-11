@@ -1,3 +1,10 @@
+## Unreleased — better shell completions
+
+* `teryon complete local-path PREFIX` — local directory/file completion (handles `~`, `~/`, relative).
+* `teryon complete themes` — built-in theme names.
+* `teryon complete snippets` — saved snippet names.
+* Existing remote-path completion already handles `~/` on remote hosts.
+
 # Changelog
 
 ## Unreleased
