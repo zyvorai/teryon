@@ -8,6 +8,7 @@ REPO="${1:-${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-OWNER/t
 SITE="${2:-https://zyvorai.github.io/teryon}"
 rm -rf site/dist && mkdir -p site/dist
 cp -R site/img site/favicon.svg site/dist/
+cp site/public/*.pdf site/dist/ 2>/dev/null || true
 cp site/img/apple-touch-icon.png site/dist/apple-touch-icon.png
 python3 - "$REPO" "$SITE" <<'PY'
 import glob, sys, tomllib
