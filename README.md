@@ -13,6 +13,8 @@
 
 <p align="center"><a href="https://zyvorai.github.io/teryon/"><b>Website</b></a> · <a href="#start-in-one-command"><b>Get started</b></a> · <a href="docs/FEATURES.md"><b>Features</b></a> · <a href="https://github.com/zyvorai/teryon/releases"><b>Releases</b></a></p>
 
+<p align="center">[Client overview (PDF)](docs/TERYON-Client-Overview.pdf)</p>
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/teryon-grid-light.jpg">
   <img src="docs/images/teryon-grid-dark.jpg" alt="TERYON desktop app: a file tree, a git log, test output and an assistant waiting for approval, in four panes" width="100%">
