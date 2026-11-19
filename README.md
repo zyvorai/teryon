@@ -1,19 +1,24 @@
-<p align="center"><img src="docs/brand/teryon-wordmark.svg" alt="TERYON — Your Mac mini. Wherever you work." width="480"></p>
+<div align="center">
 
-<p align="center">
-  <a href="https://github.com/zyvorai/teryon/actions/workflows/ci.yml"><img src="https://github.com/zyvorai/teryon/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/zyvorai/teryon" alt="Apache-2.0"></a>
-  <a href="https://github.com/zyvorai/teryon/releases"><img src="https://img.shields.io/github/v/tag/zyvorai/teryon?label=version" alt="Version"></a>
-  <a href="https://zyvorai.github.io/teryon/"><img src="https://img.shields.io/badge/site-zyvorai.github.io%2Fteryon-0a84ff" alt="Website"></a>
-</p>
+<img src="social/og.png" width="840" alt="TERYON: your Mac mini, wherever you work. Native app window with four panes of a demo workspace." />
 
-<h1 align="center">Your Mac mini.<br>Wherever you work.</h1>
+# Teryon
 
-<p align="center"><b>Shells that outlive your connection.</b><br>Close the lid, switch networks, come back tomorrow. Everything is exactly where you left it.</p>
+### Your Mac mini. Wherever you work.
 
-<p align="center"><a href="https://zyvorai.github.io/teryon/"><b>Website</b></a> · <a href="#start-in-one-command"><b>Get started</b></a> · <a href="docs/FEATURES.md"><b>Features</b></a> · <a href="https://github.com/zyvorai/teryon/releases"><b>Releases</b></a></p>
+Shells that outlive your connection. Persistent remote shells over plain OpenSSH, with a TUI, a native desktop app, agent-aware panes, a file browser and an MCP server. Free and open source.
 
-<p align="center">[Client overview (PDF)](docs/TERYON-Client-Overview.pdf)</p>
+<br />
+
+**[Download TERYON 0.24.0](https://github.com/zyvorai/teryon/releases/tag/v0.24.0)** &nbsp;·&nbsp; [Website](https://zyvorai.github.io/teryon/) &nbsp;·&nbsp; [Get started](#start-in-one-command) &nbsp;·&nbsp; [Features](docs/FEATURES.md) &nbsp;·&nbsp; [Client overview (PDF)](docs/TERYON-Client-Overview.pdf)
+
+`TERYON-0.24.0.dmg` · macOS and Linux · notarized DMG · Apache-2.0
+
+[![Checks](https://github.com/zyvorai/teryon/actions/workflows/ci.yml/badge.svg)](https://github.com/zyvorai/teryon/actions/workflows/ci.yml)
+[![Apache-2.0](https://img.shields.io/github/license/zyvorai/teryon)](LICENSE)
+[![Version](https://img.shields.io/github/v/tag/zyvorai/teryon?label=version)](https://github.com/zyvorai/teryon/releases)
+
+</div>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/teryon-grid-light.jpg">
@@ -60,7 +65,7 @@ teryon setup      # guided first run: tools, SSH hosts, reachability, theme
 
 ## Download
 
-Signed and notarized `TERYON-<version>.dmg` and `.pkg` (macOS) and `tar.gz` archives (macOS arm64, Linux x86_64) are on the [releases page](https://github.com/zyvorai/teryon/releases). Checksums are in the `SHA256SUMS-*` files next to them.
+The notarized `TERYON-<version>.dmg` (macOS; Developer ID signed and notarized by Apple) and `tar.gz` archives (macOS arm64, Linux x86_64) are on the [releases page](https://github.com/zyvorai/teryon/releases). Some earlier releases also carry a `.pkg`; 0.24.0 does not. Checksums are in the `SHA256SUMS-*` files next to them.
 
 ## Build and try locally
 
@@ -116,7 +121,7 @@ See [the complete Mac mini tutorial](docs/MAC-MINI.md), [every command](docs/CLI
 
 ## Website
 
-A static landing page lives in `site/` and deploys to GitHub Pages through `.github/workflows/pages.yml` (set Settings → Pages → Source to "GitHub Actions" once). Preview it with `scripts/build-site.sh && open site/dist/index.html`.
+A static landing page lives in `site/` and deploys to GitHub Pages through `.github/workflows/pages.yml` (set Settings → Pages → Source to "GitHub Actions" once). `site/` is published as is; open `site/index.html` to preview it.
 
 ## Features
 

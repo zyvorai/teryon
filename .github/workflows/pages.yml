@@ -3,7 +3,7 @@ name: Deploy site
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'themes/**', 'Cargo.toml', 'scripts/build-site.sh', '.github/workflows/pages.yml']
+    paths: ['site/**', '.github/workflows/pages.yml']
   workflow_dispatch: {}
 concurrency:
   group: pages
@@ -11,18 +11,13 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: scripts/build-site.sh
-      - uses: actions/upload-pages-artifact@v3
-        with: {path: site/dist}
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment: {name: github-pages, url: "${{ steps.deployment.outputs.page_url }}"}
     permissions: {pages: write, id-token: write}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-pages-artifact@v3
+        with: {path: site}
       - id: deployment
         uses: actions/deploy-pages@v4
