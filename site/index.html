@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>TERYON · Your Mac mini. Wherever you work.</title>
+<meta name="description" content="TERYON is a source-available remote workspace: persistent shells over plain OpenSSH with a terminal UI, a native desktop app, agent-aware panes, a file browser and an MCP server. Written in Rust, Zyvor Production License v1.0. An engineering preview.">
+<link rel="canonical" href="https://zyvorai.github.io/teryon/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TERYON">
+<meta property="og:title" content="TERYON · Your Mac mini. Wherever you work.">
+<meta property="og:description" content="Persistent remote shells over plain OpenSSH. TUI, native desktop app, agent-aware panes, MCP server. Zyvor Production License v1.0.">
+<meta property="og:url" content="https://zyvorai.github.io/teryon/">
+<meta property="og:image" content="https://zyvorai.github.io/teryon/social/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TERYON: your Mac mini, wherever you work. The window shows four panes of a demo workspace.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="TERYON · Your Mac mini. Wherever you work.">
+<meta name="twitter:description" content="Persistent remote shells over plain OpenSSH. TUI, native desktop app, agent-aware panes, MCP server. Zyvor Production License v1.0.">
+<meta name="twitter:image" content="https://zyvorai.github.io/teryon/social/og.png">
+<meta name="twitter:image:alt" content="TERYON: your Mac mini, wherever you work. The window shows four panes of a demo workspace.">
+<link rel="stylesheet" href="assets/landing.css">
+<style>:root{--accent-btn:#0071e3;--accent-ink:#0071e3;--accent-grad-a:#0a84ff;--accent-grad-b:#bf5af2}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--accent-ink:#2997ff}}:root[data-theme="dark"]{--accent-ink:#2997ff}</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"TERYON","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","softwareVersion":"0.24.0","downloadUrl":"https://github.com/zyvorai/teryon/releases/tag/v0.24.0","url":"https://zyvorai.github.io/teryon/","description":"TERYON is a source-available remote workspace: persistent shells over plain OpenSSH with a terminal UI, a native desktop app, agent-aware panes, a file browser and an MCP server. Written in Rust, Zyvor Production License v1.0. An engineering preview.","image":"https://zyvorai.github.io/teryon/social/og.png","publisher":{"@type":"Organization","name":"Zyvor AI Labs Private Limited","url":"https://zyvor.dev"}}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <a class="brand" href="./" aria-label="TERYON home"><img src="favicon.svg" width="26" height="26" alt=""><span>Teryon</span></a>
+  <nav aria-label="Primary"><ul><li><a href="#features">Features</a></li><li><a href="#specs">Specs</a></li><li><a href="#start">Get started</a></li><li><a href="#support">Support</a></li><li><a href="#faq">FAQ</a></li><li><a href="https://github.com/zyvorai/teryon/tree/main/docs">Docs</a></li></ul></nav>
+  <a class="btn small primary" href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Download</a>
+</header>
+<main id="main">
+<section class="hero" aria-labelledby="top">
+  <img class="icon" src="favicon.svg" width="96" height="96" alt="Teryon app icon">
+  <p class="eyebrow">Zyvor · remote workspace</p>
+  <h1 id="top">Teryon</h1>
+  <p class="tagline">Your Mac mini. Wherever you work.</p>
+  <p class="promise"><strong>Shells that outlive your connection.</strong> A per-user service on your Mac mini or Linux host owns the terminals; plain OpenSSH carries the interface. Close the lid, switch networks, come back tomorrow and reattach to the same live shells. A TUI, a native desktop app, agent-aware panes, a file browser and an MCP server. Source-available under the Zyvor Production License v1.0.</p>
+  <p class="cta"><a class="btn primary" href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Download TERYON 0.24.0</a><a class="textlink" href="#features">Learn more</a></p>
+  <p class="fine">macOS and Linux · notarized DMG · Permitted for non-production use (Zyvor Production License v1.0) · engineering preview</p>
+  <figure class="shot hero-shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/hero-grid-dark-1200.webp 1200w, assets/img/hero-grid-dark-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw"><img src="assets/img/hero-grid-light-1200.webp" srcset="assets/img/hero-grid-light-1200.webp 1200w, assets/img/hero-grid-light-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw" width="1900" height="1223" alt="The TERYON desktop app with four panes of a demo workspace: a file tree, a git log, passing test output and an assistant asking to apply an edit." fetchpriority="high" decoding="async"></picture><figcaption>Four panes in one workspace. Real capture of a throwaway demo workspace.</figcaption></figure>
+</section>
+
+<section class="band" aria-label="Overview">
+  <h2>Separate the shell from the connection.</h2>
+  <p>The host owns the terminals, so a closed lid, a changed network or a quit client does not end your work. Reconnect to the same live shells over the OpenSSH you already use: your keys, jump hosts and aliases, no new ports and no new accounts.</p>
+</section>
+
+<div id="features">
+<h2 class="sr">Features</h2>
+<section class="feature" id="palette" aria-labelledby="h-palette"><div class="grid"><div class="copy"><p class="eyebrow">Desktop</p><h3 id="h-palette">One slim bar. ⌘K for the rest.</h3><p>A native GPU window with pane trees, tabs and a command palette. Output search, Vi copy mode, inline images and ⌘-click links.</p><a class="textlink" href="https://github.com/zyvorai/teryon/blob/main/docs/DESKTOP.md">Desktop guide</a></div><figure class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/palette-dark-1200.webp 1200w, assets/img/palette-dark-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw"><img src="assets/img/palette-light-1200.webp" srcset="assets/img/palette-light-1200.webp 1200w, assets/img/palette-light-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw" width="1900" height="1223" alt="The TERYON command palette open over four panes, listing Ask AI, New tab, New pane, Next tab, Find next, Close tab, Settings and Next theme with their shortcuts." loading="lazy" decoding="async"></picture><figcaption>The command palette, light theme. Real capture of a demo workspace.</figcaption></figure></div></section>
+<section class="feature flip" id="files" aria-labelledby="h-files"><div class="grid"><div class="copy"><p class="eyebrow">Files</p><h3 id="h-files">A Finder in your terminal.</h3><p>⌘B opens a file browser that follows cd, locally or over SSH. Quick Look previews files with syntax colours. Nothing is deleted: items go to the Trash.</p><a class="textlink" href="https://github.com/zyvorai/teryon/blob/main/docs/FEATURES.md">Features</a></div><figure class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/files-dark-1200.webp 1200w, assets/img/files-dark-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw"><img src="assets/img/files-light-1200.webp" srcset="assets/img/files-light-1200.webp 1200w, assets/img/files-light-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw" width="1900" height="1223" alt="The TERYON file browser sidebar with a path breadcrumb, a filter field and the folders docs, src and tests beside four terminal panes." loading="lazy" decoding="async"></picture><figcaption>File browser sidebar. Real capture of a demo workspace.</figcaption></figure></div></section>
+</div>
+
+<section class="more" aria-labelledby="more-h">
+  <h2 id="more-h">And the rest of the toolbox.</h2>
+  <div class="cards"><div class="card"><h3>Built for coding agents</h3><p>Status chips for Claude Code, Codex, Gemini, aider, Cursor and OpenCode, Git worktrees, an opt-in sandbox and an MCP server. The sandbox is a guard against mistakes, not a boundary against a hostile program.</p></div><div class="card"><h3>A link that explains itself</h3><p>When the connection drops you see the real reason and the next step, not a spinner.</p></div><div class="card"><h3>23 themes</h3><p>Apple, Mac27, Tokyo Night, Catppuccin, Dracula, Nord and more, with a WezTerm export.</p></div><div class="card"><h3>Everyday CLI</h3><p><code>teryon exec</code>, <code>capture</code>, <code>push</code>, <code>pull</code>, <code>forward</code> and saved layouts, over the same SSH link.</p></div></div>
+</section>
+
+<section class="privacy" aria-labelledby="privacy-h">
+  <h2 id="privacy-h">Plain OpenSSH, nothing hidden.</h2>
+  <div class="cards"><div class="card"><h3>Your SSH</h3><p>Your keys, ports, jump hosts and aliases. TERYON does not bypass firewalls or NAT.</p></div><div class="card"><h3>A per-user service</h3><p>The host runs a service for your user. No new ports and no new accounts.</p></div><div class="card"><h3>Sandbox, honestly</h3><p>The agent sandbox guards against mistakes and leaked credentials. It is not a boundary against a hostile program.</p></div></div>
+</section>
+
+<section class="specs" id="specs" aria-labelledby="specs-h">
+  <h2 id="specs-h">Specs and requirements.</h2>
+  <dl class="specs-grid"><div class="spec"><dt>Platforms</dt><dd>macOS and Linux<small>Desktop app and DMG for macOS; tar.gz archives for macOS arm64 and Linux x86_64.</small></dd></div><div class="spec"><dt>Build</dt><dd>Notarized DMG<small>TERYON-0.24.0.dmg is Developer ID signed and notarized by Apple.</small></dd></div><div class="spec"><dt>Version</dt><dd>0.24.0<small>An engineering preview, not a claim of production maturity.</small></dd></div><div class="spec"><dt>Licence</dt><dd>Zyvor Production 1.0<small>Written in Rust.</small></dd></div><div class="spec"><dt>Transport</dt><dd>Plain OpenSSH<small>Needs working non-interactive key or agent authentication.</small></dd></div><div class="spec"><dt>Host</dt><dd>Mac mini or Linux<small>A per-user service owns the shells.</small></dd></div></dl>
+  <div class="limit" role="note"><h3>Honest limits</h3><p><b>A reboot, daemon crash or power failure can end live processes.</b> Saved layouts recreate shells, not process memory. There is no Mosh-compatible roaming, QUIC or NAT traversal; reconnecting needs a reachable host and valid SSH authentication. Windows is not planned.</p></div>
+</section>
+
+<section class="steps" id="start" aria-labelledby="steps-h">
+  <h2 id="steps-h">Get started in three steps.</h2>
+  <ol><li><h3>Install</h3><p>Get <code>TERYON-0.24.0.dmg</code> from the release page, or build from source with <code>cargo build --release --locked</code>.</p></li><li><h3>Prepare the host</h3><p>Enable Remote Login on the Mac mini, set up SSH keys, and install teryon there. The <a href="https://github.com/zyvorai/teryon/blob/main/docs/MAC-MINI.md">Mac mini guide</a> has every step.</p></li><li><h3>Connect</h3><p>Run <code>teryon doctor HOST</code>, then <code>teryon connect HOST --workspace NAME</code>. Detach with Ctrl+Space, d; your shells keep running.</p></li></ol>
+  <div class="sha"><p>TERYON 0.24.0 for Mac · SHA-256</p><pre><code id="sha">5e4c2decf4034ffa4e44c0120fc92dbff41c35175a64cc0afd2f815467079fac</code></pre><p>Verify: <code>echo "5e4c2decf4034ffa4e44c0120fc92dbff41c35175a64cc0afd2f815467079fac TERYON-0.24.0.dmg" | shasum -a 256 -c</code></p></div>
+  <p class="cta"><a class="btn primary" href="https://github.com/zyvorai/teryon/releases/download/v0.24.0/TERYON-0.24.0.dmg">Download TERYON-0.24.0.dmg</a><a class="textlink" href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Release page</a><a class="textlink" href="https://github.com/zyvorai/teryon#download">Install guide</a></p>
+</section>
+
+<section class="pricing" id="support" aria-labelledby="pricing-h">
+  <div class="inner">
+  <h2 id="pricing-h" style="text-align:left">Support the project.</h2>
+  <p class="lead">Non-production use is permitted under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can donate any amount you like.</p>
+<p class="cta"><a class="btn primary" href="https://rzp.io/rzp/utwdYh3" rel="noopener">Pay what you like (Razorpay)</a></p>
+<p class="fine">A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or license. Support contracts are separate: <a href="mailto:sales@zyvor.dev">sales@zyvor.dev</a>.</p>
+  </div>
+</section>
+
+<section class="faq" id="faq" aria-labelledby="faq-h">
+  <h2 id="faq-h">Questions, answered.</h2>
+  <details><summary>Do I need a license?</summary><p>Production use requires a commercial license (sales@zyvor.dev); non-production use is permitted under the Zyvor Production License v1.0. A donation is optional and buys no support, features or licence.</p></details>
+<details><summary>Do my shells survive closing the laptop?</summary><p>Yes. They run on the host, so a client disconnect does not intentionally end them. A reboot, daemon crash or power failure of the host can.</p></details>
+<details><summary>Does it replace SSH?</summary><p>No. It uses plain OpenSSH as the transport, with your existing keys, ports, jump hosts and aliases.</p></details>
+<details><summary>Will macOS warn me when I open it?</summary><p>No for the DMG: it is Developer ID signed and notarized by Apple. The SHA-256 is on this page and in SHA256SUMS-macos-0.24.0.</p></details>
+<details><summary>How mature is it?</summary><p>It is an engineering preview with integration tests and release automation, not a claim of production maturity or universal terminal compatibility. See the known limits.</p></details>
+<details><summary>Are the screenshots real?</summary><p>Yes: real captures of the macOS app on a throwaway demo workspace.</p></details>
+</section>
+</main>
+<footer class="footer">
+  <p><strong>TERYON</strong> · TERYON is source-available under the Zyvor Production License v1.0.</p>
+  <p class="links"><a href="https://github.com/zyvorai/teryon/tree/main/docs">Docs</a><a href="https://github.com/zyvorai/teryon/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Release</a><a href="https://github.com/zyvorai/teryon">GitHub</a><a href="https://github.com/zyvorai/teryon/blob/main/LICENSE">LICENSE</a><a href="https://github.com/zyvorai/teryon/blob/main/SECURITY.md">SECURITY</a><a href="mailto:sales@zyvor.dev">sales@zyvor.dev</a></p>
+  <p>© 2026 Zyvor AI Labs Private Limited · <a href="https://zyvor.dev">zyvor.dev</a> · Zyvor Production License</p>
+</footer>
+</body>
+</html>

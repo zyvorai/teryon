@@ -1,0 +1,11 @@
+name = "Mac27 Light"
+background = "#FFFFFF"
+panel = "#F2F2F7"
+foreground = "#1D1D1F"
+muted = "#636366"
+accent = "#007AFF"
+success = "#1F8A3C"
+warning = "#8B4B00"
+border = "#D1D1D6"
+primary = "#0071E3"
+ansi = ["#1D1D1F", "#D70015", "#1F8A3C", "#8B4B00", "#0040DD", "#8944AB", "#0A6B99", "#636366", "#8E8E93", "#FF3B30", "#248A3D", "#B25000", "#007AFF", "#AF52DE", "#0A84B8", "#1D1D1F"]

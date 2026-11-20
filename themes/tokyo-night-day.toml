@@ -1,0 +1,10 @@
+name = "Tokyo Night Day"
+background = "#E1E2E7"
+panel = "#D5D6DB"
+foreground = "#2C4EA3"
+muted = "#4A5A98"
+accent = "#2E7DE9"
+success = "#587539"
+warning = "#8C6C3E"
+border = "#A8AECB"
+ansi = ["#B4B5B9", "#F52A65", "#587539", "#8C6C3E", "#2E7DE9", "#9854F1", "#007197", "#6172B0", "#A1A6C5", "#FF4774", "#5C8524", "#A27629", "#358AFF", "#A463FF", "#007EA8", "#3760BF"]

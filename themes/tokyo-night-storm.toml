@@ -1,0 +1,10 @@
+name = "Tokyo Night Storm"
+background = "#24283B"
+panel = "#2A2F45"
+foreground = "#C0CAF5"
+muted = "#A9B1D6"
+accent = "#7AA2F7"
+success = "#9ECE6A"
+warning = "#E0AF68"
+border = "#4A5173"
+ansi = ["#414868", "#F7768E", "#9ECE6A", "#E0AF68", "#7AA2F7", "#BB9AF7", "#7DCFFF", "#A9B1D6", "#565F89", "#FF7A93", "#B9F27C", "#FF9E64", "#7DA6FF", "#BB9AF7", "#0DB9D7", "#C0CAF5"]

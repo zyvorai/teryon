@@ -1,0 +1,11 @@
+name = "Apple Light"
+background = "#FFFFFF"
+panel = "#F5F5F7"
+foreground = "#1D1D1F"
+muted = "#6E6E73"
+accent = "#0066CC"
+success = "#1E7B34"
+warning = "#8B4B00"
+border = "#D2D2D7"
+primary = "#0071E3"
+ansi = ["#1D1D1F", "#D70015", "#1E7B34", "#8B4B00", "#0040DD", "#8944AB", "#0A6B99", "#6E6E73", "#86868B", "#FF3B30", "#248A3D", "#B25000", "#0071E3", "#AF52DE", "#0A84B8", "#1D1D1F"]

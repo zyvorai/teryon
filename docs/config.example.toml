@@ -1,0 +1,126 @@
+theme = "ion"
+# Show the TERYON banner when connecting (also: --no-splash, TERYON_NO_SPLASH=1).
+splash = true
+# Click to focus panes, wheel opens history. Replaces terminal text selection (hold Shift/Option to select).
+mouse = false
+# What plain `teryon` opens after you pick a host: "tui" or "desktop" (needs the desktop build).
+start = "tui"
+
+[hosts.mini]
+# mac = "aa:bb:cc:dd:ee:ff"   # for `teryon wake mini` (wake-on-LAN, Ethernet only); optional broadcast = "192.168.1.255"
+destination = "susant@mini.local"
+# remote_bin = "/Users/susant/.local/bin/teryon"
+
+# Keep keys, jump hosts, ports and identities in ~/.ssh/config.
+# TERYON honors OpenSSH; it does not copy private keys.
+
+# Native desktop app (`teryon desktop`). Every option is optional; the file is reloaded while the
+# app runs, and `teryon config --check` validates it.
+# [desktop]
+# font_family = "JetBrains Mono"   # family/file name in the font folders, or an absolute path
+# font_size = 13.0
+# line_height = 1.45
+# padding = 8.0
+# padding_x = 8.0                  # left and right; also padding_top and padding_bottom (default: padding)
+# pane_inset = 10.0                # space around the panes; 0 runs them edge to edge
+# chrome = "none"                 # full | none: "none" is only the terminal, no title bar or tab strip
+# text_gamma = 0.55               # 0.3 heavy .. 1.0 thin; try 0.42 for a WezTerm-like weight
+# cursor_color = "#D97757"   # default: orange
+# window_blur = 40                 # blur behind a transparent window (macOS)
+# background_gradient = ["#16161e", "#2a2b3b", "#16161e"]
+# gradient_angle = 135.0
+# tab_active_bg = "#82aaff"        # also tab_bar_bg, tab_active_fg, tab_inactive_bg, tab_inactive_fg
+# tab_bar = "bottom"              # with chrome = "none": a strip of tabs and a clock along the bottom
+# fullscreen = true                # native full screen (Dock and menu bar hide)
+# corner_radius = 10               # round a bare window and add a soft edge
+# background_noise = 10            # fine grain over the background
+# status_line = true               # muted line under the panes: PTYs held, last relink, receive rate
+#
+# The "Ion" look: top-level theme = "ion" and, under [desktop], background_gradient = ["#05070D", "#081428"], gradient_angle = 160,
+# background_noise = 8, window_opacity = 0.92, window_blur = 40, corner_radius = 16,
+# cursor_color = "#D97757", cursor_blink = true, unfocused_opacity = 0.78
+# maximized = true                # open windows filling the screen
+# initial_cols = 124               # open windows this size (set both), instead of the last size
+# initial_rows = 42
+# scrollbar = "auto"               # auto: only while scrolled back | always: its size shows how much history there is
+# fresh_window = false             # true: each window gets its own new shell, ended when the window closes
+# cursor_style = "block"           # block | bar | underline
+# cursor_blink = true
+# window_opacity = 1.0             # below 1.0 needs a restart to take effect
+# unfocused_opacity = 0.82         # brightness of unfocused panes
+# copy_on_select = true
+# quiet_poll_ms = 250             # poll a session this often after 5 s without input or output (0 = always 60 ms); less traffic over SSH, output after a quiet spell can show up this much later
+# drag_selects = true              # (default) drag selects text even when a program (Claude Code, vim) tracks the mouse; clicks and the wheel still reach it
+# file_browser = false            # open the ⌘B file sidebar at start
+# command_gutter = true            # a thin bar beside each command: red failed, accent running, faint green ok (needs shell integration)
+# check_updates = false             # once a day at start-up, ask GitHub if a newer TERYON is out (palette: "Check for updates" asks any time)
+# agent_sandbox = false             # start agents inside `teryon sandbox`: writes only to their Git repository, ~/.ssh ~/.aws ~/.gnupg ~/.kube hidden, network open
+# agent_quick_approve = false      # Approve / Deny buttons in the agents overview (they type into the agent)
+# agent_notifications = true       # notify when Claude Code, Codex, etc. in a background pane needs you or finishes
+# notify_after_seconds = 10        # notify when a command this long finishes in the background (needs shell integration)
+# theme_light = "mac27-light"      # follow macOS appearance (either one may be left out)
+# theme_dark = "mac27-dark"
+# scrollback_lines = 10000
+# pane_titles = "auto"             # auto | always | never
+# confirm_quit = false
+# confirm_end_shells = true        # ask before closing a fresh-window tab or window that would end running shells
+#
+# [desktop.keys]                   # action = "chord"; "none" unbinds
+# palette = "cmd+p"
+# new_pane_below = "cmd+shift+e"
+#
+# Saved commands for the palette ("Snippet: logs"). {{name}} placeholders are asked for first.
+# [[desktop.snippets]]
+# name = "Follow a log"
+# command = "tail -f {{file}}"
+# description = "tail -f on a path you type"
+# run = true                       # press Enter for you (single-line snippets only)
+#
+# Rules on what appears on screen: action = "highlight" | "notify" | "bell" | "toast".
+# [[desktop.triggers]]
+# pattern = "ERROR|panic|FAILED"
+# action = "highlight"
+# color = "#ff453a"
+# [[desktop.triggers]]
+# pattern = "BUILD (SUCCESSFUL|FAILED)"
+# action = "notify"               # notify/bell fire only while the window is in the background by default
+
+# The AI assistant (⌘J / `teryon ai`); the API key comes from ANTHROPIC_API_KEY or the Keychain, never from here.
+# [ai]
+# enabled = true
+# model = "claude-sonnet-5-5"
+# max_tokens = 2048
+# auto_allow = ["mac_info", "list_apps", "list_hosts", "list_panes", "suggest_command"]   # read-only tools only
+
+# Zsh integration (teryon shell-init zsh): history, suggestions, highlighting, pickers, Tab, z, prompt.
+# [shell]
+# enabled = true
+# history = true
+# suggest = true
+# highlight = true
+# pickers = true     # Ctrl-R, Ctrl-T, Alt-C
+# tab = true
+# jump = true        # z and zi
+# prompt = false     # two-line prompt with git state
+# inject = true      # zsh panes load the integration without a line in .zshrc (TERYON_INJECT=0 also turns it off)
+# env = true         # load the [env] table of a trusted project .teryon.toml when you cd into it (teryon env allow)
+# paste_guard = true # ask before a multi-line or secret-looking paste is put on the command line (zsh)
+# sync_hosts = ["mini"]    # copy these hosts' command history here in the background, so Ctrl-R finds it
+# sync_every_hours = 12
+
+# Push notifications. The daemon sends them while a workspace has no client attached; an attached
+# desktop app sends them to ntfy and the webhook itself while its window is in the background. Messages name the agent or program, never screen text.
+# [notify]
+# ntfy_url = "https://ntfy.sh/your-private-topic"
+# webhook_url = "https://example.com/hook"   # receives {"title","message","event","workspace","pane"}
+# reply = false            # Approve/Deny buttons on the ntfy "needs you" push; the daemon listens on "<ntfy_url>-reply"
+# macos = false            # a macOS notification on the machine running the daemon
+# agents = true            # an AI agent needs you or finished
+# commands = true          # a command that ran at least after_seconds finished (needs shell integration)
+# after_seconds = 30
+
+# On the machine running the daemon: keep it from idle-sleeping (macOS caffeinate) while a command
+# has run for keep_awake_after_seconds or an AI agent is working.
+# [host]
+# keep_awake = false
+# keep_awake_after_seconds = 30

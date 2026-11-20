@@ -1,0 +1,10 @@
+name = "Carbon"
+background = "#161616"
+panel = "#1C1C1C"
+foreground = "#F2F4F8"
+muted = "#A8A8A8"
+accent = "#78A9FF"
+success = "#42BE65"
+warning = "#F1C21B"
+border = "#393939"
+ansi = ["#262626", "#FA4D56", "#42BE65", "#F1C21B", "#78A9FF", "#BE95FF", "#3DDBD9", "#C6C6C6", "#393939", "#FF8389", "#6FDC8C", "#FDDC69", "#A6C8FF", "#D4BBFF", "#9EF0F0", "#F4F4F4"]

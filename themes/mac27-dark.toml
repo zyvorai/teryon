@@ -1,0 +1,11 @@
+name = "Mac27 Dark"
+background = "#1E1E1E"
+panel = "#2A2A2C"
+foreground = "#F5F5F7"
+muted = "#98989D"
+accent = "#0A84FF"
+success = "#32D74B"
+warning = "#FF9F0A"
+border = "#48484A"
+primary = "#0071E3"
+ansi = ["#48484A", "#FF453A", "#32D74B", "#FFD60A", "#0A84FF", "#BF5AF2", "#5AC8F5", "#D1D1D6", "#6C6C70", "#FF6961", "#4CD964", "#FFE04A", "#409CFF", "#DA8FFF", "#7DD8FF", "#F5F5F7"]

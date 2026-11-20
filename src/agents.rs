@@ -1,0 +1,576 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
+//! Recognizing AI coding agents (Claude Code, Codex, Gemini CLI, aider…) in a pane and reading their state.
+use std::time::Duration;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Claude,
+    Codex,
+    Gemini,
+    Aider,
+    Cursor,
+    OpenCode,
+}
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+            Self::Gemini => "Gemini",
+            Self::Aider => "aider",
+            Self::Cursor => "Cursor",
+            Self::OpenCode => "OpenCode",
+        }
+    }
+}
+
+impl Kind {
+    pub const ALL: [Kind; 6] = [
+        Self::Claude,
+        Self::Codex,
+        Self::Gemini,
+        Self::Aider,
+        Self::Cursor,
+        Self::OpenCode,
+    ];
+    /// The command that starts this agent in a shell.
+    pub fn launch(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Aider => "aider",
+            Self::Cursor => "cursor-agent",
+            Self::OpenCode => "opencode",
+        }
+    }
+}
+
+/// A shell command line that gives an agent its own Git worktree and branch, then runs it there:
+/// `agent/<name>-<time>` checked out next to the repository as `<repo>-<name>-<time>`. It runs in a
+/// small `sh`, so it does not depend on the user's shell, and the pane is back in its original
+/// directory when the agent exits. Fails (visibly, before anything starts) outside a Git repository.
+pub fn worktree_command(launch: &str) -> String {
+    worktree_command_running(launch, launch)
+}
+/// Like `worktree_command`, but the name comes from `launch` while `run` is what is started in the worktree.
+pub fn worktree_command_running(launch: &str, run: &str) -> String {
+    let tag: String = launch
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!(
+        "sh -c 'set -e; r=$(git rev-parse --show-toplevel); b=agent/{tag}-$(date +%m%d-%H%M%S); \
+         w=\"$r-${{b#agent/}}\"; git worktree add -q -b \"$b\" \"$w\"; cd \"$w\"; \
+         echo \"worktree $w on branch $b\"; exec {run}'"
+    )
+}
+
+/// `launch` run inside `teryon sandbox`.
+pub fn sandboxed(launch: &str) -> String {
+    format!("teryon sandbox -- {launch}")
+}
+
+/// A shell command line that lists what changed in the current directory's Git repository: the
+/// branch and changed files, then the size of each change. It leaves a shell open in the pane so the
+/// full `git diff` is one command away, and says so (instead of failing silently) outside a repository.
+pub fn changes_command() -> String {
+    "sh -c 'git rev-parse --show-toplevel >/dev/null 2>&1 || { echo \"not a Git repository\"; exec \"${SHELL:-sh}\"; }; \
+     git status --short --branch; echo; git diff HEAD --stat 2>/dev/null; exec \"${SHELL:-sh}\"'"
+        .to_string()
+}
+
+/// Interface text that is never the answer: hints, key legends and mode lines.
+const CHROME: [&str; 8] = [
+    "esc to",
+    "? for shortcuts",
+    "shift+tab",
+    "ctrl+",
+    "bypass permissions",
+    "auto-accept",
+    "tokens",
+    "/help",
+];
+
+/// One line saying where the agent got to: the last line of real text on screen, without the
+/// bullets and frames the agents draw around it. `None` when the screen holds nothing readable.
+pub fn summary(rows: &[String]) -> Option<String> {
+    const MAX: usize = 120;
+    for row in rows.iter().rev() {
+        let line = row
+            .trim()
+            .trim_matches(|c: char| "│┃|".contains(c))
+            .trim_start_matches(|c: char| "⏺●•⎿✻✽·*-> ".contains(c) || c == '❯')
+            .trim();
+        let letters = line.chars().filter(|c| c.is_alphanumeric()).count();
+        let lower = line.to_lowercase();
+        if letters < 4 || CHROME.iter().any(|c| lower.contains(c)) {
+            continue;
+        }
+        let mut out: String = line.chars().take(MAX).collect();
+        if line.chars().count() > MAX {
+            out.push('…');
+        }
+        return Some(out);
+    }
+    None
+}
+
+impl Kind {
+    /// Keystrokes that answer an approval prompt with "yes": Enter takes the preselected choice in
+    /// the menu-style agents, aider asks for a typed `y`.
+    pub fn approve_keys(self) -> &'static [u8] {
+        match self {
+            Self::Aider => b"y\r",
+            _ => b"\r",
+        }
+    }
+    /// Keystrokes that decline: Esc cancels the menu-style prompts, aider takes `n`.
+    pub fn deny_keys(self) -> &'static [u8] {
+        match self {
+            Self::Aider => b"n\r",
+            _ => b"\x1b",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// Producing output or showing its "interrupt" hint.
+    Working,
+    /// Waiting for an approval or an answer.
+    NeedsYou,
+    /// Quiet at its own prompt.
+    Idle,
+    /// The agent exited and the shell is back.
+    Done,
+}
+impl Status {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::NeedsYou => "needs you",
+            Self::Idle => "idle",
+            Self::Done => "done",
+        }
+    }
+}
+
+fn base(token: &str) -> String {
+    let name = token.rsplit('/').next().unwrap_or(token).to_lowercase();
+    name.trim_start_matches('-')
+        .trim_end_matches(".js")
+        .trim_end_matches(".mjs")
+        .trim_end_matches(".py")
+        .to_string()
+}
+
+fn kind_of(name: &str) -> Option<Kind> {
+    Some(match name {
+        "claude" | "claude-code" => Kind::Claude,
+        "codex" => Kind::Codex,
+        "gemini" | "gemini-cli" => Kind::Gemini,
+        "aider" => Kind::Aider,
+        "cursor-agent" => Kind::Cursor,
+        "opencode" => Kind::OpenCode,
+        _ => return None,
+    })
+}
+
+/// The agent named by a foreground command line (`claude`, `node /…/codex.js`, `python -m aider`), if any.
+/// Only the program and its first non-flag argument count, so `vim claude.md` is not an agent.
+pub fn detect(command: &str) -> Option<Kind> {
+    let mut tokens = command.split_whitespace();
+    let first = tokens.next()?;
+    if let Some(k) = kind_of(&base(first)) {
+        return Some(k);
+    }
+    // Interpreters running an agent script or module.
+    if matches!(
+        base(first).as_str(),
+        "node"
+            | "bun"
+            | "deno"
+            | "python"
+            | "python3"
+            | "npx"
+            | "uv"
+            | "uvx"
+            | "pipx"
+            | "sh"
+            | "bash"
+            | "zsh"
+    ) {
+        for t in tokens.filter(|t| !t.starts_with('-')).take(2) {
+            if let Some(k) = kind_of(&base(t)) {
+                return Some(k);
+            }
+            if t.contains("@anthropic-ai/claude-code") {
+                return Some(Kind::Claude);
+            }
+            if t.contains("@openai/codex") {
+                return Some(Kind::Codex);
+            }
+            if t.contains("@google/gemini-cli") {
+                return Some(Kind::Gemini);
+            }
+        }
+    }
+    None
+}
+
+/// Whether the foreground command is an interactive shell (so an agent has returned control).
+pub fn is_shell(command: &str) -> bool {
+    let first = command.split_whitespace().next().unwrap_or("");
+    matches!(
+        base(first).as_str(),
+        "zsh" | "bash" | "fish" | "sh" | "dash" | "ksh" | "tcsh" | "nu" | "elvish"
+    )
+}
+
+const ASKS: &[&str] = &[
+    "do you want to",
+    "(y/n)",
+    "[y/n]",
+    "[y/n/",
+    "(yes/no)",
+    "yes/no",
+    "❯ 1. yes",
+    "1. yes",
+    "press enter to continue",
+    "esc to cancel",
+    "enter to confirm",
+    "allow this",
+    "would you like to proceed",
+    "approve",
+];
+const BUSY: &[&str] = &[
+    "esc to interrupt",
+    "ctrl+c to interrupt",
+    "ctrl-c to interrupt",
+    "thinking…",
+    "thinking...",
+    "working (",
+];
+
+/// What a waiting agent is asking, for a notification: the question line of the prompt `status`
+/// recognised ("Apply this edit?"), without the frames and bullets the agents draw around it.
+/// `None` when no prompt is on screen.
+pub fn question(rows: &[String]) -> Option<String> {
+    const MAX: usize = 120;
+    let tail: Vec<&String> = rows
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .rev()
+        .take(14)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let asks = |row: &str| {
+        let lower = row.to_lowercase();
+        ASKS.iter().any(|a| lower.contains(a))
+    };
+    // The last row that looks like part of a prompt, then the nearest row above it that asks.
+    let at = tail.iter().rposition(|r| asks(r))?;
+    let from = at.saturating_sub(8);
+    let row = tail[from..=at]
+        .iter()
+        .rev()
+        .find(|r| r.contains('?'))
+        .unwrap_or(&tail[at]);
+    let line = row
+        .trim()
+        .trim_matches(|c: char| "│┃|".contains(c))
+        .trim_start_matches(|c: char| "⏺●•⎿✻✽·*?-> ".contains(c) || c == '❯')
+        .trim();
+    let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().filter(|c| c.is_alphanumeric()).count() < 4 {
+        return None;
+    }
+    let mut out: String = line.chars().take(MAX).collect();
+    if line.chars().count() > MAX {
+        out.push('…');
+    }
+    Some(out)
+}
+
+/// Read an agent's state from the visible rows and how long the screen has been quiet.
+pub fn status(rows: &[String], quiet: Duration) -> Status {
+    let tail: Vec<String> = rows
+        .iter()
+        .rev()
+        .filter(|r| !r.trim().is_empty())
+        .take(14)
+        .map(|r| r.to_lowercase())
+        .collect();
+    let text = tail.join("\n");
+    if ASKS.iter().any(|a| text.contains(a)) {
+        return Status::NeedsYou;
+    }
+    if BUSY.iter().any(|b| text.contains(b)) || quiet < Duration::from_secs(2) {
+        return Status::Working;
+    }
+    Status::Idle
+}
+
+#[cfg(test)]
+mod tests {
+    fn run_changes(dir: &std::path::Path) -> String {
+        // `exec $SHELL` would wait for input; point it at `true` so the script ends after printing.
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(changes_command())
+            .current_dir(dir)
+            .env("SHELL", "true")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn the_changes_command_lists_changed_files_and_survives_a_plain_directory() {
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            assert!(ok, "git {args:?}");
+        };
+        let plain = tempfile::tempdir().unwrap();
+        assert!(run_changes(plain.path()).contains("not a Git repository"));
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        std::fs::write(repo.path().join("a.txt"), "one\n").unwrap();
+        git(repo.path(), &["add", "."]);
+        git(repo.path(), &["commit", "-q", "-m", "first"]);
+        std::fs::write(repo.path().join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.path().join("new.txt"), "x\n").unwrap();
+        let text = run_changes(repo.path());
+        assert!(text.contains("## "), "branch line: {text}");
+        assert!(
+            text.contains("M a.txt") && text.contains("?? new.txt"),
+            "{text}"
+        );
+        assert!(text.contains("a.txt |"), "diff stat: {text}");
+    }
+
+    use super::*;
+
+    #[test]
+    fn a_worktree_command_checks_out_a_new_branch_and_runs_the_agent_there() {
+        use std::process::Command;
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("my project");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        // The "agent" is `pwd`, so the output shows where it ran.
+        let script = worktree_command("pwd");
+        // It is typed into a shell, so a newline would act as Enter halfway through.
+        assert!(!script.contains('\n') && !script.contains('\r'));
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(
+            out.status.success(),
+            "{script}\n{text}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ran_in = text.lines().last().unwrap();
+        assert!(ran_in.contains("my project-pwd-"), "{ran_in}");
+        assert!(std::path::Path::new(ran_in).join(".git").exists());
+        assert!(text.contains("on branch agent/pwd-"), "{text}");
+        // The new branch exists and the original checkout is untouched.
+        let branches = Command::new("git")
+            .args(["branch", "--list", "agent/*"])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&branches.stdout).contains("agent/pwd-"));
+        assert!(!repo.join("my project-pwd-").exists());
+        // Outside a repository it stops before running anything.
+        let outside = tempfile::tempdir().unwrap();
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(worktree_command("echo SHOULD-NOT-RUN"))
+            .current_dir(outside.path())
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("SHOULD-NOT-RUN"));
+    }
+    #[test]
+    fn launch_commands_are_detected_as_their_own_agent() {
+        for k in Kind::ALL {
+            assert_eq!(detect(k.launch()), Some(k));
+        }
+    }
+    #[test]
+    fn the_summary_is_the_last_real_line() {
+        let rows: Vec<String> = [
+            "⏺ Fixed the failing test in src/lib.rs",
+            "",
+            "╭──────────────╮",
+            "│ > Try \"fix lint\" │",
+            "╰──────────────╯",
+            "  ? for shortcuts",
+            "",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(summary(&rows).as_deref(), Some("Try \"fix lint\""));
+        let rows = vec![
+            "⏺ All done: 12 tests pass".to_string(),
+            "  esc to interrupt".into(),
+        ];
+        assert_eq!(summary(&rows).as_deref(), Some("All done: 12 tests pass"));
+        assert_eq!(summary(&["───".to_string(), "".into()]), None);
+        let long = vec!["x".repeat(300)];
+        assert_eq!(summary(&long).unwrap().chars().count(), 121);
+    }
+    #[test]
+    fn approval_keys_fit_each_agents_prompt() {
+        assert_eq!(Kind::Claude.approve_keys(), b"\r");
+        assert_eq!(Kind::Claude.deny_keys(), b"\x1b");
+        assert_eq!(Kind::Aider.approve_keys(), b"y\r");
+        assert_eq!(Kind::Aider.deny_keys(), b"n\r");
+    }
+    #[test]
+    fn agents_are_recognized_by_their_command_line() {
+        for (cmd, want) in [
+            ("claude", Some(Kind::Claude)),
+            ("/opt/homebrew/bin/claude --resume", Some(Kind::Claude)),
+            (
+                "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                Some(Kind::Claude),
+            ),
+            ("codex", Some(Kind::Codex)),
+            (
+                "node /x/node_modules/@openai/codex/bin/codex.js --full-auto",
+                Some(Kind::Codex),
+            ),
+            ("gemini", Some(Kind::Gemini)),
+            ("python3 -m aider --model x", Some(Kind::Aider)),
+            ("aider", Some(Kind::Aider)),
+            ("cursor-agent", Some(Kind::Cursor)),
+            ("npx opencode", Some(Kind::OpenCode)),
+            ("/bin/sh /tmp/x/claude", Some(Kind::Claude)),
+            ("vim claude.md", None),
+            ("cat codex.txt", None),
+            ("-zsh", None),
+            ("cargo test", None),
+            ("", None),
+        ] {
+            assert_eq!(detect(cmd), want, "{cmd}");
+        }
+        assert!(is_shell("-zsh") && is_shell("/bin/bash -l") && !is_shell("claude"));
+    }
+
+    #[test]
+    fn the_question_is_the_line_that_asks_not_the_options_under_it() {
+        let screen = rows(&[
+            "Edit src/db.rs  +18 -3",
+            "",
+            "? Apply this edit?",
+            "  1. Yes",
+            "  2. Yes, allow all edits this session",
+            "  3. No, and tell me what to do differently",
+        ]);
+        assert_eq!(question(&screen).as_deref(), Some("Apply this edit?"));
+    }
+    #[test]
+    fn a_yes_no_prompt_on_one_line_is_the_question_with_its_hint() {
+        let screen = rows(&["building…", "Do you want to proceed? (y/n)"]);
+        assert_eq!(
+            question(&screen).as_deref(),
+            Some("Do you want to proceed? (y/n)")
+        );
+    }
+    #[test]
+    fn frames_and_bullets_are_stripped_and_long_questions_are_cut() {
+        let screen = rows(&["│ ❯ Allow this command to run?   │", "  1. Yes"]);
+        assert_eq!(
+            question(&screen).as_deref(),
+            Some("Allow this command to run?")
+        );
+        let long = format!("Do you want to {} ? (y/n)", "overwrite ".repeat(30));
+        let q = question(&rows(&[long.as_str()])).unwrap();
+        assert_eq!(q.chars().count(), 121);
+        assert!(q.ends_with('…'));
+    }
+    #[test]
+    fn no_prompt_means_no_question() {
+        assert_eq!(question(&rows(&["compiling…", "  Finished in 2s"])), None);
+        assert_eq!(question(&[]), None);
+    }
+    fn rows(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|s| s.to_string()).collect()
+    }
+    const LONG: Duration = Duration::from_secs(30);
+    const NOW: Duration = Duration::from_millis(100);
+
+    #[test]
+    fn approval_prompts_need_you_even_while_output_is_fresh() {
+        let ask = rows(&[
+            "Edit file src/main.rs",
+            " Do you want to make this edit?",
+            " ❯ 1. Yes",
+            "   2. No",
+            " Esc to cancel",
+        ]);
+        assert_eq!(status(&ask, NOW), Status::NeedsYou);
+        assert_eq!(status(&rows(&["Overwrite? [y/N]"]), LONG), Status::NeedsYou);
+        assert_eq!(status(&rows(&["Continue? (y/n)"]), LONG), Status::NeedsYou);
+    }
+
+    #[test]
+    fn busy_hints_and_fresh_output_mean_working() {
+        assert_eq!(
+            status(&rows(&["✻ Thinking…", "(esc to interrupt)"]), LONG),
+            Status::Working
+        );
+        assert_eq!(
+            status(&rows(&["compiling crate 12/40"]), NOW),
+            Status::Working
+        );
+    }
+
+    #[test]
+    fn a_quiet_prompt_is_idle() {
+        assert_eq!(status(&rows(&["> ", "", ""]), LONG), Status::Idle);
+        assert_eq!(status(&[], LONG), Status::Idle);
+    }
+
+    #[test]
+    fn only_the_tail_of_the_screen_counts() {
+        let mut old: Vec<&str> = vec!["Do you want to proceed? (y/n)"];
+        old.extend(std::iter::repeat_n("some later output line", 20));
+        assert_eq!(status(&rows(&old), LONG), Status::Idle);
+    }
+}
