@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon pick`: an fzf-style fuzzy picker for the shell widgets (history, files, directories,
 //! or lines from stdin). It draws on `/dev/tty` and prints the choice on stdout, so a shell can

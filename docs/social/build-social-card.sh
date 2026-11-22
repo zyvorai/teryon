@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 # Render docs/social/teryon-social-card.html (1600x900) with headless Chrome, then cut the sizes the
 # platforms want. Needs Google Chrome and macOS `sips` (both already on a Mac); nothing is installed.

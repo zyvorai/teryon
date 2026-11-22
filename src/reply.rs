@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Answering an agent's approval prompt from a phone. The "needs you" push carries Approve and Deny
 //! buttons; each posts a one-time token to a reply topic that the daemon listens on, so the daemon

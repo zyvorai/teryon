@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Inline images: the iTerm2 `OSC 1337 ; File=...:BASE64` sequence that `imgcat` and many tools
 //! print. The daemon decodes the payload, works out how many cells the image covers, moves the

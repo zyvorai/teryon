@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Read-only file browsing for the desktop sidebar: list a directory and preview a file, on this
 //! machine or over SSH. Remote access uses plain `ls` and `head` through the existing OpenSSH

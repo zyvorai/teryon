@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Finding the monospaced fonts installed on this machine, for the desktop font picker. Only each file's
 //! table directory and its `post` table header are read, so scanning hundreds of fonts is quick.

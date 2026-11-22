@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! A time budget for AI agents: notice an agent that has been working for too long without a pause
 //! (`teryon agent-guard`), so a run that went off the rails does not burn tokens unnoticed.

@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! ⌘, : a settings window for the common `[desktop]` options. Changes apply live and are written
 //! to `config.toml` with comments kept; the file stays the source of truth.

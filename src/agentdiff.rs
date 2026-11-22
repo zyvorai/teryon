@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! What an AI agent changed: the commits on its branch since it left the main line, plus whatever is
 //! still uncommitted (`teryon agent-diff`). Read-only: it only runs `git` queries in the pane's directory.

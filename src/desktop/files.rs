@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! A Finder-like file sidebar (⌘B): the focused pane's directory as a list, with Quick Look (Space).
 //! Read-only: it lists and previews, and hands paths to the pane; it never changes files.

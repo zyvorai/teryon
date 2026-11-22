@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! The Kitty keyboard protocol's flag stack: which key encodings a program in a pane asked for.
 //! Only the "disambiguate escape codes" flag is acted on; the others are accepted and not reported

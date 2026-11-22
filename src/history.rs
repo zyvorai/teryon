@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Command history for the shell integration (`~/.teryon/history.jsonl`): what was run, where, how
 //! it ended. Feeds autosuggestions today and the history picker later.

@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Private local IPC. Unix sockets are preferred; restricted runners can use
 //! ephemeral loopback TCP with a random bearer token stored in a 0700 directory.

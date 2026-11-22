@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Saved pane layouts (titles and directories, never commands): the `layout` command's files and the
 //! automatic per-workspace copy the desktop keeps so a rebooted host can be set up again.

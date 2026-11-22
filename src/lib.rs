@@ -1,6 +1,6 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 #[cfg(not(unix))]
 compile_error!("TERYON 0.1 supports macOS and Linux. Use WSL on Windows.");

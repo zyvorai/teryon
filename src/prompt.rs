@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon prompt`: a two-line zsh prompt with the directory, git state, language, last command's
 //! duration and exit status. Collecting and rendering are separate so rendering stays testable.

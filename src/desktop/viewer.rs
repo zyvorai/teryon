@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Syntax colouring for Quick Look: a `bat`-style read-only view with a line-number gutter.
 //! syntect's grammars decide where each token starts; the colours come from the active theme's

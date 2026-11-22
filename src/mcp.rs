@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon mcp`: a Model Context Protocol server (stdio, JSON-RPC 2.0) that lets agents such as Claude Code or Codex
 //! observe and drive TERYON's persistent panes, local or over SSH. Reading is always on; writing needs `--allow-write`.

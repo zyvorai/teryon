@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Watching a pane for things worth telling someone about: an agent that needs you or finished,
 //! and a long command that ended. Pure state, so the daemon can run it without a client attached.

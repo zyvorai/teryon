@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Claude Messages API over the system `curl`, streaming Server-Sent Events.
 //! The key and the request body go to curl on stdin (`--config -`), never on its command line.

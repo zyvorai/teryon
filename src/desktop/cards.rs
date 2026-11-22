@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! A card in the top-right corner when an agent in another pane starts waiting for you while this
 //! window is in front. (With the window in the background the macOS banner does that job.)

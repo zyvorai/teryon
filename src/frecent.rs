@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Frequently and recently used directories for `z` (`~/.teryon/jump.jsonl`). The file is an
 //! append-only log of `{p: path, n: visits, at: last visit}` increments, summed per path on read,

@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! The agent reply path end to end: a fake agent asks, the daemon pushes to a fake ntfy with
 //! Approve/Deny buttons, the fake ntfy plays a button tap on the reply topic, and the key lands in the pane.

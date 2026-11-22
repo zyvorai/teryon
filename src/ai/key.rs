@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Where the API key comes from: `ANTHROPIC_API_KEY`, then the macOS Keychain. Never config files or logs.
 use anyhow::{bail, Result};

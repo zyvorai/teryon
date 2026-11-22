@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Colouring of a zsh command line while it is typed. A small tokenizer, not a parser: it knows
 //! command position, options, quotes, variables, operators and comments. Spans use character

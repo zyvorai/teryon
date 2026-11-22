@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Drag-and-drop: files dropped on a pane are typed as quoted paths (local host) or uploaded to the
 //! pane's directory (SSH host). Existing remote files are never overwritten.
