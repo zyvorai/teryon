@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon cp` against a real OpenSSH server run as the current user on a free loopback port.
 //! Skipped (with a note) when no usable `sshd` can be started here.

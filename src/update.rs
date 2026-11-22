@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Looking for a newer release: asks GitHub for the latest published release and compares versions.
 //! It only tells you (and opens the release page when you ask); installing stays a deliberate step,

@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Background blur behind a transparent window, like WezTerm's `macos_window_background_blur`.
 //! macOS has no public call for it; this uses the same private CoreGraphics one.

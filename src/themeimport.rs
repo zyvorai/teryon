@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Convert color schemes from other terminals (iTerm2, Alacritty, Ghostty, Kitty) to TERYON themes.
 use crate::theme::ThemeSpec;

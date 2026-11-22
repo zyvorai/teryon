@@ -19,7 +19,7 @@ Attach `teryon-social-card.jpg` to post 1, `docs/images/desktop-0.15-grid.png` t
 > Persistent terminals on your Mac mini or Linux box, over plain OpenSSH. Native desktop app, agent-aware panes, a
 > Finder-style file browser, an AI command bar and an MCP server.
 >
-> Rust. Source-available. Zyvor Production License v1.0.
+> Rust. Source-available. Zyvor Production Licence v2.0.
 >
 > github.com/zyvorai/teryon 🧵
 
@@ -97,7 +97,7 @@ Attach `teryon-social-card.jpg`, then `docs/images/desktop-0.15-grid.png` and `d
 > Honest status: it's a 0.15 engineering preview. Input is acknowledged, not guaranteed executed, and a reboot ends live
 > processes. The limits are written down in docs/LIMITATIONS.md.
 >
-> Rust. Source-available. Zyvor Production License v1.0.
+> Rust. Source-available. Zyvor Production Licence v2.0.
 > github.com/zyvorai/teryon
 > zyvorai.github.io/teryon
 >
@@ -114,7 +114,7 @@ Attach `teryon-social-card.jpg`, then `docs/images/desktop-0.15-grid.png` and `d
 > Gemini CLI, aider), an AI command bar that never runs anything without you pressing Enter, and an MCP server so coding
 > agents can use durable terminals.
 >
-> It is an engineering preview, written in Rust, Zyvor Production License v1.0. Feedback and issues welcome.
+> It is an engineering preview, written in Rust, Zyvor Production Licence v2.0. Feedback and issues welcome.
 >
 > https://github.com/zyvorai/teryon
 
@@ -133,4 +133,4 @@ First comment:
 > shell's directory locally or over SSH.
 >
 > What it is not: production-hardened. Input is acknowledged, not guaranteed executed; a reboot ends
-> live processes. The limits are written down in docs/LIMITATIONS.md. Rust, Zyvor Production License v1.0, macOS and Linux.
+> live processes. The limits are written down in docs/LIMITATIONS.md. Rust, Zyvor Production Licence v2.0, macOS and Linux.

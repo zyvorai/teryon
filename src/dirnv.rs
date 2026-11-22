@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Per-directory environment variables: an `[env]` table in a project's `.teryon.toml`, loaded when the
 //! shell enters the directory and put back when it leaves. Nothing loads until you run

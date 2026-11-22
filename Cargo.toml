@@ -4,7 +4,7 @@ version = "0.24.0"
 edition = "2021"
 rust-version = "1.89"
 description = "Persistent remote workspaces over OpenSSH, built in Rust"
-license = "LicenseRef-Zyvor-Production-1.0"
+license = "LicenseRef-Zyvor-Production-2.0"
 readme = "README.md"
 
 [dependencies]

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 # Regenerate PNG and .icns brand assets from docs/brand/teryon-icon.svg (macOS: needs rsvg-convert, iconutil, Pillow).
 set -eu

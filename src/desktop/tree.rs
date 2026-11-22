@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Pane trees: panes laid out by splitting any pane side by side or one above the other, as often
 //! as you like, instead of the fixed grid. Every divider can be dragged. The tree lives in the

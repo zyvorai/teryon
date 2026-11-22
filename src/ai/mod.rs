@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! The AI assistant: a Claude chat that can use a few guarded tools (open or quit apps, open SSH terminals,
 //! read Mac facts). Changing tools always wait for the user's approval. Used by `teryon ai` and the desktop panel.

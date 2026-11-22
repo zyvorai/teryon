@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Kitty graphics protocol (`ESC _ G key=value,… ; BASE64 ESC \`), the way `kitten icat`, `chafa` and
 //! many TUIs draw pictures. The daemon cuts these APC sequences out of the byte stream (the terminal

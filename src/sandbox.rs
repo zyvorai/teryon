@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon sandbox -- COMMAND…`: run a command (an AI coding agent) so it can only write to the
 //! repository it works in and the scratch and settings directories it needs, and cannot read the

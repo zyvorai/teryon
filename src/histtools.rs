@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Things worth doing with the recorded command history: a per-project report of what is slow and
 //! what keeps failing (`teryon hist report`), and finding a past command to run again in the place it

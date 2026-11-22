@@ -6,16 +6,16 @@
 
 ### Your Mac mini. Wherever you work.
 
-Shells that outlive your connection. Persistent remote shells over plain OpenSSH, with a TUI, a native desktop app, agent-aware panes, a file browser and an MCP server. Source-available: free for a 30-day evaluation; production use requires a commercial license.
+Shells that outlive your connection. Persistent remote shells over plain OpenSSH, with a TUI, a native desktop app, agent-aware panes, a file browser and an MCP server. Source-available. A 30-day trial is available on request from sales@zyvor.dev; production and any other use needs a paid Order.
 
 <br />
 
 **[Download TERYON 0.24.0](https://github.com/zyvorai/teryon/releases/tag/v0.24.0)** &nbsp;·&nbsp; [Website](https://zyvorai.github.io/teryon/) &nbsp;·&nbsp; [Get started](#start-in-one-command) &nbsp;·&nbsp; [Features](docs/FEATURES.md) &nbsp;·&nbsp; [Client overview (PDF)](docs/TERYON-Client-Overview.pdf)
 
-`TERYON-0.24.0.dmg` · macOS and Linux · notarized DMG · Zyvor Production License v1.0
+`TERYON-0.24.0.dmg` · macOS and Linux · notarized DMG · Zyvor Production Licence v2.0
 
 [![Checks](https://github.com/zyvorai/teryon/actions/workflows/ci.yml/badge.svg)](https://github.com/zyvorai/teryon/actions/workflows/ci.yml)
-[![License: Zyvor Production 1.0](https://img.shields.io/badge/License-Zyvor_Production_1.0-1d1d1f.svg)](LICENSE)
+[![License: Zyvor Production Licence v2.0](https://img.shields.io/badge/License-Zyvor_Production_Licence_v2.0-1d1d1f.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/tag/zyvorai/teryon?label=version)](https://github.com/zyvorai/teryon/releases)
 
 </div>
@@ -201,8 +201,8 @@ The Python fixture serves SSH only during tests. Production TERYON has no Python
 - [Limitations and next milestones](docs/LIMITATIONS.md)
 - [Contributing](CONTRIBUTING.md)
 
-[Zyvor Production License v1.0](LICENSE) (SPDX `LicenseRef-Zyvor-Production-1.0`; see [NOTICE](NOTICE)). Evaluation is permitted for 30 days per organization; production use requires a commercial license from Zyvor AI Labs.
+[Zyvor Production Licence v2.0](LICENSE) (SPDX `LicenseRef-Zyvor-Production-2.0`; see [NOTICE](NOTICE)). A 30-day trial is available on request from sales@zyvor.dev (a paid evaluation Order at no charge); production and any other use needs a paid Order.
 
 ## Support
 
-Evaluation is permitted for 30 days per organization under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can donate any amount you like: <https://rzp.io/rzp/utwdYh3>. A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or license, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity). Support contracts are separate: [sales@zyvor.dev](mailto:sales@zyvor.dev).
+A 30-day trial is available on request from sales@zyvor.dev (a paid evaluation Order at no charge); production and any other use needs a paid Order under the Zyvor Production Licence v2.0. If it helps you, you can donate any amount you like: <https://rzp.io/rzp/utwdYh3>. A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or license, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity). Support contracts are separate: [sales@zyvor.dev](mailto:sales@zyvor.dev).

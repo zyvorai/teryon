@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! `teryon play`: play an asciicast v2 file (as `teryon record` writes) in the terminal, at any speed,
 //! with long pauses shortened. The recorded bytes go to your terminal, so by default sequences that

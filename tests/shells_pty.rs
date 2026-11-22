@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! The bash and fish integrations driven through real shells in a pseudo-terminal. Each test is
 //! skipped when its shell is missing (bash also needs version 4+ for the pickers).

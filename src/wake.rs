@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 //! Wake-on-LAN: a magic packet for a sleeping host (a Mac mini only answers it over Ethernet).
 use anyhow::{bail, Result};
