@@ -28,6 +28,7 @@
 <meta name="twitter:image" content="https://zyvorai.github.io/teryon/social/og.png">
 <meta name="twitter:image:alt" content="TERYON: your Mac mini, wherever you work. The window shows four panes of a demo workspace.">
 <link rel="stylesheet" href="assets/landing.css">
+<link rel="stylesheet" href="assets/zyvor-buyer.css">
 <style>:root{--accent-btn:#0071e3;--accent-ink:#0071e3;--accent-grad-a:#0a84ff;--accent-grad-b:#bf5af2}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--accent-ink:#2997ff}}:root[data-theme="dark"]{--accent-ink:#2997ff}</style>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"TERYON","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","softwareVersion":"0.24.0","downloadUrl":"https://github.com/zyvorai/teryon/releases/tag/v0.24.0","url":"https://zyvorai.github.io/teryon/","description":"TERYON is a source-available remote workspace: persistent shells over plain OpenSSH with a terminal UI, a native desktop app, agent-aware panes, a file browser and an MCP server. Written in Rust, Zyvor Production License v1.0. An engineering preview.","image":"https://zyvorai.github.io/teryon/social/og.png","publisher":{"@type":"Organization","name":"Zyvor AI Labs Private Limited","url":"https://zyvor.dev"}}</script>
 </head>
@@ -45,9 +46,22 @@
   <h1 id="top">Teryon</h1>
   <p class="tagline">Your Mac mini. Wherever you work.</p>
   <p class="promise"><strong>Shells that outlive your connection.</strong> A per-user service on your Mac mini or Linux host owns the terminals; plain OpenSSH carries the interface. Close the lid, switch networks, come back tomorrow and reattach to the same live shells. A TUI, a native desktop app, agent-aware panes, a file browser and an MCP server. Source-available under the Zyvor Production License v1.0.</p>
-  <p class="cta"><a class="btn primary" href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Download TERYON 0.24.0</a><a class="textlink" href="#features">Learn more</a></p>
-  <p class="fine">macOS and Linux · notarized DMG · Permitted for non-production use (Zyvor Production License v1.0) · engineering preview</p>
+  <div class="buyer" role="group" aria-label="Get Teryon">
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/zyvorai/teryon/releases/download/v0.24.0/TERYON-0.24.0.dmg">Download Teryon 0.24.0</a>
+      <a class="btn ghost" href="https://zyvor.dev/contact?intent=trial&amp;product=teryon" rel="noopener">Ask for a 30-day trial</a>
+      <a class="btn ghost" href="https://zyvor.dev/buy" rel="noopener">Buy a license</a>
+    </div>
+    <p class="sub">TERYON-0.24.0.dmg · macOS · <a href="https://zyvor.dev/pricing" rel="noopener">See current prices</a> · <a href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">All downloads</a></p>
+    <p class="trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span><strong>Verified by Apple:</strong> Developer ID signed and notarized. This applies to the 0.24.0 DMG.</span></p>
+    <ul class="reqs"><li>Requires macOS or Linux, plain OpenSSH with key or agent sign-in, and a Mac mini or Linux host.</li></ul>
+  </div>
   <figure class="shot hero-shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/hero-grid-dark-1200.webp 1200w, assets/img/hero-grid-dark-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw"><img src="assets/img/hero-grid-light-1200.webp" srcset="assets/img/hero-grid-light-1200.webp 1200w, assets/img/hero-grid-light-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw" width="1900" height="1223" alt="The TERYON desktop app with four panes of a demo workspace: a file tree, a git log, passing test output and an assistant asking to apply an edit." fetchpriority="high" decoding="async"></picture><figcaption>Four panes in one workspace. Real capture of a throwaway demo workspace.</figcaption></figure>
+</section>
+
+<section class="outcomes" aria-labelledby="outcomes-h">
+  <h2 id="outcomes-h">Keep your work running when your connection does not.</h2>
+  <ul class="tiles"><li class="tile"><h3>Come back to the same live shells</h3><p>The host owns the terminals, so a closed lid, a changed network or a quit client does not end your work. Reattach later.</p></li><li class="tile"><h3>Use the SSH you already have</h3><p>Plain OpenSSH carries the interface, with your keys, jump hosts and aliases. No new ports and no new accounts.</p></li><li class="tile"><h3>Work with coding agents</h3><p>Agent-aware panes, Git worktrees, an opt-in sandbox and an MCP server. The sandbox guards against mistakes. It is not a boundary against a hostile program.</p></li></ul>
 </section>
 
 <section class="band" aria-label="Overview">
@@ -71,11 +85,10 @@
   <div class="cards"><div class="card"><h3>Your SSH</h3><p>Your keys, ports, jump hosts and aliases. TERYON does not bypass firewalls or NAT.</p></div><div class="card"><h3>A per-user service</h3><p>The host runs a service for your user. No new ports and no new accounts.</p></div><div class="card"><h3>Sandbox, honestly</h3><p>The agent sandbox guards against mistakes and leaked credentials. It is not a boundary against a hostile program.</p></div></div>
 </section>
 
-<section class="specs" id="pricing" aria-labelledby="pricing-h">
-  <h2 id="pricing-h">Pricing.</h2>
-  <dl class="specs-grid"><div class="spec"><dt>Teryon</dt><dd>₹3,999<small>per Mac per year (incl. 18% GST in India; about US$40 excl. tax outside India).</small></dd></div><div class="spec"><dt>Teams</dt><dd>₹3,399<small>per unit, 5 or more, by invoice.</small></dd></div><div class="spec"><dt>Trial</dt><dd>30 days<small>Free evaluation. Production use needs a licence.</small></dd></div></dl>
-  <p class="cta"><a class="btn primary" href="https://zyvor.dev/buy#teryon" rel="noopener">Buy Teryon</a><a class="textlink" href="https://zyvor.dev/pricing">All prices</a></p>
-  <p class="fine">Orders of US$5,000 or more are invoiced in US dollars and paid through Skydo. Prices are set on zyvor.dev.</p>
+<section class="buy-pointer" id="pricing" aria-labelledby="pricing-h">
+  <h2 id="pricing-h">Prices and licenses</h2>
+  <p>Current prices are on zyvor.dev. You can ask for a 30-day trial before you decide.</p>
+  <p class="cta"><a class="btn primary" href="https://zyvor.dev/buy" rel="noopener">Buy a license</a><a class="btn ghost" href="https://zyvor.dev/contact?intent=trial&amp;product=teryon" rel="noopener">Ask for a 30-day trial</a><a class="textlink" href="https://zyvor.dev/pricing" rel="noopener">See current prices</a></p>
 </section>
 
 <section class="specs" id="specs" aria-labelledby="specs-h">
@@ -91,9 +104,9 @@
   <p class="cta"><a class="btn primary" href="https://github.com/zyvorai/teryon/releases/download/v0.24.0/TERYON-0.24.0.dmg">Download TERYON-0.24.0.dmg</a><a class="textlink" href="https://github.com/zyvorai/teryon/releases/tag/v0.24.0">Release page</a><a class="textlink" href="https://github.com/zyvorai/teryon#download">Install guide</a></p>
 </section>
 
-<section class="pricing" id="support" aria-labelledby="pricing-h">
+<section class="pricing" id="support" aria-labelledby="support-h">
   <div class="inner">
-  <h2 id="pricing-h" style="text-align:left">Support the project.</h2>
+  <h2 id="support-h" style="text-align:left">Support the project.</h2>
   <p class="lead">Non-production use is permitted under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can donate any amount you like.</p>
 <p class="cta"><a class="btn primary" href="https://rzp.io/rzp/utwdYh3" rel="noopener">Pay what you like (Razorpay)</a></p>
 <p class="fine">A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or license. Support contracts are separate: <a href="mailto:sales@zyvor.dev">sales@zyvor.dev</a>.</p>
