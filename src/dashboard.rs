@@ -12,31 +12,41 @@ pub struct Row {
     pub workspaces: String,
     pub panes: String,
     pub latency: String,
+    /// Load, memory and heat, when the host's daemon reports them.
+    pub stats: Option<crate::hoststats::HostStats>,
+    pub latency_ms: Option<u64>,
 }
 
 /// Probe one host; failures become a `down` row instead of aborting the dashboard.
 pub fn probe(host: &str, target: Result<Target, anyhow::Error>) -> Row {
     let started = Instant::now();
-    let result = (|| -> anyhow::Result<(String, usize, usize)> {
-        let mut rpc = target?.connect()?;
-        let system = match rpc.call(Request::Info)? {
-            Response::Info { os, arch, .. } => format!("{os}/{arch}"),
-            _ => "?".into(),
-        };
-        let (workspaces, panes) = match rpc.call(Request::List)? {
-            Response::Workspaces { items } => (items.len(), items.iter().map(|w| w.panes).sum()),
-            _ => (0, 0),
-        };
-        Ok((system, workspaces, panes))
-    })();
+    let result =
+        (|| -> anyhow::Result<(String, usize, usize, Option<crate::hoststats::HostStats>)> {
+            let mut rpc = target?.connect()?;
+            let (system, stats) = match rpc.call(Request::Info)? {
+                Response::Info {
+                    os, arch, stats, ..
+                } => (format!("{os}/{arch}"), stats),
+                _ => ("?".into(), None),
+            };
+            let (workspaces, panes) = match rpc.call(Request::List)? {
+                Response::Workspaces { items } => {
+                    (items.len(), items.iter().map(|w| w.panes).sum())
+                }
+                _ => (0, 0),
+            };
+            Ok((system, workspaces, panes, stats))
+        })();
     match result {
-        Ok((system, workspaces, panes)) => Row {
+        Ok((system, workspaces, panes, stats)) => Row {
             host: host.into(),
             status: "up".into(),
             system,
             workspaces: workspaces.to_string(),
             panes: panes.to_string(),
             latency: format!("{} ms", started.elapsed().as_millis()),
+            stats,
+            latency_ms: Some(started.elapsed().as_millis() as u64),
         },
         Err(e) => {
             let reason = format!("{e:#}");
@@ -48,9 +58,31 @@ pub fn probe(host: &str, target: Result<Target, anyhow::Error>) -> Row {
                 workspaces: "-".into(),
                 panes: "-".into(),
                 latency: "-".into(),
+                stats: None,
+                latency_ms: None,
             }
         }
     }
+}
+
+/// One host as a JSON object for scripts and the menu-bar item. `up` says whether it answered; the
+/// load, memory and heat fields are present only when the daemon reports them.
+pub fn row_json(r: &Row) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "host": r.host,
+        "up": r.status == "up",
+        "status": r.status,
+        "system": r.system,
+        "workspaces": r.workspaces.parse::<u64>().ok(),
+        "panes": r.panes.parse::<u64>().ok(),
+        "latency_ms": r.latency_ms,
+    });
+    if let Some(s) = &r.stats {
+        v["load1"] = serde_json::json!(s.load1);
+        v["mem_used_pct"] = serde_json::json!(s.mem_used_pct);
+        v["thermal"] = serde_json::json!(s.thermal);
+    }
+    v
 }
 
 /// Fixed-width table; `color` adds green/amber status markers.
@@ -106,7 +138,29 @@ mod tests {
             workspaces: "2".into(),
             panes: "5".into(),
             latency: "41 ms".into(),
+            stats: None,
+            latency_ms: Some(41),
         }
+    }
+    #[test]
+    fn json_has_health_only_when_reported() {
+        let mut r = row("mini", "up");
+        let v = row_json(&r);
+        assert_eq!(v["up"], true);
+        assert_eq!(v["workspaces"], 2);
+        assert!(v.get("load1").is_none());
+        r.stats = Some(crate::hoststats::HostStats {
+            load1: 1.5,
+            mem_used_pct: Some(63),
+            thermal: Some("nominal".into()),
+        });
+        let v = row_json(&r);
+        assert_eq!(
+            (v["load1"].as_f64(), v["mem_used_pct"].as_u64()),
+            (Some(1.5), Some(63))
+        );
+        let down = row_json(&row("bad", "down: timeout"));
+        assert_eq!(down["up"], false);
     }
     #[test]
     fn table_aligns_columns_and_colors_status() {

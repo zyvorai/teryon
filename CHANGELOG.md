@@ -25,14 +25,31 @@
 
 # Changelog
 
+## 0.25.0
+
+- The menu-bar item rechecks the Mac setup every two minutes and shows **Check Setup… (N to fix)** when `doctor --mac` flags something
+- Tests: the native banner path end to end with a stub notifier (payload fields, one-time token answers the agent), `respond`, the view-only relay and `share`/`shares` against a real daemon
+- Host health in the menu-bar item (load, memory, heat, and whether each host answers), from the new `teryon dashboard --json`, polled every 20 s in the background
+- `teryon recent [--limit N] [--json]` lists the workspaces you opened most recently. The menu-bar item shows them under **Recent Workspaces**; picking one opens it in TERYON
+- `teryon respond [HOST] -w WORKSPACE --pane N [--deny]`: approve or deny the prompt an agent is showing, only if it is still showing it. The menu-bar item uses it: an agent that needs you gets **Approve** and **Deny** rows under it
+- The menu-bar item has a **Launch at Login** toggle (a login item registered with `SMAppService`; needs macOS 13). It is off until you turn it on
+- `teryon notify status` says whether native notifications work here (helper installed, what macOS allows) and what to do if not. The menu-bar item can also post the native "needs you" banner itself (**Notify When an Agent Needs Me**, off by default), with Approve and Deny
+- Menu-bar item. `TERYON.app` carries `TeryonMenu.app` (Swift, `scripts/build-menu.sh`): the menu bar shows how many AI agents need you, lists every agent with its state, and a click opens TERYON on that workspace and pane. It only reads `teryon agents --all --json`
+- `teryon://open/HOST/WORKSPACE[/PANE]` links, handled by the menu-bar app, so Shortcuts, Siri and Spotlight ("Open URL") can open a workspace. Only that one verb is understood and names are checked. (Full App Intents need an Xcode build and are not done.)
+- `teryon hist timeline`: a day-by-day account of what you ran: time, whether it worked, how long it took, where, and the long pauses between commands. `--days`, `--host`, `--failed`, `--dir`, `--limit`
+- `teryon hist timeline --json` prints the commands one JSON object per line. The menu-bar item has **Check Setup…**, which shows what `teryon doctor --mac` found
+- `teryon doctor --mac` checks the Mac app side in one go: the daemon, native notifications and what macOS allows, banners from the daemon, the menu-bar item (installed, running) and read-only shares, with a next step for each problem. Exits 1 if anything needs fixing
+- `teryon shares` lists the read-only shares on this machine (keys in `authorized_keys` that carry the `relay --view` forced command and `restrict`) with the line number to delete to end each. A view command without `restrict` is not listed as a share
+- `teryon share WORKSPACE`: let a teammate watch a workspace read-only over SSH. It prints an `authorized_keys` line with a forced command (`teryon relay --view WORKSPACE`, plus `restrict`) so their key can only attach read-only to that workspace; typing, listing other workspaces, closing panes and stopping the daemon are refused before the daemon sees them
+
+- Native macOS notifications. `TERYON.app` now carries `TeryonNotifier.app` (Swift, built by `scripts/build-notifier.sh`), so banners show the TERYON icon, group per workspace and pane, respect Focus (an agent that needs you is time-sensitive, "finished" is passive), and an "agent needs you" banner has **Approve** and **Deny** buttons that answer the prompt through the daemon with the same one-time token as the phone buttons. Clicking a banner opens TERYON on that workspace's tab and focuses the pane. Without the helper (CLI-only installs, Linux) the AppleScript banner is used as before
+
 ## Unreleased — persistent drafts, MCP tools, presets scaffolding
 
 * **Persistent offline drafts**: drafts are saved to `~/.teryon/drafts/<workspace>.txt` and reloaded when the TUI starts. Leaving the draft editor with Enter writes the file.
 * **MCP**: added `get_pane_cwd` and `list_drafts` read-only tools.
 * **Agent presets**: new `src/presets.rs` scaffolding for workspace presets stored as TOML under `~/.teryon/presets/`.
 
-
-## Unreleased
 
 ## 0.24.0
 

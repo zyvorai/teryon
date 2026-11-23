@@ -24,4 +24,6 @@ from pathlib import Path
 with (Path(sys.argv[1])/'Contents/Info.plist').open('wb') as f:
  plistlib.dump({'CFBundleIdentifier':'dev.zyvor.teryon','CFBundleName':'TERYON','CFBundleExecutable':'launch-teryon','CFBundleIconFile':'Teryon','CFBundlePackageType':'APPL','CFBundleShortVersionString':sys.argv[2],'NSHighResolutionCapable':True},f)
 PY
+scripts/build-notifier.sh "$app"
+scripts/build-menu.sh "$app"
 echo "Created $app (unsigned; opens a local workspace). Use CLI for remote hosts."

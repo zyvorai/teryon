@@ -26,6 +26,8 @@ pkg="dist/TERYON-$version.pkg"
 rm -rf "$app" "$dmg" "$pkg"
 scripts/bundle-macos.sh
 
+codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/Library/TeryonNotifier.app"
+codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/Library/TeryonMenu.app"
 codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/MacOS/teryon"
 codesign --force --options runtime --timestamp --sign "$APP_ID" "$app"
 codesign --verify --strict --verbose=2 "$app"

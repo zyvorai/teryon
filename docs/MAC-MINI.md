@@ -88,6 +88,15 @@ teryon connect mini --workspace fluxvm --readonly
 
 This is another attachment to the same account's workspace. It is not a multi-user permission system or an invitation link. Read-only viewing cannot modify pane input, sizes, titles or processes through the session API.
 
+To let someone else watch, without giving them a login, give them a key that can only watch one workspace:
+
+```bash
+teryon share fluxvm --pubkey bob.pub     # prints one line; paste it into ~/.ssh/authorized_keys on the mini
+teryon shares                            # later: who can watch what, and which line to delete to stop it
+```
+
+The line forces `teryon relay --view fluxvm` and adds `restrict`, so that key gets no shell, no forwarding and no terminal, can attach to that one workspace only as a read-only viewer (even if its client asks for control), and cannot list other workspaces or stop the daemon. They still run `teryon connect mini --workspace fluxvm --readonly` with an SSH host entry for the mini. It relies on your `sshd` honouring `command=` and `restrict` in `authorized_keys`.
+
 ## 7. Clean up
 
 Detach all controllers first, then explicitly terminate an unwanted workspace:

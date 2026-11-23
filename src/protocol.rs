@@ -80,6 +80,18 @@ pub enum Request {
         id: u64,
     },
     Info,
+    /// Answer an agent's approval prompt with a one-time reply (`approve:<token>` or `deny:<token>`)
+    /// from a native notification button.
+    Answer {
+        reply: String,
+    },
+    /// Approve or deny the prompt an agent shows in a pane, if it still shows one. For a person at the
+    /// keyboard (the menu bar item); the daemon reads which agent it is from the pane.
+    Respond {
+        workspace: String,
+        pane: u64,
+        approve: bool,
+    },
     Shutdown {
         force: bool,
     },
@@ -213,6 +225,12 @@ pub enum Response {
         /// Absolute number of the first line of `text` (0 from daemons that do not know).
         #[serde(default)]
         first_line: u64,
+    },
+    /// What an `Answer` did: `sent`, `notasking`, `gone` or `expired`.
+    Answered {
+        outcome: String,
+        workspace: String,
+        pane: u64,
     },
     ImageData {
         id: u64,

@@ -2,7 +2,16 @@
 
 What has shipped and what is still open, based on the current limitations (`docs/LIMITATIONS.md`), what users are likely to hit, and the Mac mini / AI-agent / infrastructure focus.
 
-**Status**: Engineering preview v0.24.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+**Status**: Engineering preview v0.25.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
+
+## Shipped in 0.25.0
+
+| Area | What |
+|---|---|
+| Mac | Native notifications (`TeryonNotifier.app`) with Approve/Deny buttons and click-to-open-pane, AppleScript fallback; menu-bar item (`TeryonMenu.app`) with agent counts, approve/deny, recent workspaces, host health, Launch at Login and a setup check; `teryon://` links; `teryon doctor --mac`, `teryon notify status` |
+| Agents | `teryon respond` (approve/deny the prompt an agent shows, only while it asks); `teryon share` / `shares` (read-only live view over SSH) |
+| History | `teryon hist timeline [--json]`, `teryon recent`, `teryon dashboard --json` |
+| Tests | End-to-end tests for respond, the view-only relay, share, and the native banner path with a stub notifier. Not yet verified: a real click on a native banner button |
 
 ## Shipped in 0.24.0
 
