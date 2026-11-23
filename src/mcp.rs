@@ -783,7 +783,16 @@ mod tests {
                 "list_panes",
                 "read_pane",
                 "search_scrollback",
-                "wait_for"
+                "wait_for",
+                "get_pane_cwd",
+                "list_drafts",
+                "list_presets",
+                "get_preset",
+                "session_summary",
+                "list_notes",
+                "get_note",
+                "list_bookmarks",
+                "list_port_rules"
             ]
         );
         let (msg, err) = call(&mut ro, "new_pane", json!({"command": ["ls"]}));

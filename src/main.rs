@@ -3081,12 +3081,26 @@ fn main() {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// The derived `Cli` is large; in an unoptimised build clap 4.6 needs more than the
+    /// 2 MiB a test thread gets, so run these on a thread with a bigger stack.
+    fn big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(f)
+            .expect("spawn")
+            .join()
+            .expect("test body panicked");
+    }
     #[test]
     fn command_tree_is_consistent() {
-        Cli::command().debug_assert();
+        big_stack(|| Cli::command().debug_assert());
     }
     #[test]
     fn argv_task_and_explicit_send_parse() {
+        big_stack(argv_task_and_explicit_send_parse_body);
+    }
+    fn argv_task_and_explicit_send_parse_body() {
         assert!(Cli::try_parse_from([
             "teryon",
             "exec",
