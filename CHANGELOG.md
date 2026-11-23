@@ -25,6 +25,24 @@
 
 # Changelog
 
+## Unreleased — untrusted-output hardening, redacted recordings, ssh-audit
+
+* **New `src/sanitize.rs`**: removes escape sequences (CSI, OSC including OSC 52, DCS/APC), control characters, bidi controls, zero-width and Unicode tag characters from untrusted text, caps line and total size, reports what it removed. Used by every MCP tool result and error (before redaction, so hidden characters cannot disguise a secret), by `teryon capture --plain` and by `teryon panes`.
+* **Bug fix**: an OSC 7 working directory containing control or invisible characters (for example `%0a`, `%1b`) was accepted and shown in pane listings and MCP; it is now ignored.
+* **Bug fix**: `teryon play` passed OSC 0/1/2/7/8/133 payloads through even when they carried control characters; such sequences are now dropped.
+* `teryon record --redact`: non-style escape sequences are dropped and secrets replaced by `[redacted:kind]` before a frame is written; the count is printed.
+* `teryon ssh-audit [HOST...] [--file PATH] [--json]`: resolve a host from an OpenSSH config (first value wins, patterns and negation, `Include` with depth, count and size caps), follow the ProxyJump chain, and flag loops, injection-shaped names, agent forwarding, weakened host-key checking, `LocalCommand`, open forwards and shared `ControlPath`. Reads text only.
+* `docs/RESEARCH.md`: survey of mosh, Eternal Terminal, tmux, Zellij, WezTerm, Wave, Warp, tssh, Teleport, asciicast v2, OSC 8, OpenSSH config and the MCP tools spec, with ranked ideas.
+* `cargo fmt` applied to files that failed `cargo fmt --check` at baseline.
+
+## Unreleased — dependency and CI upgrades
+
+* `cargo update` (all semver-compatible crates), plus `clap` 4.6 and `clap_complete` 4.6.
+* **Major bumps**: `toml` 0.8 to 1.2 and `toml_edit` 0.22 to 0.25. No source change was needed; the whole suite passes.
+* **Held back**: `vt100` 0.16 (0.18 exists): the repository patches and vendors it in `vendor/vt100`, which must not be edited here. `eframe` 0.31 (0.33 exists): the desktop build vendors `epaint` and `egui_glow` at 0.31 (`vendor/`), so eframe cannot move without re-porting those patches, and the desktop window cannot be run on this Linux host.
+* GitHub Actions: `actions/checkout` v7, `actions/upload-artifact` v7, `actions/download-artifact` v8. Unverified and left alone: `actions/upload-pages-artifact@v3`, `actions/deploy-pages@v4`, `dtolnay/rust-toolchain`, `Swatinem/rust-cache@v2`. No Node or Python version pins exist in the workflows. MSRV (1.89) and the pinned 1.94.0 toolchain are unchanged.
+* Tests: fixed two stale assertions (the MCP tool lists had grown to 15 read-only / 18 total tools), and the two `Cli` parse tests now run on a 32 MiB stack because clap 4.6 overflows the 2 MiB test-thread stack in debug builds (the binary itself is unaffected).
+
 ## 0.25.0
 
 - The menu-bar item rechecks the Mac setup every two minutes and shows **Check Setup… (N to fix)** when `doctor --mac` flags something

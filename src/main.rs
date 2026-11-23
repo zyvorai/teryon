@@ -169,6 +169,10 @@ enum Commands {
         workspace: String,
         #[arg(long, default_value_t = 1)]
         pane: u64,
+        /// Remove escape sequences, control and invisible characters, and cap line length, so the
+        /// text is safe to print or paste elsewhere (the default prints the pane text unchanged).
+        #[arg(long)]
+        plain: bool,
     },
     /// Record a pane to an asciicast v2 file (screen snapshots; play with `teryon play` or `asciinema play`).
     Record {
@@ -184,6 +188,9 @@ enum Commands {
         /// Stop after this many seconds (default: until the pane exits or Ctrl-C).
         #[arg(long)]
         seconds: Option<u64>,
+        /// Redact secrets and drop clipboard/title sequences before they reach the file.
+        #[arg(long)]
+        redact: bool,
     },
     /// Run a durable task in a new pane. Arguments are passed without a shell.
     Exec {
@@ -558,6 +565,20 @@ enum Commands {
         /// Show what would be added without writing.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Check an OpenSSH client config for a host: resolve it like ssh does, follow the ProxyJump
+    /// chain hop by hop, and flag loops, injection-shaped names, agent forwarding, weakened host-key
+    /// checking and local commands. Reads text only: it never connects and never reads key files.
+    /// Exits 1 when there is an error-level finding.
+    SshAudit {
+        /// Host aliases to check (default: every concrete alias in the config).
+        hosts: Vec<String>,
+        /// Config to read (default: $TERYON_SSH_CONFIG, else ~/.ssh/config).
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// One JSON object per host.
+        #[arg(long)]
+        json: bool,
     },
     /// Shorthand for `connect local --workspace NAME` (or another host with --host).
     Attach {
@@ -1733,6 +1754,40 @@ fn run() -> Result<i32> {
                 }
             }
         }
+        Commands::SshAudit { hosts, file, json } => {
+            let path = match file {
+                Some(f) => f,
+                None => match std::env::var_os("TERYON_SSH_CONFIG") {
+                    Some(p) => PathBuf::from(p),
+                    None => teryon::util::home()?.join(".ssh/config"),
+                },
+            };
+            let cfg = teryon::sshaudit::load(&path)
+                .with_context(|| format!("cannot read {}", path.display()))?;
+            let hosts = if hosts.is_empty() {
+                teryon::sshaudit::aliases(&cfg)
+            } else {
+                hosts
+            };
+            let mut bad = false;
+            for h in &hosts {
+                let a = teryon::sshaudit::audit(&cfg, h);
+                bad |= a.has_errors();
+                if json {
+                    println!("{}", teryon::sshaudit::to_json(&a));
+                } else {
+                    print!("{}", teryon::sshaudit::render(&a));
+                }
+            }
+            if !json {
+                for p in &cfg.problems {
+                    eprintln!("config: {}", teryon::sanitize::label(p, 300));
+                }
+            }
+            if bad {
+                return Ok(1);
+            }
+        }
         Commands::Drafts { clear, workspace } => {
             if clear {
                 let n = teryon::feats::clear_drafts();
@@ -1766,7 +1821,12 @@ fn run() -> Result<i32> {
                 }
             }
         }
-        Commands::Notes { host, workspace, set, list } => {
+        Commands::Notes {
+            host,
+            workspace,
+            set,
+            list,
+        } => {
             if list {
                 for (k, _) in teryon::notes::list_notes() {
                     println!("{k}");
@@ -1778,17 +1838,37 @@ fn run() -> Result<i32> {
                 println!("{}", teryon::notes::load_note(&host, &workspace));
             }
         }
-        Commands::Bookmarks { add, host, workspace, pane, cwd, list } => {
+        Commands::Bookmarks {
+            add,
+            host,
+            workspace,
+            pane,
+            cwd,
+            list,
+        } => {
             if list || add.is_none() {
                 for line in teryon::notes::list_bookmarks() {
                     println!("{line}");
                 }
             } else if let Some(name) = add {
-                teryon::notes::add_bookmark(&name, host.as_deref().unwrap_or("local"), workspace.as_deref().unwrap_or("default"), pane, cwd.as_deref())?;
+                teryon::notes::add_bookmark(
+                    &name,
+                    host.as_deref().unwrap_or("local"),
+                    workspace.as_deref().unwrap_or("default"),
+                    pane,
+                    cwd.as_deref(),
+                )?;
                 println!("bookmark added");
             }
         }
-        Commands::Portsauto { add, host, local, remote, name, clear } => {
+        Commands::Portsauto {
+            add,
+            host,
+            local,
+            remote,
+            name,
+            clear,
+        } => {
             if clear {
                 teryon::portsauto::clear_rules()?;
                 println!("port rules cleared");
@@ -1827,7 +1907,11 @@ fn run() -> Result<i32> {
             for p in panes(&mut rpc)? {
                 println!(
                     "{}\t{}\tpid={:?}\texit={:?}\t{}",
-                    p.id, p.title, p.pid, p.exited, p.cwd
+                    p.id,
+                    teryon::sanitize::label(&p.title, 120),
+                    p.pid,
+                    p.exited,
+                    teryon::sanitize::label(&p.cwd, 400)
                 );
             }
         }
@@ -1835,9 +1919,15 @@ fn run() -> Result<i32> {
             host,
             workspace,
             pane,
+            plain,
         } => {
             let mut rpc = attach(&target(host, bin)?, workspace, true, None)?;
-            println!("{}", capture(&mut rpc, pane)?);
+            let text = capture(&mut rpc, pane)?;
+            if plain {
+                println!("{}", teryon::sanitize::text_with_note(&text));
+            } else {
+                println!("{text}");
+            }
         }
         Commands::Record {
             host,
@@ -1845,6 +1935,7 @@ fn run() -> Result<i32> {
             pane,
             output,
             seconds,
+            redact,
         } => {
             let mut rpc = attach(&target(host, bin)?, workspace, true, None)?;
             let mut known = BTreeMap::new();
@@ -1868,9 +1959,10 @@ fn run() -> Result<i32> {
                 known.insert(pane.to_string(), view.revision);
                 if let Some(screen) = &view.screen {
                     if writer.is_none() {
-                        writer = Some(teryon::record::CastWriter::create(
+                        let w = teryon::record::CastWriter::create(
                             &output, view.cols, view.rows, unix,
-                        )?);
+                        )?;
+                        writer = Some(if redact { w.redacting() } else { w });
                         eprintln!(
                             "Recording pane {pane} to {} (Ctrl-C to stop)",
                             output.display()
@@ -1886,8 +1978,10 @@ fn run() -> Result<i32> {
                 }
                 thread::sleep(Duration::from_millis(100));
             }
-            if writer.is_none() {
-                bail!("pane {pane} produced no screen to record");
+            match writer {
+                None => bail!("pane {pane} produced no screen to record"),
+                Some(w) if redact => eprintln!("Redacted {} secret(s).", w.redactions()),
+                Some(_) => {}
             }
         }
         Commands::Send {
@@ -3081,12 +3175,26 @@ fn main() {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// The derived `Cli` is large; in an unoptimised build clap 4.6 needs more than the
+    /// 2 MiB a test thread gets, so run these on a thread with a bigger stack.
+    fn big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(f)
+            .expect("spawn")
+            .join()
+            .expect("test body panicked");
+    }
     #[test]
     fn command_tree_is_consistent() {
-        Cli::command().debug_assert();
+        big_stack(|| Cli::command().debug_assert());
     }
     #[test]
     fn argv_task_and_explicit_send_parse() {
+        big_stack(argv_task_and_explicit_send_parse_body);
+    }
+    fn argv_task_and_explicit_send_parse_body() {
         assert!(Cli::try_parse_from([
             "teryon",
             "exec",

@@ -4,6 +4,15 @@ What has shipped and what is still open, based on the current limitations (`docs
 
 **Status**: Engineering preview v0.25.0. Each shipped item has tests; the desktop items have not yet all been checked in a real window (see the milestones in `docs/LIMITATIONS.md`).
 
+## Shipped after 0.25.0 (unreleased)
+
+| Area | What |
+|---|---|
+| Safety | `src/sanitize.rs`: MCP output and `capture --plain` strip escape sequences, control, bidi and Unicode tag characters and cap sizes; OSC 7 and `play` title/link hardening |
+| Recording | `teryon record --redact` |
+| SSH | `teryon ssh-audit`: config resolution, ProxyJump chain, risky-setting findings (text only) |
+| Research | `docs/RESEARCH.md` with ranked ideas (hash-chained recordings, cast markers and OSC 8 scheme allow-list deferred) |
+
 ## Shipped in 0.25.0
 
 | Area | What |

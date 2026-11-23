@@ -13,6 +13,8 @@ use std::path::Path;
 
 pub struct CastWriter<W: Write> {
     out: W,
+    redact: bool,
+    redactions: usize,
 }
 
 impl CastWriter<std::fs::File> {
@@ -42,13 +44,35 @@ impl<W: Write> CastWriter<W> {
         });
         writeln!(out, "{header}")?;
         out.flush()?;
-        Ok(Self { out })
+        Ok(Self {
+            out,
+            redact: false,
+            redactions: 0,
+        })
+    }
+    /// Make every later frame safe to share: escape sequences other than styling and cursor moves
+    /// are dropped (a recording must not carry an OSC 52 clipboard write or a title into a viewer's
+    /// terminal), and secrets matching the redaction rules are replaced by `[redacted:kind]`.
+    /// Best effort: a secret split by a style change, or one with no recognisable shape, is not caught.
+    pub fn redacting(mut self) -> Self {
+        self.redact = true;
+        self
+    }
+    /// How many secrets were replaced so far.
+    pub fn redactions(&self) -> usize {
+        self.redactions
     }
     /// Append one screen snapshot taken `seconds` after the start.
     pub fn frame(&mut self, seconds: f64, screen: &[u8]) -> Result<()> {
-        let mut data = b"\x1b[2J\x1b[H".to_vec();
-        data.extend_from_slice(screen);
-        let event = serde_json::json!([seconds, "o", String::from_utf8_lossy(&data)]);
+        let mut text = String::from_utf8_lossy(screen).into_owned();
+        if self.redact {
+            let filtered = crate::castplay::Filter::default().feed(&text);
+            let (clean, n) = crate::ai::redact::redact(&filtered);
+            self.redactions += n;
+            text = clean;
+        }
+        let data = format!("\x1b[2J\x1b[H{text}");
+        let event = serde_json::json!([seconds, "o", data]);
         writeln!(self.out, "{event}")?;
         self.out.flush()?;
         Ok(())
@@ -86,6 +110,48 @@ mod tests {
             0o600
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+    fn frames(buf: Vec<u8>) -> Vec<String> {
+        String::from_utf8(buf)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .map(|l| {
+                serde_json::from_str::<serde_json::Value>(l).unwrap()[2]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+    #[test]
+    fn redacting_hides_secrets_and_drops_clipboard_and_title_sequences() {
+        let mut buf = Vec::new();
+        let mut w = CastWriter::new(&mut buf, 80, 24, 0).unwrap().redacting();
+        let screen = "$ export API_TOKEN=hunter2hunter2\r\n\x1b[1mbold\x1b[0m\x1b]52;c;cm0gLXJm\x07\x1b]0;t\x07\r\n";
+        w.frame(0.1, screen.as_bytes()).unwrap();
+        assert!(w.redactions() >= 1);
+        let f = frames(buf);
+        assert!(!f[0].contains("hunter2hunter2"), "{}", f[0]);
+        assert!(f[0].contains("[redacted:"));
+        assert!(f[0].contains("\x1b[1mbold\x1b[0m"));
+        assert!(!f[0].contains("cm0gLXJm") && !f[0].contains("]52"));
+    }
+    #[test]
+    fn without_redaction_frames_are_written_as_given() {
+        let mut buf = Vec::new();
+        let mut w = CastWriter::new(&mut buf, 80, 24, 0).unwrap();
+        w.frame(0.1, b"API_TOKEN=hunter2hunter2").unwrap();
+        assert_eq!(w.redactions(), 0);
+        assert!(frames(buf)[0].contains("hunter2hunter2"));
+    }
+    #[test]
+    fn a_huge_frame_with_redaction_stays_valid_json() {
+        let mut buf = Vec::new();
+        let mut w = CastWriter::new(&mut buf, 80, 24, 0).unwrap().redacting();
+        let big = "x".repeat(2_000_000) + "\x1b[2";
+        w.frame(0.1, big.as_bytes()).unwrap();
+        assert_eq!(frames(buf)[0].len(), 2_000_000 + 7);
     }
     #[test]
     fn rejects_zero_size() {

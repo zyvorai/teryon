@@ -835,7 +835,7 @@ fn mcp_server_runs_a_persistent_pane_waits_for_output_and_respects_the_controlle
     // Without --allow-write there are no write tools at all.
     let mut ro = Mcp::start(&d, &[]);
     let tools = ro.rpc("tools/list", serde_json::json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 6);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 15);
 }
 
 #[test]
