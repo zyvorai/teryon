@@ -47,6 +47,8 @@ pub struct Note {
     pub detail: Option<String>,
     /// The reply topic and one-time token for the Approve and Deny buttons of an ntfy push.
     pub reply: Option<(String, String)>,
+    /// The one-time token the Approve and Deny buttons of the native notification answer with.
+    pub local_token: Option<String>,
 }
 
 /// Sound for a notification that needs an answer; the others are silent.
@@ -71,6 +73,7 @@ impl Note {
             pane,
             detail: question,
             reply: None,
+            local_token: None,
         }
     }
     /// An agent finished. `summary` is where it got to, if it could be read.
@@ -86,6 +89,7 @@ impl Note {
             pane,
             detail: summary,
             reply: None,
+            local_token: None,
         }
     }
     /// An agent has been working without a pause for longer than the budget set with `agent-guard`.
@@ -108,6 +112,7 @@ impl Note {
             pane,
             detail: None,
             reply: None,
+            local_token: None,
         }
     }
     /// A long command ended; `text` says which and how.
@@ -120,6 +125,7 @@ impl Note {
             pane,
             detail: None,
             reply: None,
+            local_token: None,
         }
     }
     /// Where it happened: "demo · pane 2".
@@ -138,13 +144,31 @@ impl Note {
     /// Show it as a macOS banner: title, where it happened, what it is about, and a sound if it needs
     /// an answer. Returns whether macOS accepted it.
     pub fn show_banner(&self) -> bool {
+        self.show_banner_on("local")
+    }
+    /// `show_banner` for a workspace on `host`, so a click opens the right tab.
+    pub fn show_banner_on(&self, host: &str) -> bool {
+        use crate::util::{Level, Native};
         let place = self.place();
         let body = self.body();
+        let thread = format!("{}/{}", self.workspace, self.pane);
         crate::util::notify_banner(&crate::util::Banner {
             title: &clean(&self.title, 60),
             subtitle: &place,
             body: &body,
             sound: self.sound(),
+            native: Some(Native {
+                thread: &thread,
+                host,
+                workspace: &self.workspace,
+                pane: self.pane,
+                level: Some(match self.event {
+                    "agent_needs_you" | "agent_over_budget" => Level::Urgent,
+                    "agent_done" | "command_done" => Level::Quiet,
+                    _ => Level::Normal,
+                }),
+                token: self.local_token.as_deref(),
+            }),
         })
     }
     /// Only a notification that needs an answer makes a sound.

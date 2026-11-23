@@ -135,7 +135,7 @@ impl Desktop {
         }
         self.prune_cards();
         for note in notes {
-            note.show_banner();
+            note.show_banner_on(&self.host);
             crate::notify::send_remote(&self.notify_cfg, note);
         }
     }

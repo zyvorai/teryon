@@ -260,6 +260,10 @@ enum Commands {
         /// zsh pane on HOST (the shell integration, compinit, history saving, versions).
         #[arg(long, conflicts_with_all = ["fix", "binary"])]
         shell: bool,
+        /// Instead, check the Mac app side on this machine: native notifications, the menu-bar item,
+        /// the daemon and banners, with what to do about each problem.
+        #[arg(long, conflicts_with_all = ["fix", "binary", "shell"])]
+        mac: bool,
     },
     /// Search the scrollback of a workspace's panes for PATTERN, grep-style (`workspace/pane:line: text`).
     /// Lowercase patterns ignore case unless the pattern has capitals; -i always ignores it. Exits 1 when
@@ -567,6 +571,19 @@ enum Commands {
         #[arg(long)]
         no_splash: bool,
     },
+    /// Approve or deny the prompt an AI agent is showing in a pane, but only if it is still showing it
+    /// (nothing is typed if the agent has moved on). Prints what happened.
+    Respond {
+        #[arg(default_value = "local")]
+        host: String,
+        #[arg(short, long)]
+        workspace: String,
+        #[arg(long)]
+        pane: u64,
+        /// Say no instead of yes.
+        #[arg(long)]
+        deny: bool,
+    },
     /// List the AI coding agents (Claude Code, Codex, ...) in every workspace and whether each is working or waiting for you.
     Agents {
         /// Hosts to look at (default: local).
@@ -606,6 +623,15 @@ enum Commands {
         #[arg(long, value_name = "N")]
         looks: Option<u64>,
     },
+    /// The workspaces you opened most recently, newest first.
+    Recent {
+        /// Show at most this many.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// One JSON object per line, for scripts and the menu-bar item.
+        #[arg(long)]
+        json: bool,
+    },
     /// Overview of every configured host: reachability, system, workspaces and panes.
     Dashboard {
         /// Include this machine (starts the local service if needed).
@@ -614,6 +640,9 @@ enum Commands {
         /// Refresh every SECS seconds until Ctrl+C.
         #[arg(long, value_name = "SECS")]
         watch: Option<u64>,
+        /// One JSON object per host per line (with load, memory and heat when reported), for scripts.
+        #[arg(long)]
+        json: bool,
     },
     /// Show the TERYON banner, version and active theme.
     About {
@@ -638,7 +667,29 @@ enum Commands {
     Daemon,
     /// Internal SSH stdio bridge. Do not print banners on its stdout.
     #[command(hide = true)]
-    Relay,
+    Relay {
+        /// Only let this connection watch WORKSPACE, read-only (the forced command `teryon share` prints).
+        #[arg(long)]
+        view: Option<String>,
+    },
+    /// List the read-only shares set up on this machine (keys in `authorized_keys` that can only watch
+    /// one workspace), with the line number to delete to end each.
+    Shares {
+        /// Read this file instead of ~/.ssh/authorized_keys.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Let a teammate watch a workspace read-only over SSH: prints the `authorized_keys` line for their
+    /// public key. The key can only watch that one workspace; it cannot type, list others or stop anything.
+    Share {
+        workspace: String,
+        /// Their public key file (e.g. a .pub file they sent you); omit to get a line with a placeholder.
+        #[arg(long)]
+        pubkey: Option<PathBuf>,
+        /// Where teryon is installed on this machine, for the forced command.
+        #[arg(long, default_value = "$HOME/.local/bin/teryon")]
+        teryon: String,
+    },
 }
 #[derive(Subcommand)]
 enum HistCommand {
@@ -693,6 +744,28 @@ enum HistCommand {
         #[arg(long)]
         json: bool,
     },
+    /// A day-by-day timeline of the commands you ran: when, whether they worked, how long they took,
+    /// where, and the long pauses between them.
+    Timeline {
+        /// Look back this many days.
+        #[arg(long, default_value_t = 1)]
+        days: u64,
+        /// Only commands from this machine (`local` for this one; pulled with `hist pull`).
+        #[arg(long)]
+        host: Option<String>,
+        /// Only commands that failed.
+        #[arg(long)]
+        failed: bool,
+        /// Only commands run in a directory containing this text.
+        #[arg(long)]
+        dir: Option<String>,
+        /// Show at most this many of the newest commands.
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+        /// One JSON object per command per line, for scripts.
+        #[arg(long)]
+        json: bool,
+    },
     /// Find the newest past command containing every word of QUERY and show where it ran. Prints
     /// `cd DIR && COMMAND` (so you can paste or `eval` it); with --run, runs it in that directory.
     Replay {
@@ -737,6 +810,20 @@ enum EnvCommand {
 }
 #[derive(Subcommand)]
 enum NotifyCommand {
+    /// Say whether native macOS notifications work here (is the helper installed, has macOS allowed it)
+    /// and what to do if not.
+    Status,
+    /// Answer an agent's prompt with a notification button's one-time reply (`approve:TOKEN` or
+    /// `deny:TOKEN`). Run by the native notifier; the daemon checks the token and the prompt.
+    #[command(hide = true)]
+    Answer { reply: String },
+    /// Bring TERYON forward for a notification's workspace. Run by the native notifier on a click.
+    #[command(hide = true)]
+    Open {
+        host: String,
+        workspace: String,
+        pane: u64,
+    },
     /// Show a sample "agent needs you" notification here (a banner with a sound) and send it once to
     /// the ntfy and webhook sinks in `[notify]`, saying whether each accepted it.
     Test {
@@ -1082,7 +1169,61 @@ fn run() -> Result<i32> {
             theme,
         } => run_desktop(host, workspace, readonly, cwd, theme, bin)?,
         Commands::Daemon => daemon::run()?,
-        Commands::Relay => daemon::relay()?,
+        Commands::Relay { view } => match view {
+            Some(ws) if !teryon::files::valid_name(&ws) => bail!("invalid workspace name"),
+            Some(ws) => daemon::relay_view(&ws)?,
+            None => daemon::relay()?,
+        },
+        Commands::Shares { file } => {
+            let path = file
+                .or_else(teryon::share::default_path)
+                .context("HOME is not set")?;
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(e) => bail!("cannot read {}: {e}", path.display()),
+            };
+            let shares = teryon::share::find_shares(&text);
+            if shares.is_empty() {
+                println!("No read-only shares in {}.", path.display());
+            } else {
+                for s in &shares {
+                    println!(
+                        "line {:<3} {:<14} watches {:<16} {}",
+                        s.line, s.key_type, s.workspace, s.comment
+                    );
+                }
+                println!("\nDelete a line from {} to end that share.", path.display());
+            }
+        }
+        Commands::Share {
+            workspace,
+            pubkey,
+            teryon: bin_path,
+        } => {
+            if !teryon::files::valid_name(&workspace) || workspace.contains(['"', '\\', ' ']) {
+                bail!("workspace names for a share use letters, digits, - and _");
+            }
+            let key = match pubkey {
+                Some(p) => {
+                    let text = std::fs::read_to_string(&p)?;
+                    let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+                    if !line.starts_with("ssh-")
+                        && !line.starts_with("ecdsa-")
+                        && !line.starts_with("sk-")
+                    {
+                        bail!("{} does not look like an SSH public key", p.display());
+                    }
+                    line.trim().to_string()
+                }
+                None => "ssh-ed25519 AAAA…their-public-key… teammate".to_string(),
+            };
+            println!("Add this line to ~/.ssh/authorized_keys on this machine:\n");
+            println!("command=\"{bin_path} relay --view {workspace}\",restrict {key}\n");
+            println!("`restrict` turns off forwarding, terminals and everything else; the forced command lets that key only watch \"{workspace}\", read-only.");
+            println!("Your teammate then runs:  teryon connect THIS-HOST --workspace {workspace} --readonly");
+            println!("Remove the line to end the share.");
+        }
         Commands::About { theme } => {
             let cfg = config::load()?;
             let theme = Theme::load(theme.as_deref().unwrap_or(&cfg.theme))?;
@@ -1141,6 +1282,31 @@ fn run() -> Result<i32> {
                 theme,
                 no_splash,
             )?
+        }
+        Commands::Respond {
+            host,
+            workspace,
+            pane,
+            deny,
+        } => {
+            let response = target(host, bin)?.connect()?.call(Request::Respond {
+                workspace,
+                pane,
+                approve: !deny,
+            })?;
+            if let Response::Answered { outcome, .. } = response {
+                match outcome.as_str() {
+                    "sent" => println!("{}", if deny { "Denied" } else { "Approved" }),
+                    "notasking" => {
+                        println!("Not sent: that pane is not asking (or is not an agent)");
+                        std::process::exit(1);
+                    }
+                    other => {
+                        println!("Not sent: {other}");
+                        std::process::exit(1);
+                    }
+                }
+            }
         }
         Commands::Agents { hosts, all, json } => {
             let mut names = hosts;
@@ -1294,7 +1460,27 @@ fn run() -> Result<i32> {
                 thread::sleep(Duration::from_secs(interval));
             }
         }
-        Commands::Dashboard { local, watch } => {
+        Commands::Recent { limit, json } => {
+            let list = teryon::recent::load();
+            if json {
+                print!("{}", teryon::recent::json_lines(&list, limit));
+            } else if list.is_empty() {
+                println!("No workspaces opened yet.");
+            } else {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                for r in list.iter().take(limit) {
+                    println!(
+                        "{}\t{}\t{}",
+                        r.host,
+                        r.workspace,
+                        teryon::histtools::ago(r.last_used, now)
+                    );
+                }
+            }
+        }
+        Commands::Dashboard { local, watch, json } => {
             let cfg = config::load()?;
             loop {
                 let mut hosts: Vec<(String, Option<String>)> = cfg
@@ -1319,6 +1505,16 @@ fn run() -> Result<i32> {
                         .collect();
                     jobs.into_iter().filter_map(|j| j.join().ok()).collect()
                 });
+                if json {
+                    for r in &rows {
+                        println!("{}", teryon::dashboard::row_json(r));
+                    }
+                    if watch.is_none() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_secs(watch.unwrap_or(1).max(1)));
+                    continue;
+                }
                 if watch.is_some() {
                     print!("\x1b[2J\x1b[H");
                 }
@@ -1979,7 +2175,13 @@ fn run() -> Result<i32> {
             binary,
             yes,
             shell,
+            mac,
         } => {
+            if mac {
+                let list = teryon::macdoctor::checks(&teryon::macdoctor::gather());
+                print!("{}", teryon::macdoctor::render(&list));
+                return Ok(i32::from(list.iter().any(|c| !c.ok)));
+            }
             let t = target(host, bin)?;
             if shell {
                 if t.local() {
@@ -2200,6 +2402,36 @@ fn run() -> Result<i32> {
                 print!("{}", teryon::histtools::render(&projects, days));
             }
         }
+        Commands::Hist(HistCommand::Timeline {
+            days,
+            host,
+            failed,
+            dir,
+            limit,
+            json,
+        }) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let host = host.map(|h| if h == "local" { String::new() } else { h });
+            let entries = teryon::history::load_with_hosts();
+            let filter = teryon::histtools::TimelineFilter {
+                since: now.saturating_sub(days * 86_400),
+                host: host.as_deref(),
+                failed,
+                dir: dir.as_deref(),
+                limit,
+            };
+            let list = teryon::histtools::timeline_entries(&entries, &filter);
+            if json {
+                print!("{}", teryon::histtools::timeline_json(&list));
+                return Ok(0);
+            }
+            print!(
+                "{}",
+                teryon::histtools::render_timeline(&list, now, teryon::util::utc_offset_secs())
+            );
+        }
         Commands::Hist(HistCommand::Replay { failed, run, query }) => {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2354,6 +2586,72 @@ fn run() -> Result<i32> {
                         }
                     }
                 },
+            }
+        }
+        Commands::Notify(NotifyCommand::Answer { reply }) => {
+            let response = target("local".into(), None)?
+                .connect()?
+                .call(Request::Answer { reply })?;
+            if let Response::Answered {
+                outcome,
+                workspace,
+                pane,
+            } = response
+            {
+                println!("{outcome} {workspace} {pane}");
+            }
+        }
+        Commands::Notify(NotifyCommand::Open {
+            host,
+            workspace,
+            pane,
+        }) => {
+            // Leave a request for the running desktop app, then bring it forward (this also starts
+            // it if it is closed; a request nobody takes within a minute is dropped).
+            let _ = teryon::focus::request(&teryon::focus::Target {
+                host,
+                workspace,
+                pane,
+            });
+            #[cfg(target_os = "macos")]
+            let _ = std::process::Command::new("open")
+                .args(["-b", "dev.zyvor.teryon"])
+                .status();
+        }
+        Commands::Notify(NotifyCommand::Status) => {
+            let helper = teryon::util::notifier_path();
+            match &helper {
+                Some(p) => println!("Notifier:      {}", p.display()),
+                None => println!("Notifier:      not found"),
+            }
+            let status = teryon::util::notifier_status();
+            if let Some(s) = &status {
+                for key in [
+                    "authorization",
+                    "alert",
+                    "sound",
+                    "notification_center",
+                    "time_sensitive",
+                ] {
+                    println!(
+                        "{:<14} {}",
+                        format!("{key}:"),
+                        s[key].as_str().unwrap_or("?")
+                    );
+                }
+            }
+            let cfg = config::load().unwrap_or_default();
+            println!(
+                "Daemon banners: {}",
+                if cfg.notify.macos {
+                    "on ([notify] macos = true)"
+                } else {
+                    "off (set macos = true under [notify] in config.toml)"
+                }
+            );
+            println!();
+            for line in teryon::util::notifier_advice(status.as_ref(), helper.is_some()) {
+                println!("{line}");
             }
         }
         Commands::Notify(NotifyCommand::Test { done }) => {

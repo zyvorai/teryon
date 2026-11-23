@@ -8,6 +8,7 @@
 #   MACORA_SIGN_IDENTITY   "Developer ID Application: ..." identity name
 #   DEVELOPER_ID_INSTALLER "Developer ID Installer: ..." identity name
 #   NOTARY_PROFILE         notarytool keychain profile name
+#   NOTARY_KEYCHAIN        (optional) keychain file that holds that profile
 set -eu
 test "$(uname -s)" = Darwin || { echo "Run this on macOS" >&2; exit 1; }
 cd "$(dirname "$0")/.."
@@ -26,6 +27,8 @@ pkg="dist/TERYON-$version.pkg"
 rm -rf "$app" "$dmg" "$pkg"
 scripts/bundle-macos.sh
 
+codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/Library/TeryonNotifier.app"
+codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/Library/TeryonMenu.app"
 codesign --force --options runtime --timestamp --sign "$APP_ID" "$app/Contents/MacOS/teryon"
 codesign --force --options runtime --timestamp --sign "$APP_ID" "$app"
 codesign --verify --strict --verbose=2 "$app"
@@ -37,13 +40,13 @@ ln -s /Applications "$stage/Applications"
 hdiutil create -volname "TERYON $version" -srcfolder "$stage" -ov -format UDZO "$dmg"
 rm -rf "$stage"
 codesign --force --timestamp --sign "$APP_ID" "$dmg"
-xcrun notarytool submit "$dmg" --keychain-profile "$PROFILE" --wait
+xcrun notarytool submit "$dmg" --keychain-profile "$PROFILE" ${NOTARY_KEYCHAIN:+--keychain "$NOTARY_KEYCHAIN"} --wait
 xcrun stapler staple "$dmg"
 
 if [ -z "$SKIP_PKG" ]; then
   # PKG: installs TERYON.app into /Applications.
   pkgbuild --component "$app" --install-location /Applications --sign "$PKG_ID" "$pkg"
-  xcrun notarytool submit "$pkg" --keychain-profile "$PROFILE" --wait
+  xcrun notarytool submit "$pkg" --keychain-profile "$PROFILE" ${NOTARY_KEYCHAIN:+--keychain "$NOTARY_KEYCHAIN"} --wait
   xcrun stapler staple "$pkg"
 fi
 

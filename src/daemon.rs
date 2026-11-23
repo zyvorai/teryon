@@ -699,6 +699,45 @@ fn process(req: Request, conn: &mut Connection, state: &mut State) -> Result<Res
             state.workspaces.remove(&workspace);
             Ok(Response::Ack { seq: None })
         }
+        Request::Answer { reply } => {
+            // A watcher may look but not type, so a read-only attachment cannot answer a prompt.
+            if conn.readonly {
+                bail!("read-only attachment cannot answer a prompt");
+            }
+            let Some((answer, entry)) = crate::reply::redeem(&reply) else {
+                return Ok(Response::Answered {
+                    outcome: "expired".into(),
+                    workspace: String::new(),
+                    pane: 0,
+                });
+            };
+            let outcome = apply_answer_in(state, answer, &entry);
+            Ok(Response::Answered {
+                outcome: format!("{outcome:?}").to_lowercase(),
+                workspace: entry.workspace,
+                pane: entry.pane,
+            })
+        }
+        Request::Respond {
+            workspace,
+            pane,
+            approve,
+        } => {
+            if conn.readonly {
+                bail!("read-only attachment cannot answer a prompt");
+            }
+            let answer = if approve {
+                crate::reply::Answer::Approve
+            } else {
+                crate::reply::Answer::Deny
+            };
+            let outcome = answer_pane(state, &workspace, pane, None, answer);
+            Ok(Response::Answered {
+                outcome: format!("{outcome:?}").to_lowercase(),
+                workspace,
+                pane,
+            })
+        }
         Request::Info => Ok(Response::Info {
             os: std::env::consts::OS.into(),
             arch: std::env::consts::ARCH.into(),
@@ -1059,16 +1098,43 @@ fn apply_answer(
     answer: crate::reply::Answer,
     entry: &crate::reply::Entry,
 ) -> crate::reply::Outcome {
+    apply_answer_in(&state.lock_recover(), answer, entry)
+}
+
+fn apply_answer_in(
+    st: &State,
+    answer: crate::reply::Answer,
+    entry: &crate::reply::Entry,
+) -> crate::reply::Outcome {
+    answer_pane(st, &entry.workspace, entry.pane, Some(entry.kind), answer)
+}
+
+/// Type `answer` into pane `id` of `workspace` if it still shows an approval prompt. `kind` is the
+/// agent the answer was issued for; with `None` it is read from the pane's foreground program, and a
+/// pane that is not running a known agent is left alone.
+fn answer_pane(
+    st: &State,
+    workspace: &str,
+    id: u64,
+    kind: Option<crate::agents::Kind>,
+    answer: crate::reply::Answer,
+) -> crate::reply::Outcome {
     use crate::reply::Outcome;
-    let pane = {
-        let st = state.lock_recover();
-        st.workspaces
-            .get(&entry.workspace)
-            .and_then(|w| w.panes.get(&entry.pane))
-            .cloned()
-    };
+    let pane = st
+        .workspaces
+        .get(workspace)
+        .and_then(|w| w.panes.get(&id))
+        .cloned();
     let Some(pane) = pane else {
         return Outcome::Gone;
+    };
+    let kind = kind.or_else(|| {
+        let exited = pane.state.lock_recover().exited.is_some();
+        let fg = pane.foreground_command(exited)?;
+        crate::agents::detect(&fg)
+    });
+    let Some(kind) = kind else {
+        return Outcome::NotAsking;
     };
     let still_asking = {
         let st = pane.state.lock_recover();
@@ -1081,12 +1147,7 @@ fn apply_answer(
             crate::agents::status(&rows, Duration::from_secs(60)) == crate::agents::Status::NeedsYou
         }
     };
-    if still_asking
-        && pane
-            .input
-            .try_send(answer.keys(entry.kind).to_vec())
-            .is_ok()
-    {
+    if still_asking && pane.input.try_send(answer.keys(kind).to_vec()).is_ok() {
         Outcome::Sent
     } else {
         Outcome::NotAsking
@@ -1211,8 +1272,12 @@ fn watch_panes(state: &Arc<Mutex<State>>) {
                         _ => continue,
                     };
                     let mut note = note;
-                    if let (Some(kind), Some(url)) = (needs, cfg.reply_url()) {
-                        note.reply = crate::reply::issue(&ws, pane.id, kind).map(|t| (url, t));
+                    if let Some(kind) = needs {
+                        // One token serves the phone's buttons and the native notification's.
+                        note.local_token = crate::reply::issue(&ws, pane.id, kind);
+                        if let (Some(url), Some(t)) = (cfg.reply_url(), note.local_token.clone()) {
+                            note.reply = Some((url, t));
+                        }
                     }
                     send(&cfg, note);
                 }
@@ -1353,6 +1418,64 @@ pub fn ensure() -> Result<()> {
     }
     bail!("daemon did not start; inspect ~/.teryon/run/daemon.log")
 }
+/// What a view-only key may ask of the daemon: attach to its one workspace (always read-only, never
+/// taking the seat) and then look. Everything else is refused here, before the daemon sees it, so a
+/// teammate's key can never type, close, list other workspaces, or stop the daemon.
+pub fn view_filter(req: Request, workspace: &str) -> std::result::Result<Request, String> {
+    match req {
+        Request::Hello { .. }
+        | Request::Info
+        | Request::Poll { .. }
+        | Request::Capture { .. }
+        | Request::Image { .. } => Ok(req),
+        Request::Attach {
+            workspace: asked,
+            rows,
+            cols,
+            ..
+        } => {
+            if asked != workspace {
+                return Err(format!("this key may only watch workspace {workspace}"));
+            }
+            Ok(Request::Attach {
+                workspace: asked,
+                readonly: true,
+                rows,
+                cols,
+                cwd: None,
+                takeover: false,
+            })
+        }
+        _ => Err("this key can only watch".into()),
+    }
+}
+
+/// `teryon relay --view WORKSPACE`: the SSH forced command for a view-only share. Requests are read
+/// one frame at a time, filtered with `view_filter`, and answered by the daemon or refused here.
+pub fn relay_view(workspace: &str) -> Result<()> {
+    use crate::protocol::{read_frame, write_frame, Response};
+    use std::io::BufReader;
+    ensure()?;
+    let mut daemon = ipc::connect()?;
+    daemon.timeout(Duration::from_secs(3600))?;
+    let mut from_daemon = BufReader::new(daemon.try_clone()?);
+    let mut stdin = std::io::stdin().lock();
+    let mut stdout = std::io::stdout().lock();
+    while let Some(req) = read_frame::<Request>(&mut stdin)? {
+        match view_filter(req, workspace) {
+            Ok(req) => {
+                write_frame(&mut daemon, &req)?;
+                match read_frame::<Response>(&mut from_daemon)? {
+                    Some(resp) => write_frame(&mut stdout, &resp)?,
+                    None => break,
+                }
+            }
+            Err(message) => write_frame(&mut stdout, &Response::Error { message })?,
+        }
+    }
+    Ok(())
+}
+
 pub fn relay() -> Result<()> {
     ensure()?;
     let mut stream = ipc::connect()?;
@@ -1370,6 +1493,73 @@ pub fn relay() -> Result<()> {
 mod tests {
     use super::file_type_env;
 
+    use super::view_filter;
+    use crate::protocol::Request;
+
+    #[test]
+    fn a_view_key_attaches_read_only_to_its_own_workspace_only() {
+        let attach = |ws: &str| Request::Attach {
+            workspace: ws.into(),
+            readonly: false,
+            rows: 24,
+            cols: 80,
+            cwd: Some("/".into()),
+            takeover: true,
+        };
+        match view_filter(attach("demo"), "demo") {
+            Ok(Request::Attach {
+                readonly,
+                takeover,
+                cwd,
+                ..
+            }) => assert!(readonly && !takeover && cwd.is_none()),
+            other => panic!("{other:?}"),
+        }
+        assert!(view_filter(attach("other"), "demo").is_err());
+    }
+    #[test]
+    fn a_view_key_cannot_type_close_list_or_stop() {
+        for req in [
+            Request::Input {
+                pane: 1,
+                seq: 1,
+                data: b"x".to_vec(),
+            },
+            Request::Resize {
+                pane: 1,
+                rows: 1,
+                cols: 1,
+            },
+            Request::NewPane {
+                cwd: None,
+                command: vec![],
+                rows: 1,
+                cols: 1,
+            },
+            Request::Close { pane: 1 },
+            Request::List,
+            Request::Remove {
+                workspace: "demo".into(),
+                force: true,
+            },
+            Request::Shutdown { force: true },
+            Request::Answer {
+                reply: "approve:00".into(),
+            },
+        ] {
+            assert!(view_filter(req, "demo").is_err());
+        }
+        assert!(view_filter(
+            Request::Poll {
+                known: Default::default(),
+                diff: true,
+                wait_ms: 0
+            },
+            "demo"
+        )
+        .is_ok());
+        assert!(view_filter(Request::Capture { pane: 1 }, "demo").is_ok());
+    }
     #[test]
     fn file_type_colors_never_override_user_settings() {
         let all = file_type_env(|_| false);

@@ -109,6 +109,8 @@ impl Pane {
 #[derive(Default)]
 struct SessionExtra {
     floating: Option<u64>,
+    /// A pane a notification click asked for in a tab that was still connecting.
+    focus_when_seen: Option<u64>,
     restore_checked: bool,
     restore_offer: Option<crate::layout::Layout>,
     /// Titles for panes a restore is about to create, with when they were queued.
@@ -237,6 +239,7 @@ pub struct Desktop {
     /// The Host health graphs (palette: "Host health…").
     host_open: bool,
     config_checked: Instant,
+    focus_checked: Instant,
     /// Window commands queued by actions, sent with the egui context on the next frame.
     pending: Vec<egui::ViewportCommand>,
     fullscreen: bool,
@@ -442,6 +445,7 @@ impl Desktop {
             ports_open: false,
             host_open: false,
             config_checked: Instant::now(),
+            focus_checked: Instant::now(),
             pending: Vec::new(),
             fullscreen: false,
             on_top: false,
@@ -578,6 +582,26 @@ impl Desktop {
             t.activity.seen();
         }
         self.notice = notice;
+    }
+    /// Show the workspace and pane a notification click asked for: switch to (or open) its tab, focus
+    /// the pane and bring the window forward.
+    fn take_focus_request(&mut self, ctx: &egui::Context) {
+        if self.focus_checked.elapsed() < Duration::from_millis(250) {
+            return;
+        }
+        self.focus_checked = Instant::now();
+        let Some(t) = crate::focus::take() else {
+            return;
+        };
+        self.open_tab(&t.host, &t.workspace);
+        if self.panes.contains_key(&t.pane) {
+            self.focus = t.pane;
+        } else {
+            // The tab is still connecting; focus the pane once its list arrives.
+            self.extra.focus_when_seen = Some(t.pane);
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
     /// Switch to the tab for `host`/`name`, opening it (on that host) if it does not exist yet.
     fn open_tab(&mut self, host: &str, name: &str) {
@@ -869,6 +893,12 @@ impl Desktop {
                             }
                         }
                         pane.info = view;
+                    }
+                    if let Some(p) = self.extra.focus_when_seen {
+                        if self.panes.contains_key(&p) {
+                            self.focus = p;
+                            self.extra.focus_when_seen = None;
+                        }
                     }
                     if !self.panes.contains_key(&self.focus) {
                         self.focus = self.panes.keys().next().copied().unwrap_or(1);
@@ -1169,6 +1199,7 @@ impl Desktop {
         }
         self.fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         self.poll_config();
+        self.take_focus_request(ctx);
         self.sync_toast();
         let title = format!(
             "{} — {}",

@@ -228,6 +228,133 @@ pub fn context(e: &Entry, now: u64, branch_now: Option<&str>) -> String {
     s
 }
 
+/// Which entries `timeline` shows.
+pub struct TimelineFilter<'a> {
+    /// Only commands at or after this Unix time.
+    pub since: u64,
+    /// Only commands from this machine (`Some("")` is this one).
+    pub host: Option<&'a str>,
+    /// Only commands that failed.
+    pub failed: bool,
+    /// Only commands whose directory contains this text.
+    pub dir: Option<&'a str>,
+    /// At most this many of the newest matches.
+    pub limit: usize,
+}
+
+/// A pause between two commands at least this long gets a line of its own.
+const GAP_SECS: u64 = 30 * 60;
+
+/// `(year, month, day, weekday 0=Sunday)` of Unix time `t` shifted by `tz` seconds.
+fn civil(t: u64, tz: i64) -> (i64, u32, u32, u32) {
+    let local = t as i64 + tz;
+    let days = local.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    (y, m, d, (days + 4).rem_euclid(7) as u32)
+}
+
+/// The commands that match `f`, oldest first.
+pub fn timeline_entries<'a>(entries: &'a [Entry], f: &TimelineFilter) -> Vec<&'a Entry> {
+    let mut v: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| e.at >= f.since)
+        .filter(|e| f.host.is_none_or(|h| e.host.as_deref().unwrap_or("") == h))
+        .filter(|e| !f.failed || e.exit != 0)
+        .filter(|e| f.dir.is_none_or(|d| e.cwd.contains(d)))
+        .collect();
+    v.sort_by_key(|e| e.at);
+    let skip = v.len().saturating_sub(f.limit);
+    v.split_off(skip)
+}
+
+/// The timeline as JSON, one object per command per line, oldest first: `at` (Unix seconds), `cmd`,
+/// `cwd`, `exit`, `ms`, and `branch` and `host` when known.
+pub fn timeline_json(list: &[&Entry]) -> String {
+    let mut out = String::new();
+    for e in list {
+        let mut v = serde_json::json!({
+            "at": e.at, "cmd": e.cmd, "cwd": e.cwd, "exit": e.exit, "ms": e.ms,
+        });
+        if let Some(b) = &e.branch {
+            v["branch"] = serde_json::json!(b);
+        }
+        if let Some(h) = &e.host {
+            v["host"] = serde_json::json!(h);
+        }
+        out.push_str(&v.to_string());
+        out.push('\n');
+    }
+    out
+}
+
+/// A day-by-day account of what was run: a heading per day, one line per command with its time,
+/// whether it worked, how long it took and where, and a line for every long pause. `tz` is the
+/// local offset from UTC in seconds and `now` the current Unix time (for "Today").
+pub fn render_timeline(list: &[&Entry], now: u64, tz: i64) -> String {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    if list.is_empty() {
+        return "Nothing in that time.\n".into();
+    }
+    let today = civil(now, tz);
+    let yesterday = civil(now.saturating_sub(86_400), tz);
+    let mut out = String::new();
+    let mut day = None;
+    let mut last: Option<&Entry> = None;
+    for e in list {
+        let (y, m, d, wd) = civil(e.at, tz);
+        if day != Some((y, m, d)) {
+            day = Some((y, m, d));
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            let name = if (y, m, d) == (today.0, today.1, today.2) {
+                "Today".to_string()
+            } else if (y, m, d) == (yesterday.0, yesterday.1, yesterday.2) {
+                "Yesterday".to_string()
+            } else {
+                format!("{} {d} {}", DAYS[wd as usize], MONTHS[(m - 1) as usize])
+            };
+            let _ = writeln!(out, "{name}");
+        } else if let Some(prev) = last {
+            let end = prev.at + prev.ms / 1000;
+            if e.at.saturating_sub(end) >= GAP_SECS {
+                let _ = writeln!(out, "      ┄ {} quiet", duration((e.at - end) * 1000));
+            }
+        }
+        let secs = (e.at as i64 + tz).rem_euclid(86_400);
+        let mark = if e.exit == 0 { '✓' } else { '✗' };
+        let mut line = format!(
+            "  {:02}:{:02} {mark} {:>6}  {}",
+            secs / 3_600,
+            secs / 60 % 60,
+            duration(e.ms),
+            clip(&e.cmd)
+        );
+        let project = project_of(&e.cwd);
+        if !project.is_empty() {
+            let _ = write!(line, "  [{project}]");
+        }
+        if e.exit != 0 {
+            let _ = write!(line, "  exit {}", e.exit);
+        }
+        out.push_str(&line);
+        out.push('\n');
+        last = Some(e);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,5 +441,92 @@ mod tests {
         );
         assert_eq!(ago(0, 86_400 * 3), "3 days ago");
         assert_eq!(duration(61_000), "1m01s");
+    }
+
+    fn cmd(at: u64, ms: u64, exit: i32, cwd: &str, c: &str) -> Entry {
+        Entry {
+            cmd: c.into(),
+            cwd: cwd.into(),
+            exit,
+            ms,
+            at,
+            branch: None,
+            host: None,
+        }
+    }
+    #[test]
+    fn civil_dates_follow_the_offset() {
+        // 2026-11-22 00:00:00 UTC was a Sunday.
+        assert_eq!(civil(1_795_305_600, 0), (2026, 11, 22, 0));
+        assert_eq!(
+            civil(1_795_305_600, -1),
+            (2026, 11, 21, 6),
+            "a second west is still Saturday"
+        );
+        assert_eq!(civil(1_795_305_600, 19_800).2, 22);
+    }
+    #[test]
+    fn the_timeline_filters_and_keeps_the_newest() {
+        let base = 1_795_305_600 + 36_000;
+        let all = vec![
+            cmd(base, 1_000, 0, "/h/a", "one"),
+            cmd(base + 60, 1_000, 1, "/h/b", "two"),
+            cmd(base + 120, 1_000, 0, "/h/a", "three"),
+        ];
+        let f = TimelineFilter {
+            since: 0,
+            host: None,
+            failed: false,
+            dir: None,
+            limit: 2,
+        };
+        let got: Vec<&str> = timeline_entries(&all, &f)
+            .iter()
+            .map(|e| e.cmd.as_str())
+            .collect();
+        assert_eq!(got, ["two", "three"]);
+        let failed = TimelineFilter {
+            failed: true,
+            limit: 9,
+            ..f
+        };
+        assert_eq!(timeline_entries(&all, &failed).len(), 1);
+    }
+    #[test]
+    fn the_timeline_groups_by_day_and_marks_long_pauses() {
+        let noon = 1_795_305_600 + 43_200; // Sunday 2026-11-22 12:00 UTC
+        let all = [
+            cmd(noon - 86_400, 2_000, 0, "/h/a", "build"),
+            cmd(noon, 5_000, 0, "/h/a", "cargo test"),
+            cmd(noon + 60, 1_000, 2, "/h/a", "false"),
+            cmd(noon + 4_000, 1_000, 0, "/h/a", "later"),
+        ];
+        let refs: Vec<&Entry> = all.iter().collect();
+        let t = render_timeline(&refs, noon + 5_000, 0);
+        assert!(t.starts_with("Yesterday\n"), "{t}");
+        assert!(t.contains("\nToday\n"), "{t}");
+        assert!(t.contains("12:00 ✓   5.0s  cargo test"), "{t}");
+        assert!(t.contains("✗   1.0s  false") && t.contains("exit 2"), "{t}");
+        assert_eq!(t.matches("quiet").count(), 1, "only the long pause: {t}");
+        assert_eq!(render_timeline(&[], 0, 0), "Nothing in that time.\n");
+    }
+    #[test]
+    fn the_json_timeline_is_one_object_per_line() {
+        let mut e = cmd(100, 2_000, 1, "/h/a", "make \"all\"");
+        e.branch = Some("main".into());
+        let f = cmd(200, 5, 0, "/h/b", "ls");
+        let out = timeline_json(&[&e, &f]);
+        let lines: Vec<serde_json::Value> = out
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            (lines[0]["cmd"].as_str(), lines[0]["exit"].as_i64()),
+            (Some("make \"all\""), Some(1))
+        );
+        assert_eq!(lines[0]["branch"], "main");
+        assert!(lines[1].get("branch").is_none() && lines[1].get("host").is_none());
+        assert_eq!(timeline_json(&[]), "");
     }
 }

@@ -34,6 +34,19 @@ pub fn socket_path() -> Result<PathBuf> {
     }
     Ok(p)
 }
+/// The local time zone's offset from UTC right now, in seconds (0 if the C library cannot say).
+pub fn utc_offset_secs() -> i64 {
+    // SAFETY: as for `clock_hhmm`; `tm_gmtoff` is filled in by a successful localtime_r.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&now, &mut tm).is_null() {
+            return 0;
+        }
+        #[allow(clippy::useless_conversion)] // tm_gmtoff is a narrower type on some targets
+        i64::from(tm.tm_gmtoff)
+    }
+}
 /// Local wall-clock time as `HH:MM`; empty if the C library cannot convert it.
 pub fn clock_hhmm() -> String {
     // SAFETY: time(NULL) has no preconditions; localtime_r writes only into our zeroed `tm`.
@@ -53,6 +66,164 @@ pub struct Banner<'a> {
     pub subtitle: &'a str,
     pub body: &'a str,
     pub sound: Option<&'a str>,
+    /// What only the native notifier can use (grouping, buttons, click target); `None` is a plain banner.
+    pub native: Option<Native<'a>>,
+}
+
+/// How urgent a native notification is. `Urgent` breaks through Focus modes that allow time-sensitive
+/// notifications; `Quiet` is delivered without sound or lighting the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    Quiet,
+    Normal,
+    Urgent,
+}
+impl Level {
+    fn word(self) -> &'static str {
+        match self {
+            Self::Quiet => "passive",
+            Self::Normal => "active",
+            Self::Urgent => "time-sensitive",
+        }
+    }
+}
+
+/// Extras for the native notifier: notifications with the same `thread` are grouped, a `token`
+/// adds Approve and Deny buttons, and a click opens TERYON at `workspace` and `pane`.
+#[derive(Clone, Debug, Default)]
+pub struct Native<'a> {
+    pub thread: &'a str,
+    /// The host whose workspace it is (`local` for this machine).
+    pub host: &'a str,
+    pub workspace: &'a str,
+    pub pane: u64,
+    pub level: Option<Level>,
+    /// The one-time token (`reply::issue`) the buttons answer with.
+    pub token: Option<&'a str>,
+}
+
+/// The helper app that posts native notifications, `TeryonNotifier.app`, next to this program in
+/// `TERYON.app/Contents/Library`, or in an installed TERYON.app. `TERYON_NOTIFIER` overrides it.
+pub fn notifier_path() -> Option<PathBuf> {
+    const REL: &str = "Contents/Library/TeryonNotifier.app/Contents/MacOS/TeryonNotifier";
+    if let Some(p) = std::env::var_os("TERYON_NOTIFIER") {
+        let p = PathBuf::from(p);
+        return p.is_file().then_some(p);
+    }
+    let mut found: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        // TERYON.app/Contents/MacOS/teryon -> TERYON.app
+        if let Some(app) = exe.ancestors().nth(3) {
+            found.push(app.join(REL));
+        }
+    }
+    found.push(PathBuf::from("/Applications/TERYON.app").join(REL));
+    if let Ok(h) = home() {
+        found.push(h.join("Applications/TERYON.app").join(REL));
+    }
+    found.into_iter().find(|p| p.is_file())
+}
+
+/// The JSON the native notifier reads on stdin. `bin` is the program its buttons run.
+pub fn native_payload(banner: &Banner, native: &Native, bin: &str) -> String {
+    serde_json::json!({
+        "title": banner.title,
+        "subtitle": banner.subtitle,
+        "body": banner.body,
+        "sound": banner.sound,
+        "thread": native.thread,
+        "host": native.host,
+        "workspace": native.workspace,
+        "pane": native.pane,
+        "level": native.level.unwrap_or(Level::Normal).word(),
+        "token": native.token,
+        "bin": bin,
+        // A relaunched helper does not inherit this environment, so the buttons carry it.
+        "runtime": std::env::var("TERYON_RUNTIME_DIR").ok(),
+    })
+    .to_string()
+}
+
+/// What macOS lets the native notifier do right now, as the JSON the helper prints, or `None` if the
+/// helper is not installed or did not answer.
+#[cfg(target_os = "macos")]
+pub fn notifier_status() -> Option<serde_json::Value> {
+    let out = std::process::Command::new(notifier_path()?)
+        .arg("status")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    serde_json::from_slice(&out.stdout).ok()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn notifier_status() -> Option<serde_json::Value> {
+    None
+}
+
+/// Plain words for what `notifier_status` found, and what to do about it. The first line says whether
+/// native notifications work; the rest are the fix.
+pub fn notifier_advice(status: Option<&serde_json::Value>, helper_found: bool) -> Vec<String> {
+    let Some(status) = status else {
+        return if helper_found {
+            vec![
+                "The notifier is installed but did not answer.".into(),
+                "Run it from the Finder once (TERYON.app/Contents/Library/TeryonNotifier.app), then try again.".into(),
+            ]
+        } else {
+            vec![
+                "Native notifications are off: TeryonNotifier.app was not found next to this program.".into(),
+                "Banners use the AppleScript fallback (no Approve/Deny buttons, no click to open a pane).".into(),
+                "Use the TERYON.app build, or set TERYON_NOTIFIER to the helper's executable.".into(),
+            ]
+        };
+    };
+    let get = |k: &str| status.get(k).and_then(|v| v.as_str()).unwrap_or("?");
+    match get("authorization") {
+        "authorized" | "provisional" | "ephemeral" => {
+            let mut v = vec!["Native notifications are on.".to_string()];
+            if get("alert") == "disabled" {
+                v.push("But banners are turned off for TERYON: set the alert style to Banners or Alerts in System Settings > Notifications > TERYON.".into());
+            }
+            if get("time_sensitive") == "disabled" {
+                v.push("Time Sensitive is off, so \"needs you\" can be held back by a Focus.".into());
+            }
+            v
+        }
+        "denied" => vec![
+            "Native notifications are blocked: macOS says TERYON may not notify.".into(),
+            "Turn on System Settings > Notifications > TERYON > Allow Notifications. (macOS never asks twice.)".into(),
+            "Until then the AppleScript fallback is used.".into(),
+        ],
+        _ => vec![
+            "macOS has not been asked yet, so TERYON cannot notify natively.".into(),
+            "Open TERYON.app/Contents/Library/TeryonNotifier.app from the Finder once and allow notifications when asked.".into(),
+        ],
+    }
+}
+
+/// Post `banner` through the native notifier. `Some(shown)` if it ran, `None` if it is not installed
+/// or could not be started (the caller then falls back to `osascript`).
+#[cfg(target_os = "macos")]
+fn notify_native(banner: &Banner, native: &Native) -> Option<bool> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let helper = notifier_path()?;
+    let bin = std::env::current_exe().ok()?;
+    let payload = native_payload(banner, native, &bin.to_string_lossy());
+    let mut child = Command::new(helper)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(payload.as_bytes()).ok()?;
+    // 0 = posted. Anything else, including 2 (macOS says TERYON may not notify), falls back to the
+    // AppleScript banner: an agent that needs you must not go unnoticed because of a settings mix-up.
+    match child.wait().ok()?.code()? {
+        0 => Some(true),
+        _ => None,
+    }
 }
 
 /// The `osascript` arguments that show `banner`. The text goes in as arguments, never into the
@@ -86,6 +257,9 @@ pub fn banner_args(banner: &Banner) -> Vec<String> {
 pub fn notify_banner(banner: &Banner) -> bool {
     #[cfg(target_os = "macos")]
     {
+        if let Some(shown) = notify_native(banner, &banner.native.clone().unwrap_or_default()) {
+            return shown;
+        }
         std::process::Command::new("osascript")
             .args(banner_args(banner))
             .status()
@@ -106,6 +280,7 @@ pub fn notify(message: &str) {
         subtitle: "",
         body: message,
         sound: None,
+        native: None,
     });
 }
 /// A short system sound (macOS); silent elsewhere.
@@ -182,6 +357,7 @@ mod tests {
             subtitle: "demo · pane 2",
             body: "Apply this edit?\" & (do shell script \"x\") & \"",
             sound: Some("Glass"),
+            native: None,
         });
         let sep = args.iter().position(|a| a == "--").unwrap();
         assert_eq!(
@@ -208,6 +384,7 @@ mod tests {
             subtitle: "",
             body: "-starts with a dash",
             sound: None,
+            native: None,
         });
         assert!(!args.join("\n").contains("sound name"));
         assert_eq!(args.last().map(String::as_str), Some(""));
@@ -253,5 +430,47 @@ mod tests {
         .join();
         assert!(m.lock().is_err());
         assert_eq!(*m.lock_recover(), 7);
+    }
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+    #[test]
+    fn the_native_payload_carries_grouping_level_and_token() {
+        let b = Banner {
+            title: "T",
+            subtitle: "s",
+            body: "b\"q",
+            sound: Some("Glass"),
+            native: None,
+        };
+        let n = Native {
+            thread: "w/2",
+            host: "local",
+            workspace: "w",
+            pane: 2,
+            level: Some(Level::Urgent),
+            token: Some("ab"),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&native_payload(&b, &n, "/bin/teryon")).unwrap();
+        assert_eq!(v["thread"], "w/2");
+        assert_eq!(v["level"], "time-sensitive");
+        assert_eq!(v["token"], "ab");
+        assert_eq!(v["body"], "b\"q");
+        let plain = native_payload(&b, &Native::default(), "x");
+        assert!(plain.contains("\"level\":\"active\"") && plain.contains("\"token\":null"));
+    }
+    #[test]
+    fn advice_says_what_is_wrong_and_what_to_do() {
+        let v = |t: &str| serde_json::json!({"authorization": t, "alert": "enabled", "time_sensitive": "enabled"});
+        assert!(notifier_advice(Some(&v("authorized")), true)[0].contains("are on"));
+        assert!(notifier_advice(Some(&v("denied")), true)[1].contains("Allow Notifications"));
+        assert!(notifier_advice(Some(&v("not_determined")), true)[1].contains("Finder"));
+        assert!(notifier_advice(None, false)[0].contains("not found"));
+        assert!(notifier_advice(None, true)[0].contains("did not answer"));
+        let off = serde_json::json!({"authorization": "authorized", "alert": "disabled", "time_sensitive": "disabled"});
+        assert_eq!(notifier_advice(Some(&off), true).len(), 3);
     }
 }

@@ -24,7 +24,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `layout save HOST -w NAME FILE` | Save initial directories and pane titles to a new local file |
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
-| `dashboard [--local] [--watch SECS]` | Table of configured hosts: reachability, system, workspaces, panes, latency |
+| `dashboard [--local] [--watch SECS] [--json]` | Table of configured hosts: reachability, system, workspaces, panes, latency; `--json` prints one object per host with load, memory and heat when reported |
 | `sandbox [--allow-write DIR] -- COMMAND…` | Run COMMAND (an AI agent, say) so it can only write to the Git repository it is started in and to scratch/settings directories, and cannot read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`; the network stays open (`sandbox-exec` on macOS, `bwrap` on Linux) |
 | `up [HOST] [--file PATH] [--workspace NAME]` | Start the workspace a project describes in `.teryon.toml` (`[[pane]]` with `name`, `cwd`, `command`, and optionally `after` / `ready_text` / `ready_port` / `ready_timeout` / `restart`, see below); refuses a workspace that already exists |
 | `watch-sync SRC HOST:DEST [--interval S] [--debounce S] [--once]` | Copy the local directory SRC to DEST now and after every change (polled; same engines as `cp`); retries with a growing delay while the host is unreachable. Deleted files are not removed at DEST |
@@ -33,6 +33,13 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `hosts [HOST...] [--check]` | List configured and `~/.ssh/config` hosts; `--check` probes them in parallel over plain SSH (no daemon needed): up or down, round-trip time, free disk, installed teryon version |
 | `hist report [--days N] [--host H] [--json]` | Per project: commands run, failures, slowest and most-failing commands |
 | `hist replay [--failed] [--run] -- WORDS` | Find a past command and print `cd DIR && COMMAND` (or run it where it ran) |
+| `notify status` | Say whether native macOS notifications work here (is `TeryonNotifier.app` installed, what macOS allows) and what to do if not |
+| `respond [HOST] -w NAME --pane N [--deny]` | Approve or deny the prompt an AI agent is showing, only if it is still showing it; prints what happened and exits 1 if nothing was typed. The menu-bar item uses it |
+| `recent [--limit N] [--json]` | The workspaces you opened most recently, newest first |
+| `share WORKSPACE [--pubkey FILE] [--teryon PATH]` | Print the `authorized_keys` line that lets a teammate's key watch one workspace read-only (forced command `teryon relay --view WORKSPACE` plus `restrict`); it edits nothing |
+| `shares [--file PATH]` | List the read-only shares in `~/.ssh/authorized_keys` with the line number to delete to end each |
+| `hist timeline [--days N] [--host H] [--failed] [--dir TEXT] [--limit N] [--json]` | A day-by-day account of the commands you ran: time, worked or failed, how long, where, and long pauses |
+| `doctor --mac` | Check the Mac app side on this machine: daemon, native notifications, banners from the daemon, the menu-bar item (installed, running), read-only shares; exits 1 if something needs fixing |
 | `notify test [--done]` | Show a sample "agent needs you" (or "finished") banner on this Mac and send it once to the ntfy and webhook sinks in `[notify]`, saying whether each accepted it |
 | `snip add\|list\|show\|fill\|run\|rm` | Saved commands with `{{placeholders}}` (Alt-S in the shell integration picks one) |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |

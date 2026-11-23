@@ -35,6 +35,11 @@ Everything below is implemented in the current release. For limits and what is n
 | Ports | Loopback-only OpenSSH local forwarding; optional reconnect loop |
 | Deployment | SCP upload, remote executable verification, atomic same-filesystem binary replacement, remote doctor |
 | Projects | `.teryon.toml` recipes: `teryon up` starts a workspace's panes, directories and commands, in dependency order (`after`, `ready_text`, `ready_port`) and with restart policies |
+| Menu-bar item (macOS) | `TeryonMenu.app` in `TERYON.app`: a count of agents that need you, every agent with its state (click to open its pane; Approve and Deny for one that waits), host health, recent workspaces, **Check Setup…**, **Launch at Login** and an opt-in native banner for "needs you". It only runs `teryon` commands (`agents --all --json`, `dashboard --local --json`, `recent --json`, `respond`) |
+| Native notifications (macOS) | `TeryonNotifier.app` posts banners with the TERYON icon, grouped per workspace and pane, time-sensitive for "needs you" and passive for "finished", with Approve and Deny buttons; falls back to the AppleScript banner when it is missing. See [LIMITATIONS.md](LIMITATIONS.md) for what is not verified |
+| Read-only shares | `teryon share WORKSPACE` prints an `authorized_keys` line whose forced command (`teryon relay --view`) lets one key attach read-only to one workspace and nothing else; `teryon shares` lists them |
+| Timeline | `teryon hist timeline`: what you ran, day by day, with failures, durations, directories and long pauses; `--json` for scripts |
+| Mac setup check | `teryon doctor --mac` and the menu-bar item's **Check Setup…** report the daemon, notification permission, banners, menu-bar item and shares, with a next step for each problem |
 | Operations | `dashboard` host overview, `agents` across workspaces, `wake` (wake-on-LAN), `import-ssh` aliases, shell completions, `exec --notify` desktop notifications |
 | Diagnostics | Reachability, actual daemon OS/architecture, process ID and workspace/pane counts |
 | Local IPC | Private Unix socket preferred; authenticated ephemeral loopback TCP fallback in restricted environments |

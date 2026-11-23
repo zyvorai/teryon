@@ -37,6 +37,18 @@ pub fn load() -> Vec<Recent> {
         .map(|t| parse(&t))
         .unwrap_or_default()
 }
+/// The newest `limit` entries as JSON, one object per line (`host`, `workspace`, `last_used`, `count`).
+pub fn json_lines(list: &[Recent], limit: usize) -> String {
+    list.iter()
+        .take(limit)
+        .map(|r| {
+            serde_json::json!({"host": r.host, "workspace": r.workspace,
+                "last_used": r.last_used, "count": r.count})
+            .to_string()
+                + "\n"
+        })
+        .collect()
+}
 /// Note one use of `host`/`workspace` at time `now`, keeping the list short and newest first.
 pub fn touch(list: &mut Vec<Recent>, host: &str, workspace: &str, now: u64) {
     match list
@@ -98,5 +110,20 @@ mod tests {
         assert_eq!(parse(&text), l);
         assert!(parse("not toml [").is_empty());
         assert!(parse("").is_empty());
+    }
+    #[test]
+    fn json_lines_are_newest_first_and_capped() {
+        let list = parse(
+            "[[recent]]\nhost=\"a\"\nworkspace=\"old\"\nlast_used=1\ncount=1\n\
+             [[recent]]\nhost=\"b\"\nworkspace=\"new\"\nlast_used=9\ncount=2\n",
+        );
+        let out = json_lines(&list, 1);
+        assert_eq!(out.lines().count(), 1);
+        let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert_eq!(
+            (v["host"].as_str(), v["workspace"].as_str()),
+            (Some("b"), Some("new"))
+        );
+        assert_eq!(json_lines(&[], 5), "");
     }
 }
