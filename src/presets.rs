@@ -48,7 +48,9 @@ fn presets_dir() -> Option<PathBuf> {
 }
 
 pub fn list_presets() -> Vec<String> {
-    let Some(dir) = presets_dir() else { return Vec::new(); };
+    let Some(dir) = presets_dir() else {
+        return Vec::new();
+    };
     let mut names = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {
@@ -70,8 +72,11 @@ pub fn load_preset(name: &str) -> Option<Preset> {
 }
 
 pub fn save_preset(preset: &Preset) -> std::io::Result<()> {
-    let Some(dir) = presets_dir() else { return Ok(()); };
+    let Some(dir) = presets_dir() else {
+        return Ok(());
+    };
     let path = dir.join(format!("{}.toml", preset.name));
-    let text = toml::to_string_pretty(preset).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let text = toml::to_string_pretty(preset)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     fs::write(path, text)
 }

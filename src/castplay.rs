@@ -200,7 +200,12 @@ impl Filter {
     }
     fn finish_osc(&mut self, out: &mut String, terminator: &str) {
         let number = self.buf.split(';').next().unwrap_or("");
-        if SAFE_OSC.contains(&number) {
+        if SAFE_OSC.contains(&number)
+            && !self
+                .buf
+                .chars()
+                .any(|c| c.is_control() || crate::sanitize::is_invisible(c))
+        {
             out.push_str("\u{1b}]");
             out.push_str(&self.buf);
             out.push_str(terminator);
@@ -318,5 +323,14 @@ mod tests {
         let mut out = Vec::new();
         play(&c, 1.0, 1.0, true, &mut out, &mut |_| {}).unwrap();
         assert_eq!(out, b"\x1b]52;c;Zm9v\x07");
+    }
+
+    #[test]
+    fn a_title_or_link_with_control_characters_is_dropped_even_though_osc_0_and_8_are_allowed() {
+        let mut f = Filter::default();
+        assert_eq!(f.feed("\x1b]0;fine\x07"), "\x1b]0;fine\x07");
+        assert_eq!(f.feed("\x1b]2;a\rb\x08c\x07"), "");
+        assert_eq!(f.feed("\x1b]0;x\u{202E}y\x07"), "");
+        assert_eq!(f.feed("\x1b]8;;http://h/\n\x07t"), "t");
     }
 }

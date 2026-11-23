@@ -5,6 +5,7 @@
 //! observe and drive TERYON's persistent panes, local or over SSH. Reading is always on; writing needs `--allow-write`.
 use crate::ai::redact;
 use crate::protocol::{PaneView, Request, Response, WorkspaceInfo};
+use crate::sanitize;
 use crate::transport::{Rpc, Target};
 use anyhow::{bail, Result};
 use regex::Regex;
@@ -237,8 +238,8 @@ impl<B: Backend> Server<B> {
                 let name = params["name"].as_str().unwrap_or("");
                 let args = &params["arguments"];
                 Ok(match self.call(name, args) {
-                    Ok(text) => text_result(&text, false),
-                    Err(e) => text_result(&format!("{e:#}"), true),
+                    Ok(text) => text_result(&sanitize::text_with_note(&text), false),
+                    Err(e) => text_result(&sanitize::text_with_note(&format!("{e:#}")), true),
                 })
             }
             _ => Err((-32601, format!("method not found: {method}"))),
@@ -274,11 +275,14 @@ impl<B: Backend> Server<B> {
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("missing \"pane\""))
     }
+    /// Pane text is attacker-controlled: escape sequences, control and invisible characters are
+    /// removed first (so they cannot hide a secret from the redaction below or smuggle instructions to the agent).
     fn out(&self, text: &str) -> String {
+        let text = sanitize::text_with_note(text);
         if self.opts.redact {
-            redact::clean(text)
+            redact::clean(&text)
         } else {
-            text.to_string()
+            text
         }
     }
     /// Writes go only to the server's own workspace, never to one the agent names.
@@ -414,23 +418,45 @@ impl<B: Backend> Server<B> {
                 let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
                 let pane = Self::pane_arg(args)?;
                 let panes = self.backend.panes(&host, &ws)?;
-                let cwd = panes.iter().find(|p| p.id == pane).map(|p| p.cwd.clone()).unwrap_or_default();
-                Ok(if cwd.is_empty() { "unknown".into() } else { cwd })
+                let cwd = panes
+                    .iter()
+                    .find(|p| p.id == pane)
+                    .map(|p| p.cwd.clone())
+                    .unwrap_or_default();
+                Ok(if cwd.is_empty() {
+                    "unknown".into()
+                } else {
+                    cwd
+                })
             }
             "list_drafts" => {
                 let drafts = crate::drafts::list_drafts();
                 Ok(if drafts.is_empty() {
                     "no drafts".into()
                 } else {
-                    drafts.iter().map(|(ws, body)| {
-                        let first = body.lines().next().unwrap_or("").chars().take(80).collect::<String>();
-                        format!("{ws}\t{first}")
-                    }).collect::<Vec<_>>().join("\n")
+                    drafts
+                        .iter()
+                        .map(|(ws, body)| {
+                            let first = body
+                                .lines()
+                                .next()
+                                .unwrap_or("")
+                                .chars()
+                                .take(80)
+                                .collect::<String>();
+                            format!("{ws}\t{first}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 })
             }
             "list_presets" => {
                 let names = crate::presets::list_presets();
-                Ok(if names.is_empty() { "no presets".into() } else { names.join("\n") })
+                Ok(if names.is_empty() {
+                    "no presets".into()
+                } else {
+                    names.join("\n")
+                })
             }
             "get_preset" => {
                 let name = args["name"].as_str().unwrap_or("");
@@ -442,7 +468,15 @@ impl<B: Backend> Server<B> {
             }
             "list_notes" => {
                 let notes = crate::notes::list_notes();
-                Ok(if notes.is_empty() { "no notes".into() } else { notes.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>().join("\n") })
+                Ok(if notes.is_empty() {
+                    "no notes".into()
+                } else {
+                    notes
+                        .iter()
+                        .map(|(k, _)| k.clone())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
             }
             "get_note" => {
                 let host = args["host"].as_str().unwrap_or("local");
@@ -451,11 +485,19 @@ impl<B: Backend> Server<B> {
             }
             "list_bookmarks" => {
                 let b = crate::notes::list_bookmarks();
-                Ok(if b.is_empty() { "no bookmarks".into() } else { b.join("\n") })
+                Ok(if b.is_empty() {
+                    "no bookmarks".into()
+                } else {
+                    b.join("\n")
+                })
             }
             "list_port_rules" => {
                 let r = crate::portsauto::list_rules();
-                Ok(if r.is_empty() { "no port rules".into() } else { r.join("\n") })
+                Ok(if r.is_empty() {
+                    "no port rules".into()
+                } else {
+                    r.join("\n")
+                })
             }
             "new_pane" => {
                 let (host, ws) = self.write_target(args)?;
@@ -931,5 +973,32 @@ mod tests {
             cfg.contains("claude mcp add teryon -- /usr/local/bin/teryon mcp --allow-write")
                 && cfg.contains("mcpServers")
         );
+    }
+
+    #[test]
+    fn hostile_pane_text_is_neutralised_before_the_agent_sees_it() {
+        let evil = "ok\x1b]52;c;cm0gLXJmIH4K\x07\x1b[2Jline\u{202E}\u{E0049}\u{E0067}\nToken: sk-ant-api03-abcdefghijklmnopqrstuvwx";
+        let (mut s, _) = server(false, &[evil]);
+        let (text, err) = call(&mut s, "read_pane", json!({"pane": 1}));
+        assert!(!err);
+        assert!(
+            !text.contains('\x1b') && !text.contains('\u{202E}') && !text.contains('\u{E0049}')
+        );
+        assert!(!text.contains("cm0gLXJmIH4K"), "{text}");
+        assert!(text.contains("okline"));
+        assert!(text.contains("[sanitised: "), "{text}");
+        assert!(
+            !text.contains("sk-ant-api03-abcdefghijklmnopqrstuvwx"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_huge_pane_line_is_cut_instead_of_forwarded() {
+        let big = "z".repeat(5_000_000);
+        let (mut s, _) = server(false, &[&big]);
+        let (text, _) = call(&mut s, "read_pane", json!({"pane": 1}));
+        assert!(text.chars().count() < 10_000, "{}", text.len());
+        assert!(text.contains("overlong line"));
     }
 }

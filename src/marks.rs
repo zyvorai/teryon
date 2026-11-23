@@ -43,7 +43,11 @@ pub fn file_url_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("file://")?;
     let path = &rest[rest.find('/')?..];
     let decoded = percent_decode(path);
-    (decoded.starts_with('/') && !decoded.contains('\0') && decoded.len() <= 4096)
+    (decoded.starts_with('/')
+        && !decoded
+            .chars()
+            .any(|c| c.is_control() || crate::sanitize::is_invisible(c))
+        && decoded.len() <= 4096)
         .then_some(decoded)
 }
 /// The command line a shell put after `133;C;`: ';' was split by the parser, control characters
@@ -221,5 +225,19 @@ mod tests {
         assert_eq!(log.marks.len(), MAX_MARKS);
         log.apply(OscEvent::Cwd("/x".into()), 0, 0, later, 0);
         assert_eq!(log.cwd.as_deref(), Some("/x"));
+    }
+
+    #[test]
+    fn a_working_directory_with_control_or_invisible_characters_is_refused() {
+        assert_eq!(file_url_path("file://h/tmp/ok"), Some("/tmp/ok".into()));
+        for bad in [
+            "file://h/tmp/a%0Ab",
+            "file://h/tmp/%1B%5B2J",
+            "file://h/tmp/a%08b",
+            "file://h/tmp/%E2%80%AEevil",
+            "file://h/tmp/a%00b",
+        ] {
+            assert_eq!(file_url_path(bad), None, "{bad}");
+        }
     }
 }

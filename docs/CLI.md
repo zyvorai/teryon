@@ -8,7 +8,7 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `desktop HOST -w NAME` | Native app; requires the `desktop` Cargo feature |
 | `sessions HOST` | JSON list of workspaces and controller status |
 | `panes HOST -w NAME` | Pane IDs, titles, initial directories, PIDs and exit status |
-| `capture HOST -w NAME --pane ID` | Plain retained output to stdout; read-only attachment |
+| `capture HOST -w NAME --pane ID [--plain]` | Retained output to stdout; read-only attachment. `--plain` removes escape sequences, control and invisible (bidi, tag) characters and caps line length, and says what it removed |
 | `search PATTERN [--host H] [-w NAME \| --all] [-i] [-E] [-C N]` | grep the retained scrollback of a workspace's panes (or every workspace); prints `workspace/pane:line: text`; exit 0 found, 1 nothing, 2 error; read-only |
 | `exec HOST -w NAME -- COMMAND ARGS` | Durable command in a new pane |
 | `exec … --wait --timeout SECONDS` | Wait for exit and return its status; timeout leaves job running |
@@ -19,7 +19,8 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `forward HOST LOCAL:REMOTE --reconnect` | Foreground loopback tunnel with optional restart |
 | `deploy HOST --binary PATH` | Verify and install an explicitly supplied target binary |
 | `doctor HOST [--fix --binary PATH] [-y]` | Report daemon platform and reachability; with `--fix`, confirm then deploy the binary |
-| `record HOST -w NAME --pane N -o FILE.cast` | Record a pane as asciicast v2 (screen snapshots; new 0600 file) |
+| `record HOST -w NAME --pane N -o FILE.cast [--redact]` | Record a pane as asciicast v2 (screen snapshots; new 0600 file). `--redact` drops clipboard, title and query sequences and replaces secrets with `[redacted:kind]` before writing (best effort: a secret split by a style change or with no recognisable shape is kept). Keystrokes are never recorded |
+| `ssh-audit [HOST...] [--file PATH] [--json]` | Read an OpenSSH config (default `$TERYON_SSH_CONFIG`, else `~/.ssh/config`), resolve each host like ssh does, follow its ProxyJump chain hop by hop and flag loops, option/shell-injection-shaped names, `ForwardAgent`, `StrictHostKeyChecking no`, `UserKnownHostsFile /dev/null`, `LocalCommand`, open forwards and shared-directory `ControlPath`. Reads text only: no connection, no key file, no `ssh` run. `Match` blocks are not evaluated. Exit 1 on an error-level finding |
 | `play FILE.cast [--speed N] [--max-idle SECS] [--raw] [--info]` | Play a recording in this terminal (no asciinema needed); long pauses are shortened; clipboard writes and terminal queries in the file are dropped unless `--raw` |
 | `layout save HOST -w NAME FILE` | Save initial directories and pane titles to a new local file |
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |

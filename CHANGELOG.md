@@ -25,6 +25,16 @@
 
 # Changelog
 
+## Unreleased — untrusted-output hardening, redacted recordings, ssh-audit
+
+* **New `src/sanitize.rs`**: removes escape sequences (CSI, OSC including OSC 52, DCS/APC), control characters, bidi controls, zero-width and Unicode tag characters from untrusted text, caps line and total size, reports what it removed. Used by every MCP tool result and error (before redaction, so hidden characters cannot disguise a secret), by `teryon capture --plain` and by `teryon panes`.
+* **Bug fix**: an OSC 7 working directory containing control or invisible characters (for example `%0a`, `%1b`) was accepted and shown in pane listings and MCP; it is now ignored.
+* **Bug fix**: `teryon play` passed OSC 0/1/2/7/8/133 payloads through even when they carried control characters; such sequences are now dropped.
+* `teryon record --redact`: non-style escape sequences are dropped and secrets replaced by `[redacted:kind]` before a frame is written; the count is printed.
+* `teryon ssh-audit [HOST...] [--file PATH] [--json]`: resolve a host from an OpenSSH config (first value wins, patterns and negation, `Include` with depth, count and size caps), follow the ProxyJump chain, and flag loops, injection-shaped names, agent forwarding, weakened host-key checking, `LocalCommand`, open forwards and shared `ControlPath`. Reads text only.
+* `docs/RESEARCH.md`: survey of mosh, Eternal Terminal, tmux, Zellij, WezTerm, Wave, Warp, tssh, Teleport, asciicast v2, OSC 8, OpenSSH config and the MCP tools spec, with ranked ideas.
+* `cargo fmt` applied to files that failed `cargo fmt --check` at baseline.
+
 ## Unreleased — dependency and CI upgrades
 
 * `cargo update` (all semver-compatible crates), plus `clap` 4.6 and `clap_complete` 4.6.

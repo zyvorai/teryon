@@ -39,6 +39,7 @@ Leave out `--allow-write` for a read-only server.
   server wants to write to, writes fail with a clear message while reads keep working.
 * **Secrets are redacted** from everything returned (API keys, tokens, JWTs, private keys, `NAME=secret`), and the
   server tells the agent that terminal output is untrusted data. `--no-redact` turns the filter off.
+* **Output is sanitised** before redaction and before it leaves the server: escape sequences (including OSC 52 clipboard writes and titles), control characters, bidi controls, zero-width and Unicode tag characters are removed, a line is cut at 4000 characters and a result at 1,000,000, and a `[sanitised: ...]` note tells the agent what was removed. Pane text is attacker-controlled; this keeps it from carrying hidden instructions or terminal commands. It also applies to error messages.
 * `--allow-write` is your decision that the agent may run commands as you. TERYON does not filter what an agent
   chooses to run in `new_pane`; use it with agents you already trust to run shell commands.
 
