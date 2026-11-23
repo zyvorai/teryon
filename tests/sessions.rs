@@ -832,10 +832,10 @@ fn mcp_server_runs_a_persistent_pane_waits_for_output_and_respects_the_controlle
     assert!(!err && text.contains("ready-for-mcp"), "{text}");
     let (msg, err) = m2.call("send_keys", serde_json::json!({"pane": pane, "text": "x"}));
     assert!(err && msg.contains("controlled by another"), "{msg}");
-    // Without --allow-write there are no write tools at all.
+    // Without --allow-write there are no write tools at all (the 15 read-only ones).
     let mut ro = Mcp::start(&d, &[]);
     let tools = ro.rpc("tools/list", serde_json::json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 6);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 15);
 }
 
 #[test]

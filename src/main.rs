@@ -1766,7 +1766,12 @@ fn run() -> Result<i32> {
                 }
             }
         }
-        Commands::Notes { host, workspace, set, list } => {
+        Commands::Notes {
+            host,
+            workspace,
+            set,
+            list,
+        } => {
             if list {
                 for (k, _) in teryon::notes::list_notes() {
                     println!("{k}");
@@ -1778,17 +1783,37 @@ fn run() -> Result<i32> {
                 println!("{}", teryon::notes::load_note(&host, &workspace));
             }
         }
-        Commands::Bookmarks { add, host, workspace, pane, cwd, list } => {
+        Commands::Bookmarks {
+            add,
+            host,
+            workspace,
+            pane,
+            cwd,
+            list,
+        } => {
             if list || add.is_none() {
                 for line in teryon::notes::list_bookmarks() {
                     println!("{line}");
                 }
             } else if let Some(name) = add {
-                teryon::notes::add_bookmark(&name, host.as_deref().unwrap_or("local"), workspace.as_deref().unwrap_or("default"), pane, cwd.as_deref())?;
+                teryon::notes::add_bookmark(
+                    &name,
+                    host.as_deref().unwrap_or("local"),
+                    workspace.as_deref().unwrap_or("default"),
+                    pane,
+                    cwd.as_deref(),
+                )?;
                 println!("bookmark added");
             }
         }
-        Commands::Portsauto { add, host, local, remote, name, clear } => {
+        Commands::Portsauto {
+            add,
+            host,
+            local,
+            remote,
+            name,
+            clear,
+        } => {
             if clear {
                 teryon::portsauto::clear_rules()?;
                 println!("port rules cleared");

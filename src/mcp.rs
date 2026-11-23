@@ -414,23 +414,45 @@ impl<B: Backend> Server<B> {
                 let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
                 let pane = Self::pane_arg(args)?;
                 let panes = self.backend.panes(&host, &ws)?;
-                let cwd = panes.iter().find(|p| p.id == pane).map(|p| p.cwd.clone()).unwrap_or_default();
-                Ok(if cwd.is_empty() { "unknown".into() } else { cwd })
+                let cwd = panes
+                    .iter()
+                    .find(|p| p.id == pane)
+                    .map(|p| p.cwd.clone())
+                    .unwrap_or_default();
+                Ok(if cwd.is_empty() {
+                    "unknown".into()
+                } else {
+                    cwd
+                })
             }
             "list_drafts" => {
                 let drafts = crate::drafts::list_drafts();
                 Ok(if drafts.is_empty() {
                     "no drafts".into()
                 } else {
-                    drafts.iter().map(|(ws, body)| {
-                        let first = body.lines().next().unwrap_or("").chars().take(80).collect::<String>();
-                        format!("{ws}\t{first}")
-                    }).collect::<Vec<_>>().join("\n")
+                    drafts
+                        .iter()
+                        .map(|(ws, body)| {
+                            let first = body
+                                .lines()
+                                .next()
+                                .unwrap_or("")
+                                .chars()
+                                .take(80)
+                                .collect::<String>();
+                            format!("{ws}\t{first}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 })
             }
             "list_presets" => {
                 let names = crate::presets::list_presets();
-                Ok(if names.is_empty() { "no presets".into() } else { names.join("\n") })
+                Ok(if names.is_empty() {
+                    "no presets".into()
+                } else {
+                    names.join("\n")
+                })
             }
             "get_preset" => {
                 let name = args["name"].as_str().unwrap_or("");
@@ -442,7 +464,15 @@ impl<B: Backend> Server<B> {
             }
             "list_notes" => {
                 let notes = crate::notes::list_notes();
-                Ok(if notes.is_empty() { "no notes".into() } else { notes.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>().join("\n") })
+                Ok(if notes.is_empty() {
+                    "no notes".into()
+                } else {
+                    notes
+                        .iter()
+                        .map(|(k, _)| k.clone())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
             }
             "get_note" => {
                 let host = args["host"].as_str().unwrap_or("local");
@@ -451,11 +481,19 @@ impl<B: Backend> Server<B> {
             }
             "list_bookmarks" => {
                 let b = crate::notes::list_bookmarks();
-                Ok(if b.is_empty() { "no bookmarks".into() } else { b.join("\n") })
+                Ok(if b.is_empty() {
+                    "no bookmarks".into()
+                } else {
+                    b.join("\n")
+                })
             }
             "list_port_rules" => {
                 let r = crate::portsauto::list_rules();
-                Ok(if r.is_empty() { "no port rules".into() } else { r.join("\n") })
+                Ok(if r.is_empty() {
+                    "no port rules".into()
+                } else {
+                    r.join("\n")
+                })
             }
             "new_pane" => {
                 let (host, ws) = self.write_target(args)?;
@@ -783,7 +821,16 @@ mod tests {
                 "list_panes",
                 "read_pane",
                 "search_scrollback",
-                "wait_for"
+                "wait_for",
+                "get_pane_cwd",
+                "list_drafts",
+                "list_presets",
+                "get_preset",
+                "session_summary",
+                "list_notes",
+                "get_note",
+                "list_bookmarks",
+                "list_port_rules"
             ]
         );
         let (msg, err) = call(&mut ro, "new_pane", json!({"command": ["ls"]}));

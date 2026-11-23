@@ -20,20 +20,38 @@ pub fn metrics_dir() -> Option<PathBuf> {
     Some(base)
 }
 
-pub fn save_host_metrics(host: &str, load: f64, mem_used: u64, mem_total: u64) -> std::io::Result<()> {
-    let Some(dir) = metrics_dir() else { return Ok(()); };
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+pub fn save_host_metrics(
+    host: &str,
+    load: f64,
+    mem_used: u64,
+    mem_total: u64,
+) -> std::io::Result<()> {
+    let Some(dir) = metrics_dir() else {
+        return Ok(());
+    };
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let path = dir.join(format!("{host}.jsonl"));
-    let line = format!(r#"{{"ts":{ts},"load":{load},"mem_used":{mem_used},"mem_total":{mem_total}}}"#);
-    let mut f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let line =
+        format!(r#"{{"ts":{ts},"load":{load},"mem_used":{mem_used},"mem_total":{mem_total}}}"#);
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(f, "{line}")?;
     Ok(())
 }
 
 pub fn recent_metrics(host: &str, n: usize) -> Vec<String> {
-    let Some(dir) = metrics_dir() else { return Vec::new(); };
+    let Some(dir) = metrics_dir() else {
+        return Vec::new();
+    };
     let path = dir.join(format!("{host}.jsonl"));
-    let Ok(text) = fs::read_to_string(path) else { return Vec::new(); };
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
     text.lines().rev().take(n).map(|s| s.to_string()).collect()
 }
 
