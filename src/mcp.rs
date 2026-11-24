@@ -153,6 +153,13 @@ impl<B: Backend> Server<B> {
                 true,
             ),
             tool(
+                "history_stats",
+                "Summarise this machine's shell history: most-used command names, success rate, busiest hours (names only, never arguments).",
+                json!({"days": {"type": "integer"}, "top": {"type": "integer"}}),
+                &[],
+                true,
+            ),
+            tool(
                 "list_notes",
                 "List saved session notes (host-workspace keys).",
                 json!({}),
@@ -465,6 +472,21 @@ impl<B: Backend> Server<B> {
             "session_summary" => {
                 let (host, ws) = (self.host_arg(args)?, self.ws_arg(args)?);
                 Ok(crate::feats::session_summary(&host, &ws))
+            }
+            "history_stats" => {
+                let days = args["days"].as_u64().unwrap_or(30).clamp(1, 3650);
+                let top = args["top"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let st = crate::histstats::stats(
+                    &crate::history::load_all(),
+                    now.saturating_sub(days * 86_400),
+                    Some(""),
+                    top,
+                    crate::util::utc_offset_secs(),
+                );
+                Ok(crate::histstats::render(&st, days))
             }
             "list_notes" => {
                 let notes = crate::notes::list_notes();
@@ -810,6 +832,14 @@ mod tests {
     }
 
     #[test]
+    fn history_stats_is_a_read_only_tool_and_bounds_its_arguments() {
+        let (mut ro, _) = server(false, &["x"]);
+        let (msg, err) = call(&mut ro, "history_stats", json!({"days": 0, "top": 1000}));
+        assert!(!err, "{msg}");
+        assert!(msg.contains("days"), "{msg}");
+    }
+
+    #[test]
     fn write_tools_exist_only_with_allow_write_and_are_refused_otherwise() {
         let (mut ro, _) = server(false, &["x"]);
         let names: Vec<String> = ro
@@ -831,6 +861,7 @@ mod tests {
                 "list_presets",
                 "get_preset",
                 "session_summary",
+                "history_stats",
                 "list_notes",
                 "get_note",
                 "list_bookmarks",
@@ -840,7 +871,7 @@ mod tests {
         let (msg, err) = call(&mut ro, "new_pane", json!({"command": ["ls"]}));
         assert!(err && msg.contains("--allow-write"), "{msg}");
         let (rw, _) = server(true, &["x"]);
-        assert_eq!(rw.tools().len(), 18);
+        assert_eq!(rw.tools().len(), 19);
         assert!(rw
             .tools()
             .iter()

@@ -252,6 +252,86 @@ pub fn info(cast: &Cast) -> String {
     )
 }
 
+/// (seconds, event code, data)
+type Event = (f64, String, String);
+
+fn header_and_events(text: &str) -> Result<(String, Vec<Event>)> {
+    let mut lines = text.lines();
+    let head = lines.next().context("the file is empty")?;
+    let header: serde_json::Value =
+        serde_json::from_str(head).context("the first line is not an asciicast header")?;
+    if header["version"] != 2 {
+        bail!("only asciicast v2 files are supported");
+    }
+    let mut events = Vec::new();
+    for (n, line) in lines.enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let ev: serde_json::Value = serde_json::from_str(line)
+            .with_context(|| format!("line {} is not an event", n + 2))?;
+        let (Some(t), Some(kind), Some(data)) = (ev[0].as_f64(), ev[1].as_str(), ev[2].as_str())
+        else {
+            bail!("line {} is not an event", n + 2);
+        };
+        if !t.is_finite() || t < 0.0 {
+            bail!("line {} has an invalid time", n + 2);
+        }
+        events.push((t, kind.to_string(), data.to_string()));
+    }
+    Ok((head.to_string(), events))
+}
+
+fn join_events(head: &str, events: &[Event]) -> String {
+    let mut out = format!("{head}\n");
+    for (t, k, d) in events {
+        let t = (t * 1e6).round() / 1e6;
+        out.push_str(&serde_json::json!([t, k, d]).to_string());
+        out.push('\n');
+    }
+    out
+}
+
+/// The recording with every pause longer than `max_idle` seconds shortened to `max_idle`, so the file
+/// itself (not just `play`) is shorter. Every event kind is kept.
+pub fn compact(text: &str, max_idle: f64) -> Result<String> {
+    if !max_idle.is_finite() || max_idle < 0.0 {
+        bail!("the longest pause must be zero or more seconds");
+    }
+    let (head, mut events) = header_and_events(text)?;
+    let (mut prev, mut shift) = (0.0f64, 0.0f64);
+    for ev in &mut events {
+        let gap = (ev.0 - prev).max(0.0);
+        prev = ev.0;
+        if gap > max_idle {
+            shift += gap - max_idle;
+        }
+        ev.0 -= shift;
+    }
+    Ok(join_events(&head, &events))
+}
+
+/// A copy of an existing recording made safe to share, like `record --redact`: output events lose
+/// every sequence except styling and cursor moves and have secrets replaced by `[redacted:kind]`;
+/// input (`i`) events are dropped. Returns the new file text and how many secrets were replaced.
+pub fn redact(text: &str) -> Result<(String, usize)> {
+    let (head, events) = header_and_events(text)?;
+    let mut filter = Filter::default();
+    let (mut out, mut n) = (Vec::new(), 0);
+    for (t, kind, data) in events {
+        match kind.as_str() {
+            "i" => {}
+            "o" => {
+                let (clean, k) = crate::ai::redact::redact(&filter.feed(&data));
+                n += k;
+                out.push((t, kind, clean));
+            }
+            _ => out.push((t, kind, data)),
+        }
+    }
+    Ok((join_events(&head, &out), n))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +412,32 @@ mod tests {
         assert_eq!(f.feed("\x1b]2;a\rb\x08c\x07"), "");
         assert_eq!(f.feed("\x1b]0;x\u{202E}y\x07"), "");
         assert_eq!(f.feed("\x1b]8;;http://h/\n\x07t"), "t");
+    }
+
+    #[test]
+    fn compacting_shortens_long_pauses_in_the_file_and_keeps_other_events() {
+        let out = compact(CAST, 2.0).unwrap();
+        let c = parse(&out).unwrap();
+        let times: Vec<f64> = c.events.iter().map(|e| e.0).collect();
+        assert_eq!(times, [0.5, 3.0, 3.2]);
+        assert!(out.contains("\"r\""), "{out}");
+        assert!(compact(CAST, -1.0).is_err());
+        assert!(compact("{\"version\":1}\n", 1.0).is_err());
+    }
+
+    #[test]
+    fn redacting_a_recording_drops_input_clipboard_writes_and_secrets() {
+        let secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+        let text = format!(
+            "{{\"version\":2,\"width\":80,\"height\":24}}\n[0.1,\"o\",\"\\u001b]52;c;QUJD\\u0007token {secret}\"]\n[0.2,\"i\",\"typed-secret\\n\"]\n[0.3,\"m\",\"mark\"]\n"
+        );
+        let (out, n) = redact(&text).unwrap();
+        assert!(n >= 1, "{out}");
+        assert!(
+            !out.contains(secret) && !out.contains("typed-secret"),
+            "{out}"
+        );
+        assert!(!out.contains("]52"), "{out}");
+        assert!(out.contains("\"m\""), "{out}");
     }
 }

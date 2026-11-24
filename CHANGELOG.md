@@ -1,4 +1,11 @@
 
+## Unreleased — history stats, recording tools
+
+* `teryon hist stats` (most-used commands, success rate, busiest hours and weekdays, `--json`) and `teryon hist prune` (`--older-than`, `--dedupe`, `--dry-run`); MCP tool `history_stats` (command names only).
+* `teryon cast compact` shortens long pauses inside a recording; `teryon cast redact` makes a shareable copy (secrets replaced, clipboard/title sequences and typed input dropped).
+* `teryon ssh-audit --fail-on warn|info` for CI use.
+* Dependencies upgraded.
+
 ## Unreleased — better shell completions
 
 * `teryon complete local-path PREFIX` — local directory/file completion (handles `~`, `~/`, relative).

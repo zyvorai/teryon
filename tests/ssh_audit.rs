@@ -55,3 +55,17 @@ fn json_output_is_one_object_per_host() {
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0]["target"], "a");
 }
+
+#[test]
+fn fail_on_warn_turns_warnings_into_a_failing_exit_code() {
+    let cfg = "Host a
+ HostName x
+ ForwardAgent yes
+";
+    let (code, out, _) = run(cfg, &["a"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out, _) = run(cfg, &["a", "--fail-on", "warn"]);
+    assert_eq!(code, 1, "{out}");
+    let (code, _, err) = run(cfg, &["a", "--fail-on", "nope"]);
+    assert_ne!(code, 0, "{err}");
+}
