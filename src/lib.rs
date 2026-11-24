@@ -30,6 +30,7 @@ pub mod fontscan;
 pub mod frecent;
 pub mod highlight;
 pub mod history;
+pub mod histstats;
 pub mod histtools;
 pub mod hosthealth;
 pub mod hoststats;

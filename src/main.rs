@@ -314,6 +314,12 @@ enum Commands {
         #[arg(long)]
         info: bool,
     },
+    /// Edit a recording file: `compact` shortens long pauses inside the file; `redact` makes a copy that
+    /// is safe to share (secrets replaced, clipboard/title sequences and typed input dropped).
+    Cast {
+        #[command(subcommand)]
+        action: CastCommand,
+    },
     /// Keep DEST matching the local directory SRC: copy it now and again after every change (checked
     /// by polling), with the same engines as `teryon cp`. New and changed files are copied; deleted
     /// ones are not removed at DEST. While DEST cannot be reached it retries with a growing delay.
@@ -579,6 +585,9 @@ enum Commands {
         /// One JSON object per host.
         #[arg(long)]
         json: bool,
+        /// Exit 1 on findings of this level or worse: `error` (default), `warn` or `info`.
+        #[arg(long, default_value = "error", value_parser = ["error", "warn", "info"])]
+        fail_on: String,
     },
     /// Shorthand for `connect local --workspace NAME` (or another host with --host).
     Attach {
@@ -713,6 +722,26 @@ enum Commands {
     },
 }
 #[derive(Subcommand)]
+enum CastCommand {
+    /// Write a copy of FILE in which pauses longer than --max-idle seconds are shortened.
+    Compact {
+        file: PathBuf,
+        /// New file; must not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Longest pause kept, in seconds.
+        #[arg(long, default_value_t = 2.0)]
+        max_idle: f64,
+    },
+    /// Write a shareable copy of FILE (best effort: see `record --redact`).
+    Redact {
+        file: PathBuf,
+        /// New file; must not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+#[derive(Subcommand)]
 enum HistCommand {
     /// Record one finished command.
     Add {
@@ -764,6 +793,36 @@ enum HistCommand {
         /// Print JSON (an array of projects) instead of text.
         #[arg(long)]
         json: bool,
+    },
+    /// What you run most: the most-used commands, how many succeeded, how long they take, and the
+    /// busiest hours and weekdays (local time).
+    Stats {
+        /// Look back this many days.
+        #[arg(long, default_value_t = 30)]
+        days: u64,
+        /// Only commands from this machine (`local` for this one; pulled with `hist pull`).
+        #[arg(long)]
+        host: Option<String>,
+        /// Commands to list.
+        #[arg(long, default_value_t = 10)]
+        top: usize,
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Shrink this machine's history file: drop commands older than --older-than DAYS and/or, with
+    /// --dedupe, repeats of the same command in the same directory (the newest is kept). Nothing is
+    /// changed with --dry-run. Histories pulled from other hosts are not touched.
+    Prune {
+        /// Drop commands older than this many days.
+        #[arg(long)]
+        older_than: Option<u64>,
+        /// Drop repeats of the same command in the same directory.
+        #[arg(long)]
+        dedupe: bool,
+        /// Only say what would be dropped.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// A day-by-day timeline of the commands you ran: when, whether they worked, how long they took,
     /// where, and the long pauses between them.
@@ -1754,7 +1813,12 @@ fn run() -> Result<i32> {
                 }
             }
         }
-        Commands::SshAudit { hosts, file, json } => {
+        Commands::SshAudit {
+            hosts,
+            file,
+            json,
+            fail_on,
+        } => {
             let path = match file {
                 Some(f) => f,
                 None => match std::env::var_os("TERYON_SSH_CONFIG") {
@@ -1772,7 +1836,11 @@ fn run() -> Result<i32> {
             let mut bad = false;
             for h in &hosts {
                 let a = teryon::sshaudit::audit(&cfg, h);
-                bad |= a.has_errors();
+                bad |= a.findings.iter().any(|f| match fail_on.as_str() {
+                    "info" => true,
+                    "warn" => f.severity != teryon::sshaudit::Severity::Info,
+                    _ => f.severity == teryon::sshaudit::Severity::Error,
+                });
                 if json {
                     println!("{}", teryon::sshaudit::to_json(&a));
                 } else {
@@ -2136,6 +2204,33 @@ fn run() -> Result<i32> {
                 }
             }
         }
+        Commands::Cast { action } => {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let (file, output) = match &action {
+                CastCommand::Compact { file, output, .. }
+                | CastCommand::Redact { file, output } => (file, output),
+            };
+            let text = std::fs::read_to_string(file)
+                .with_context(|| format!("cannot read {}", file.display()))?;
+            let (new_text, note) = match action {
+                CastCommand::Compact { max_idle, .. } => {
+                    (teryon::castplay::compact(&text, max_idle)?, String::new())
+                }
+                CastCommand::Redact { .. } => {
+                    let (t, n) = teryon::castplay::redact(&text)?;
+                    (t, format!(", {n} secrets replaced"))
+                }
+            };
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(output)
+                .with_context(|| format!("create {} (refusing to overwrite)", output.display()))?;
+            f.write_all(new_text.as_bytes())?;
+            println!("wrote {}{note}", output.display());
+        }
         Commands::Play {
             file,
             speed,
@@ -2495,6 +2590,64 @@ fn run() -> Result<i32> {
             } else {
                 print!("{}", teryon::histtools::render(&projects, days));
             }
+        }
+        Commands::Hist(HistCommand::Stats {
+            days,
+            host,
+            top,
+            json,
+        }) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let host = host.map(|h| if h == "local" { String::new() } else { h });
+            let entries = teryon::history::load_with_hosts();
+            let st = teryon::histstats::stats(
+                &entries,
+                now.saturating_sub(days * 86_400),
+                host.as_deref(),
+                top,
+                teryon::util::utc_offset_secs(),
+            );
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&teryon::histstats::to_json(&st, days))?
+                );
+            } else {
+                print!("{}", teryon::histstats::render(&st, days));
+            }
+        }
+        Commands::Hist(HistCommand::Prune {
+            older_than,
+            dedupe,
+            dry_run,
+        }) => {
+            if older_than.is_none() && !dedupe {
+                bail!("say what to drop: --older-than DAYS and/or --dedupe");
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let path = teryon::history::path()?;
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let before = older_than.map_or(0, |d| now.saturating_sub(d * 86_400));
+            let (kept, dropped) =
+                teryon::histstats::prune(teryon::history::parse(&text), before, dedupe);
+            if dropped > 0 && !dry_run {
+                let out: String = kept
+                    .iter()
+                    .filter_map(|e| serde_json::to_string(e).ok())
+                    .map(|l| l + "\n")
+                    .collect();
+                teryon::util::write_private_atomic(&path, out.as_bytes())?;
+            }
+            println!(
+                "{} {dropped} commands, {} {}",
+                if dry_run { "would drop" } else { "dropped" },
+                if dry_run { "would keep" } else { "kept" },
+                kept.len()
+            );
         }
         Commands::Hist(HistCommand::Timeline {
             days,

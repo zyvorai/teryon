@@ -8,6 +8,9 @@ What has shipped and what is still open, based on the current limitations (`docs
 
 | Area | What |
 |---|---|
+| History | `hist stats`, `hist prune`, MCP `history_stats` |
+| Recording | `cast compact`, `cast redact` (offline) |
+| SSH | `ssh-audit --fail-on` |
 | Safety | `src/sanitize.rs`: MCP output and `capture --plain` strip escape sequences, control, bidi and Unicode tag characters and cap sizes; OSC 7 and `play` title/link hardening |
 | Recording | `teryon record --redact` |
 | SSH | `teryon ssh-audit`: config resolution, ProxyJump chain, risky-setting findings (text only) |
