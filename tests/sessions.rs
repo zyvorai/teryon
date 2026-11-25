@@ -317,7 +317,7 @@ fn resize_unicode_color_and_incremental_snapshot() {
             break;
         }
     }
-    let mut parser = vt100::Parser::new(31, 117, 0);
+    let mut parser = teryon::vt::parser(31, 117, 0);
     parser.process(s[0].screen.as_ref().unwrap());
     assert!(parser.screen().contents().contains("λ界"));
     // A poll that already knows the latest revisions gets no screen back. If the shell drew something
@@ -1140,7 +1140,7 @@ fn screen_diffs_rebuild_the_same_screen_in_far_fewer_bytes() {
     let mut full_w: Option<Vec<u8>> = None;
     let mut whole_details = None;
     let text = |bytes: &[u8]| {
-        let mut p = vt100::Parser::new(24, 80, 0);
+        let mut p = teryon::vt::parser(24, 80, 0);
         p.process(bytes);
         p.screen().contents()
     };

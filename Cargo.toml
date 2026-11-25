@@ -18,7 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.2"
 toml_edit = "0.25"
-vt100 = "0.16"
+vt100 = "0.18"
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"], optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 clap_complete = "4.6"

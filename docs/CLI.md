@@ -8,7 +8,8 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `desktop HOST -w NAME` | Native app; requires the `desktop` Cargo feature |
 | `sessions HOST` | JSON list of workspaces and controller status |
 | `panes HOST -w NAME` | Pane IDs, titles, initial directories, PIDs and exit status |
-| `capture HOST -w NAME --pane ID [--plain]` | Retained output to stdout; read-only attachment. `--plain` removes escape sequences, control and invisible (bidi, tag) characters and caps line length, and says what it removed |
+| `capture HOST -w NAME --pane ID [--plain] [--follow] [--tail N]` | Retained output to stdout; read-only attachment. `--plain` removes escape sequences, control and invisible (bidi, tag) characters and caps line length, and says what it removed. `--tail N` prints the newest N lines; `--follow` keeps printing new and rewritten lines until the pane's program ends (the bottom line once it has been unchanged for a second) |
+| `wait HOST -w NAME --pane ID (--for REGEX \| --idle SECS \| --exit) [--new] [--timeout SECS]` | Block until a line matches, the pane is quiet, or its program ends; several conditions may be given and the first wins. `--new` ignores output already there. Prints the line, `idle` or `exited N`. Exit status 0 happened, 1 timeout (default 300 s), 2 error, 3 the program ended first. Read-only |
 | `search PATTERN [--host H] [-w NAME \| --all] [-i] [-E] [-C N]` | grep the retained scrollback of a workspace's panes (or every workspace); prints `workspace/pane:line: text`; exit 0 found, 1 nothing, 2 error; read-only |
 | `exec HOST -w NAME -- COMMAND ARGS` | Durable command in a new pane |
 | `exec … --wait --timeout SECONDS` | Wait for exit and return its status; timeout leaves job running |
@@ -19,9 +20,9 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `forward HOST LOCAL:REMOTE --reconnect` | Foreground loopback tunnel with optional restart |
 | `deploy HOST --binary PATH` | Verify and install an explicitly supplied target binary |
 | `doctor HOST [--fix --binary PATH] [-y]` | Report daemon platform and reachability; with `--fix`, confirm then deploy the binary |
-| `record HOST -w NAME --pane N -o FILE.cast [--redact]` | Record a pane as asciicast v2 (screen snapshots; new 0600 file). `--redact` drops clipboard, title and query sequences and replaces secrets with `[redacted:kind]` before writing (best effort: a secret split by a style change or with no recognisable shape is kept). Keystrokes are never recorded |
+| `record HOST -w NAME --pane N -o FILE.cast [--redact]` | Record a pane as asciicast v2 (screen snapshots; new 0600 file). `--redact` drops clipboard, title, link and query sequences and replaces secrets with `[redacted:kind]` before writing (best effort: a secret split by a style change or with no recognisable shape is kept). Keystrokes are never recorded |
 | `ssh-audit [HOST...] [--file PATH] [--json] [--fail-on error|warn|info]` | Read an OpenSSH config (default `$TERYON_SSH_CONFIG`, else `~/.ssh/config`), resolve each host like ssh does, follow its ProxyJump chain hop by hop and flag loops, option/shell-injection-shaped names, `ForwardAgent`, `StrictHostKeyChecking no`, `UserKnownHostsFile /dev/null`, `LocalCommand`, open forwards and shared-directory `ControlPath`. Reads text only: no connection, no key file, no `ssh` run. `Match` blocks are not evaluated. Exit 1 on an error-level finding (or, with --fail-on, a warn or info one) |
-| `play FILE.cast [--speed N] [--max-idle SECS] [--raw] [--info]` | Play a recording in this terminal (no asciinema needed); long pauses are shortened; clipboard writes and terminal queries in the file are dropped unless `--raw` |
+| `play FILE.cast [--speed N] [--max-idle SECS] [--pause-on-markers] [--raw] [--info]` | Play an asciicast v2 or v3 recording in this terminal (no asciinema needed); pauses are cut to `--max-idle` (default: the file's `idle_time_limit`, else 2 s); clipboard writes and terminal queries in the file are dropped unless `--raw`. `--pause-on-markers` waits for Space or Enter at each marker (q quits) |
 | `layout save HOST -w NAME FILE` | Save initial directories and pane titles to a new local file |
 | `layout open HOST -w NEW_NAME FILE` | Restore new shells in a new workspace |
 | `attach NAME [--host HOST]` | Shorthand for `connect local -w NAME` |
@@ -46,7 +47,10 @@ Run `teryon --help` or `teryon COMMAND --help` for the authoritative flags.
 | `hist stats [--days N] [--host H] [--top N] [--json]` | Most-used commands, success rate, average duration, busiest hours and weekdays |
 | `hist prune [--older-than DAYS] [--dedupe] [--dry-run]` | Shrink this machine's history: drop old commands and/or repeats of the same command in the same directory |
 | `cast compact FILE -o OUT [--max-idle S]` | Shorten long pauses inside a recording file |
-| `cast redact FILE -o OUT` | A shareable copy of a recording: secrets replaced, clipboard/title sequences and typed input dropped |
+| `cast redact FILE -o OUT` | A shareable copy of a recording: secrets replaced in output, header and markers; every OSC sequence (clipboard, title, link), typed input, comments and unknown events dropped |
+| `cast convert FILE -o OUT --to v2\|v3\|txt` | Rewrite as asciicast v2 or v3, or export the text the recording leaves on a terminal (newest 50,000 lines of history and the final screen; a `record` file redraws the screen each frame, so that is its last screen) |
+| `cast cat FILE FILE... -o OUT` | Join recordings in the first one's format, adding resize events where the size changes |
+| `cast mark FILE --at SECS [--label TEXT] -o OUT` | A copy with a marker added at that time |
 | `hist pull HOST` | Copy another machine's command history over SSH so Ctrl-R and the desktop history search also find it (`host:NAME` filters to it); secrets are dropped on both ends. Related hidden helpers used by the shell integration: `hist add`, `hist suggest`, `hist scrub`, `hist export` |
 | `update [--open]` | Say whether a newer TERYON release is out (asks GitHub; never installs anything). `--open` opens the release page, where the signed and notarized `.dmg` / `.pkg` are |
 | `wake HOST [--wait [--timeout SECS] [--connect]]` (or Ctrl+W on a host in the `teryon` picker) | Send a wake-on-LAN packet to a host that has `mac = "aa:bb:cc:dd:ee:ff"` (and optionally `broadcast`) in its `[hosts.NAME]` config; a Mac mini wakes this way over Ethernet only |

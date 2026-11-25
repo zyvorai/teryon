@@ -20,7 +20,7 @@ pub fn digest(screen: &vt100::Screen) -> u64 {
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
     };
-    eat(&screen.contents_formatted());
+    eat(screen.contents_formatted().as_bytes());
     let (row, col) = screen.cursor_position();
     eat(&row.to_le_bytes());
     eat(&col.to_le_bytes());
@@ -33,9 +33,9 @@ pub fn digest(screen: &vt100::Screen) -> u64 {
 /// most non-empty rows line up wins (the rows near the bottom usually differ: the old cursor line
 /// just gained text), and the ordinary diff then fixes whatever still differs.
 fn scroll_hint(prev: &vt100::Screen, cur: &vt100::Screen) -> Option<u16> {
-    let (rows, cols) = cur.size();
-    let a: Vec<Vec<u8>> = prev.rows_formatted(0, cols).collect();
-    let b: Vec<Vec<u8>> = cur.rows_formatted(0, cols).collect();
+    let (rows, cols) = crate::vt::size(cur);
+    let a: Vec<String> = prev.rows_formatted(0, cols).collect();
+    let b: Vec<String> = cur.rows_formatted(0, cols).collect();
     let mut best: Option<(usize, u16)> = None;
     for k in 1..rows {
         let n = usize::from(rows - k);
@@ -50,7 +50,7 @@ fn scroll_hint(prev: &vt100::Screen, cur: &vt100::Screen) -> Option<u16> {
 }
 
 fn mirror_of(rows: u16, cols: u16, full: &[u8]) -> vt100::Parser {
-    let mut p = vt100::Parser::new(rows, cols, 0);
+    let mut p = crate::vt::parser(rows, cols, 0);
     p.process(full);
     p
 }
@@ -117,7 +117,7 @@ impl ServerMirror {
                     diff.extend_from_slice(format!("\x1b[0m\x1b[{k}S").as_bytes());
                     m.parser.process(&diff);
                 }
-                let rest = screen.state_diff(m.parser.screen());
+                let rest = screen.state_diff(m.parser.screen()).into_bytes();
                 m.parser.process(&rest);
                 diff.extend_from_slice(&rest);
                 let base = m.revision;
@@ -134,8 +134,8 @@ impl ServerMirror {
                 }
             }
         }
-        let full = screen.state_formatted();
-        let (rows, cols) = screen.size();
+        let full = screen.state_formatted().into_bytes();
+        let (rows, cols) = crate::vt::size(screen);
         *mirror = Some(Self {
             parser: mirror_of(rows, cols, &full),
             revision,
@@ -228,7 +228,7 @@ impl ClientMirrors {
             return Applied::Plain;
         };
         let ok = match self.panes.get_mut(&pane) {
-            Some((rev, parser)) if *rev == base && parser.screen().size() == size => {
+            Some((rev, parser)) if *rev == base && crate::vt::size(parser.screen()) == size => {
                 parser.process(bytes);
                 *rev = revision;
                 digest_want.is_none_or(|d| d == digest(parser.screen()))
@@ -239,7 +239,7 @@ impl ClientMirrors {
             self.panes.remove(&pane);
             return Applied::Resync;
         }
-        Applied::Rebuilt(self.panes[&pane].1.screen().state_formatted())
+        Applied::Rebuilt(self.panes[&pane].1.screen().state_formatted().into_bytes())
     }
     pub fn retain(&mut self, live: impl Fn(u64) -> bool) {
         self.panes.retain(|id, _| live(*id));
@@ -255,7 +255,7 @@ mod tests {
 
     /// Feed `chunks` to a "daemon" screen and a client through diffs; the client must always match.
     fn run(chunks: &[&str], size: (u16, u16)) -> (usize, usize) {
-        let mut daemon = vt100::Parser::new(size.0, size.1, 1000);
+        let mut daemon = crate::vt::parser(size.0, size.1, 1000);
         let mut mirror = None;
         let mut client = ClientMirrors::default();
         let (mut sent, mut full) = (0, 0);
@@ -272,7 +272,7 @@ mod tests {
                 Applied::Rebuilt(b) => b,
                 Applied::Resync => panic!("diff {i} did not fit"),
             };
-            let mut seen = vt100::Parser::new(size.0, size.1, 0);
+            let mut seen = crate::vt::parser(size.0, size.1, 0);
             seen.process(&rebuilt);
             assert_eq!(
                 digest(seen.screen()),
@@ -395,7 +395,7 @@ mod tests {
     }
     #[test]
     fn a_client_that_missed_an_update_asks_for_a_full_snapshot() {
-        let mut daemon = vt100::Parser::new(5, 20, 0);
+        let mut daemon = crate::vt::parser(5, 20, 0);
         let mut mirror = None;
         let mut client = ClientMirrors::default();
         daemon.process(b"one");
@@ -424,11 +424,11 @@ mod tests {
     }
     #[test]
     fn a_resize_or_a_wrong_checksum_forces_a_full_snapshot() {
-        let mut daemon = vt100::Parser::new(5, 20, 0);
+        let mut daemon = crate::vt::parser(5, 20, 0);
         let mut mirror = None;
         daemon.process(b"hello");
         let _ = ServerMirror::encode(&mut mirror, daemon.screen(), 1, None);
-        daemon.screen_mut().set_size(6, 30);
+        crate::vt::set_size(daemon.screen_mut(), 6, 30);
         daemon.process(b" more");
         let e = ServerMirror::encode(&mut mirror, daemon.screen(), 2, Some(1));
         assert_eq!(e.diff_from, None, "a different size is never diffed");

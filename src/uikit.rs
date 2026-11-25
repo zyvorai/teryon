@@ -389,7 +389,7 @@ mod tests {
     }
     #[test]
     fn selection_text_is_inclusive_ordered_and_trimmed() {
-        let mut p = vt100::Parser::new(3, 20, 0);
+        let mut p = crate::vt::parser(3, 20, 0);
         p.process(b"hello world\r\nsecond line   \r\nthird");
         let s = p.screen();
         assert_eq!(selected_text(s, (0, 6), (0, 10)), "world");
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(word_bounds(&row, 2), (2, 2));
         assert_eq!(word_bounds(&row, 0), (0, 1));
         assert_eq!(word_bounds(&[], 3), (0, 0));
-        let mut p = vt100::Parser::new(3, 12, 0);
+        let mut p = crate::vt::parser(3, 12, 0);
         p.process(b"abcdefgh\r\nijklmnop\r\nqrstuvwx");
         assert_eq!(selected_block(p.screen(), (0, 2), (2, 4)), "cde\nklm\nstu");
         assert_eq!(selected_block(p.screen(), (2, 4), (0, 2)), "cde\nklm\nstu");

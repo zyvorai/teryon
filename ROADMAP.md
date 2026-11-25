@@ -8,13 +8,16 @@ What has shipped and what is still open, based on the current limitations (`docs
 
 | Area | What |
 |---|---|
+| Panes | `teryon wait` (pattern, quiet or exit), `capture --follow` / `--tail`, MCP `wait_for` with `idle_s` and `since` |
+| Recording | asciicast v3 for `play` and `cast`; `cast convert` (v2, v3, text), `cat`, `mark`; `play --pause-on-markers` |
+| Terminal | `vt100` 0.18.1 with the vendored patches |
 | History | `hist stats`, `hist prune`, MCP `history_stats` |
 | Recording | `cast compact`, `cast redact` (offline) |
 | SSH | `ssh-audit --fail-on` |
 | Safety | `src/sanitize.rs`: MCP output and `capture --plain` strip escape sequences, control, bidi and Unicode tag characters and cap sizes; OSC 7 and `play` title/link hardening |
 | Recording | `teryon record --redact` |
 | SSH | `teryon ssh-audit`: config resolution, ProxyJump chain, risky-setting findings (text only) |
-| Research | `docs/RESEARCH.md` with ranked ideas (hash-chained recordings, cast markers and OSC 8 scheme allow-list deferred) |
+| Research | `docs/RESEARCH.md` with ranked ideas (hash-chained recordings, OSC 8 scheme allow-list deferred) |
 
 ## Shipped in 0.25.0
 

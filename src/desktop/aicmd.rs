@@ -265,7 +265,7 @@ impl Desktop {
             .find(|m| m.kind == 'D' && m.line >= c.line)
             .and_then(|m| m.exit);
         let screen = p.parser.screen();
-        let (_, cols) = screen.size();
+        let (_, cols) = crate::vt::size(screen);
         let rows: Vec<String> = screen.rows(0, cols).collect();
         let used = rows
             .iter()
@@ -295,7 +295,7 @@ impl Desktop {
             .find(|m| m.kind == 'D')
             .and_then(|m| m.exit);
         let screen = p.parser.screen();
-        let (_, cols) = screen.size();
+        let (_, cols) = crate::vt::size(screen);
         let rows: Vec<String> = screen.rows(0, cols).collect();
         let used = rows
             .iter()

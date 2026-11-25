@@ -1,4 +1,5 @@
 use crate::term::BufWrite as _;
+use alloc::string::String;
 
 /// Represents a foreground or background color for cells.
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Default)]
@@ -21,7 +22,7 @@ const TEXT_MODE_ITALIC: u8 = 0b0000_0100;
 const TEXT_MODE_UNDERLINE: u8 = 0b0000_1000;
 const TEXT_MODE_INVERSE: u8 = 0b0001_0000;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Attrs {
     pub fgcolor: Color,
     pub bgcolor: Color,
@@ -30,7 +31,22 @@ pub struct Attrs {
     pub link: u16,
 }
 
+impl Default for Attrs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Attrs {
+    pub const fn new() -> Self {
+        Self {
+            fgcolor: Color::Default,
+            bgcolor: Color::Default,
+            mode: 0,
+            link: 0,
+        }
+    }
+
     pub fn bold(&self) -> bool {
         self.mode & TEXT_MODE_BOLD != 0
     }
@@ -95,19 +111,32 @@ impl Attrs {
 
     pub fn write_escape_code_diff(
         &self,
-        contents: &mut Vec<u8>,
+        contents: &mut String,
         other: &Self,
     ) {
-        // Links are not text styling; they travel beside the screen, not in its escape codes.
-        let this = Self { link: 0, ..*self };
-        let other = &Self { link: 0, ..*other };
-        this.write_style_diff(contents, other);
+        self.write_escape_code_diff_fmt(contents, other)
+            .expect("writing to a String cannot fail");
     }
 
-    fn write_style_diff(&self, contents: &mut Vec<u8>, other: &Self) {
+    pub fn write_escape_code_diff_fmt(
+        &self,
+        writer: &mut impl alloc::fmt::Write,
+        other: &Self,
+    ) -> alloc::fmt::Result {
+        // TERYON patch: links are not text styling; they travel beside the screen,
+        // not in its escape codes.
+        let this = Self { link: 0, ..*self };
+        let other = &Self { link: 0, ..*other };
+        this.write_style_diff(writer, other)
+    }
+
+    fn write_style_diff(
+        &self,
+        writer: &mut impl alloc::fmt::Write,
+        other: &Self,
+    ) -> alloc::fmt::Result {
         if self != other && self == &Self::default() {
-            crate::term::ClearAttrs.write_buf(contents);
-            return;
+            return crate::term::ClearAttrs.write_fmt(writer);
         }
 
         let attrs = crate::term::Attrs::default();
@@ -148,6 +177,6 @@ impl Attrs {
             attrs.inverse(self.inverse())
         };
 
-        attrs.write_buf(contents);
+        attrs.write_fmt(writer)
     }
 }

@@ -63,3 +63,18 @@ Persistent PTYs in a per-user daemon over plain OpenSSH, asciicast v2 `record` a
 * MCP: no new write tool; the new behaviour is on the output side of existing tools. The read-only/`--allow-write`
   split is unchanged.
 * Honesty: redaction and sanitising are described as best effort. Nothing claims audit-grade recording.
+
+## Third round: recordings and waiting on panes
+
+Same rules: URLs below were fetched during this session unless marked **[U]** (seen only in search results).
+
+| Source | What it says | Taken |
+|---|---|---|
+| <https://docs.asciinema.org/manual/asciicast/v3/> | v3 stores intervals, groups size under `term`, allows `#` comments, adds `x` exit events, asks tools to ignore unknown codes and to carry rounding error forward | read, write and convert v3 |
+| <https://blog.asciinema.org/post/three-point-o/> | asciinema 3.0 introduced v3 | v3 matters: `play` refused it |
+| <https://docs.rs/crate/asciinema/3.2.0/source/src/cli.rs> | `play --pause-on-markers` and `--idle-time-limit`; `cat` joins files; `convert` changes formats | `play --pause-on-markers`, `idle_time_limit`, `cast cat`, `cast convert`, `cast mark` |
+| <https://zellij.dev/news/remote-sessions-windows-cli/> | Zellij 0.44 adds `subscribe` (stream a pane), `dump-screen`, and `run --blocking` | `capture --follow`, `wait --exit` |
+| <https://github.com/tomfordweb/sidemux> | `wait` ends on exit, a regex or an idle pane; `since: "now"` avoids stale matches | `wait --for/--idle/--exit/--new`, MCP `idle_s` and `since` |
+| <https://docs.atuin.sh/latest/reference/search/> | history search with `--before`, `--after`, `--format` | not built: `hist timeline --json` covers scripting |
+| <https://raw.githubusercontent.com/tmux/tmux/3.6/CHANGES> (first part only) | 3.6 adds pane scrollbars, format changes | nothing taken |
+| tmux MCP servers (mcp-tmux, libtmux-mcp) **[U]** | separate text and idle waits; a typed command can match its own echo | `--new` / `since` ignore old text; the echo of a command typed later can still match |

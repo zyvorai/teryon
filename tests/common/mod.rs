@@ -83,6 +83,13 @@ impl Session {
             }
         }
     }
+    /// Whether `needle` has appeared, after taking whatever output is waiting.
+    pub fn has(&mut self, needle: &str) -> bool {
+        while let Ok(bytes) = self.output.recv_timeout(Duration::from_millis(100)) {
+            self.seen.push_str(&clean(&String::from_utf8_lossy(&bytes)));
+        }
+        self.seen.contains(needle)
+    }
     pub fn send(&mut self, bytes: &[u8]) {
         self.writer.write_all(bytes).unwrap();
         self.writer.flush().unwrap();

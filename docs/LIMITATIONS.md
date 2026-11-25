@@ -30,6 +30,9 @@ A prioritized, higher-level roadmap lives in [ROADMAP.md](../ROADMAP.md).
 
 - Sanitising and redaction are best effort. `record --redact` works on text with its style codes in place, so a secret split by a colour change is missed; recordings are not signed or hash-chained and are not an audit log. The default `capture` and `record` still write what the pane shows unchanged: use `--plain` / `--redact` before sharing. `ssh-audit` does not evaluate `Match` blocks, does not run `ssh -G`, understands only literal and trailing-`*`/`?` `Include` paths, and cannot see what a `ProxyCommand` does.
 
+- `wait` and `capture --follow` look at the retained text about every 150 ms (the MCP tool every 250 ms). Output that appears and is erased between two looks is missed, lines pushed out of the 2,000-line history between looks are lost, and a full-screen program that redraws makes `--follow` print the rewritten rows again. `--new` treats a line as new when it differs from what that row held at the first look. A pane that is "quiet" has printed nothing; its program may still be working.
+- `cast convert` drops v3 comments, and the exit event when writing v2. The text export keeps no colours. Marker pauses read one key from the terminal, so `--pause-on-markers` does not work with piped input.
+
 ## Next engineering milestones
 
 1. Exercise the release on physical Apple Silicon hardware, including laptop sleep, mini sleep, long builds, zsh plugins, Vim/Neovim, SSH jump hosts and long-loss network conditions, and look at the desktop features added in 0.20 in a real window (pane-tree dividers, the agent Changes button, Kitty images, the update toast), which are covered by tests but have not been seen on screen.

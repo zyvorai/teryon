@@ -4,6 +4,7 @@
 //! `teryon mcp`: a Model Context Protocol server (stdio, JSON-RPC 2.0) that lets agents such as Claude Code or Codex
 //! observe and drive TERYON's persistent panes, local or over SSH. Reading is always on; writing needs `--allow-write`.
 use crate::ai::redact;
+use crate::panewait::{Look, Outcome, Until, Waiter};
 use crate::protocol::{PaneView, Request, Response, WorkspaceInfo};
 use crate::sanitize;
 use crate::transport::{Rpc, Target};
@@ -112,9 +113,15 @@ impl<B: Backend> Server<B> {
             ),
             tool(
                 "wait_for",
-                "Wait until a regular expression appears in a pane's output (for example a server saying it is ready). Returns the matching line, or TIMEOUT.",
-                target_props(json!({"pane": {"type": "integer"}, "pattern": {"type": "string"}, "timeout_s": {"type": "integer", "description": "default 30, max 300"}})),
-                &["pane", "pattern"],
+                "Wait until a regular expression appears in a pane's output (for example a server saying it is ready), or until the pane has been quiet for idle_s seconds. Give pattern, idle_s or both. Returns MATCH, IDLE, PANE EXITED or TIMEOUT.",
+                target_props(json!({
+                    "pane": {"type": "integer"},
+                    "pattern": {"type": "string"},
+                    "idle_s": {"type": "number", "description": "seconds without new output, 0.5 to 300"},
+                    "since": {"type": "string", "enum": ["start", "now"], "description": "start (default) also matches output already there; now only lines new or changed after this call"},
+                    "timeout_s": {"type": "integer", "description": "default 30, max 300"},
+                })),
+                &["pane"],
                 true,
             ),
             tool(
@@ -397,26 +404,67 @@ impl<B: Backend> Server<B> {
                     self.ws_arg(args)?,
                     Self::pane_arg(args)?,
                 );
-                let re = Regex::new(args["pattern"].as_str().unwrap_or(""))
+                let pattern = args["pattern"]
+                    .as_str()
+                    .map(Regex::new)
+                    .transpose()
                     .map_err(|e| anyhow::anyhow!("bad pattern: {e}"))?;
+                let idle = match args.get("idle_s").filter(|v| !v.is_null()) {
+                    None => None,
+                    Some(v) => match v.as_f64() {
+                        Some(s) if (0.5..=MAX_WAIT_SECS as f64).contains(&s) => {
+                            Some(Duration::from_secs_f64(s))
+                        }
+                        _ => bail!("\"idle_s\" is a number from 0.5 to {MAX_WAIT_SECS}"),
+                    },
+                };
+                if pattern.is_none() && idle.is_none() {
+                    bail!("give \"pattern\", \"idle_s\" or both");
+                }
+                let only_new = match args["since"].as_str() {
+                    None | Some("start") => false,
+                    Some("now") => true,
+                    Some(_) => bail!("\"since\" is \"start\" or \"now\""),
+                };
                 let secs = args["timeout_s"].as_u64().unwrap_or(30).min(MAX_WAIT_SECS);
                 let deadline = Instant::now() + Duration::from_secs(secs);
+                let mut waiter = Waiter::new(
+                    Until {
+                        pattern,
+                        idle,
+                        only_new,
+                    },
+                    Instant::now(),
+                );
                 loop {
-                    let (text, _) = self.backend.capture(&host, &ws, pane)?;
-                    if let Some(line) = text.lines().rev().find(|l| re.is_match(l)) {
-                        return Ok(self.out(&format!("MATCH: {line}")));
-                    }
-                    let exited = self
+                    // The pane's state first, so the text is at least as new as an exit.
+                    let view = self
                         .backend
                         .panes(&host, &ws)?
-                        .iter()
-                        .find(|p| p.id == pane)
-                        .and_then(|p| p.exited);
-                    if let Some(code) = exited {
-                        return Ok(format!("PANE EXITED ({code}) without matching"));
+                        .into_iter()
+                        .find(|p| p.id == pane);
+                    let (text, first) = self.backend.capture(&host, &ws, pane)?;
+                    let look = Look {
+                        revision: view.as_ref().map_or(0, |p| p.revision),
+                        exited: view.and_then(|p| p.exited),
+                        text: &text,
+                        first,
+                    };
+                    match waiter.look(Instant::now(), look) {
+                        Some(Outcome::Match(line)) => {
+                            return Ok(self.out(&format!("MATCH: {line}")))
+                        }
+                        Some(Outcome::Idle) => {
+                            let quiet = idle.map_or(0.0, |d| d.as_secs_f64());
+                            return Ok(format!("IDLE: no new output for {quiet} s"));
+                        }
+                        Some(Outcome::Exited(code)) => {
+                            return Ok(format!("PANE EXITED ({code}) without matching"))
+                        }
+                        None => {}
                     }
-                    if Instant::now() >= deadline {
-                        return Ok(format!("TIMEOUT: pattern not seen within {secs} s"));
+                    if Instant::now() >= deadline && !waiter.settling() {
+                        return Ok(format!("TIMEOUT: not seen within {secs} s"));
                     }
                     std::thread::sleep(Duration::from_millis(250));
                 }
@@ -988,6 +1036,40 @@ mod tests {
             call(&mut s, "wait_for", json!({"pane": 1, "pattern": "("})).1,
             "a bad regex is a tool error"
         );
+    }
+
+    #[test]
+    fn wait_for_can_wait_for_quiet_or_for_new_output_only() {
+        let (mut s, _) = server(false, &["ready"]);
+        let (out, err) = call(
+            &mut s,
+            "wait_for",
+            json!({"pane": 1, "idle_s": 0.5, "timeout_s": 5}),
+        );
+        assert!(!err && out == "IDLE: no new output for 0.5 s", "{out}");
+        // "ready" was already on the screen; only the second one is new.
+        let (mut s, _) = server(false, &["ready", "ready", "ready\nready again"]);
+        let (out, err) = call(
+            &mut s,
+            "wait_for",
+            json!({"pane": 1, "pattern": "ready", "since": "now", "timeout_s": 5}),
+        );
+        assert!(!err && out == "MATCH: ready again", "{out}");
+        let (mut s, _) = server(false, &["ready"]);
+        let (out, _) = call(
+            &mut s,
+            "wait_for",
+            json!({"pane": 1, "pattern": "ready", "since": "now", "timeout_s": 0}),
+        );
+        assert!(out.starts_with("TIMEOUT"), "{out}");
+        for bad in [
+            json!({"pane": 1}),
+            json!({"pane": 1, "idle_s": 0}),
+            json!({"pane": 1, "idle_s": "3"}),
+            json!({"pane": 1, "pattern": "x", "since": "yesterday"}),
+        ] {
+            assert!(call(&mut s, "wait_for", bad.clone()).1, "{bad}");
+        }
     }
 
     #[test]

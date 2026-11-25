@@ -836,10 +836,10 @@ impl Desktop {
                             self.link.received(bytes.len() as u64);
                         }
                         let pane = self.panes.entry(view.id).or_insert_with(|| {
-                            Pane::new(view.clone(), vt100::Parser::new(view.rows, view.cols, 0))
+                            Pane::new(view.clone(), crate::vt::parser(view.rows, view.cols, 0))
                         });
                         if let Some(bytes) = &view.screen {
-                            pane.parser = vt100::Parser::new(view.rows, view.cols, 0);
+                            pane.parser = crate::vt::parser(view.rows, view.cols, 0);
                             pane.parser.process(bytes);
                         }
                         if let Some(m) = &view.marks {
@@ -2598,7 +2598,7 @@ mod tests {
                     tx,
                     urx,
                 );
-                let mut parser = vt100::Parser::new(24, 80, 0);
+                let mut parser = crate::vt::parser(24, 80, 0);
                 parser.process(b"\x1b[32mHello\x1b[0m Unicode: \xe7\x95\x8c");
                 let view = PaneView {
                     id: 1,
@@ -2658,7 +2658,7 @@ mod tests {
                         exited: None,
                         ..Default::default()
                     };
-                    let parser = vt100::Parser::new(24, 80, 0);
+                    let parser = crate::vt::parser(24, 80, 0);
                     app.panes.insert(id, Pane::new(view, parser));
                 }
                 let ctx = egui::Context::default();
@@ -2846,7 +2846,7 @@ mod tests {
                 ..Default::default()
             };
             self.panes
-                .insert(id, Pane::new(info, vt100::Parser::new(10, 60, 0)));
+                .insert(id, Pane::new(info, crate::vt::parser(10, 60, 0)));
         }
     }
     fn app_with(theme: &str) -> Desktop {
@@ -3271,7 +3271,7 @@ mod tests {
             urx,
         );
         app.online = true;
-        let mut parser = vt100::Parser::new(10, 60, 0);
+        let mut parser = crate::vt::parser(10, 60, 0);
         parser.process(text.as_bytes());
         app.panes.insert(
             1,
@@ -3314,7 +3314,7 @@ mod tests {
                     id: 2,
                     ..info.clone()
                 },
-                vt100::Parser::new(10, 60, 0),
+                crate::vt::parser(10, 60, 0),
             ),
         );
         app.panes.insert(
@@ -3325,7 +3325,7 @@ mod tests {
                     exited: Some(0),
                     ..info
                 },
-                vt100::Parser::new(10, 60, 0),
+                crate::vt::parser(10, 60, 0),
             ),
         );
         for id in [1, 2, 3] {
@@ -3459,7 +3459,7 @@ mod tests {
         other.id = 2;
         other.exited = None;
         app.panes
-            .insert(2, Pane::new(other, vt100::Parser::new(10, 60, 0)));
+            .insert(2, Pane::new(other, crate::vt::parser(10, 60, 0)));
         app.close_exited(1);
         assert!(!app.exit_window);
         assert!(matches!(&drain(&rx)[..], [Command::Close(1)]));

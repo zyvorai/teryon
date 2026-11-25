@@ -58,7 +58,7 @@ impl Desktop {
             return;
         };
         let screen = pane.parser.screen();
-        let (rows, cols) = screen.size();
+        let (rows, cols) = crate::vt::size(screen);
         let mut found: Vec<(u16, Hint)> = Vec::new();
         for row in 0..rows {
             for h in hint_matches(&screen_row(screen, row, cols)) {
@@ -188,7 +188,7 @@ mod tests {
     }
     #[test]
     fn screen_rows_give_one_char_per_column() {
-        let mut p = vt100::Parser::new(2, 10, 0);
+        let mut p = crate::vt::parser(2, 10, 0);
         p.process(b"hi  there");
         let r = screen_row(p.screen(), 0, 10);
         assert_eq!(r.iter().collect::<String>(), "hi  there ");

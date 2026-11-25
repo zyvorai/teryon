@@ -173,6 +173,38 @@ enum Commands {
         /// text is safe to print or paste elsewhere (the default prints the pane text unchanged).
         #[arg(long)]
         plain: bool,
+        /// Keep printing new and rewritten lines until the pane's program ends (Ctrl-C to stop).
+        #[arg(short, long)]
+        follow: bool,
+        /// Print only the newest N lines (with --follow: start with them).
+        #[arg(short = 'n', long, value_name = "N")]
+        tail: Option<usize>,
+    },
+    /// Wait until a pane prints a line matching a regular expression, goes quiet, or its program ends.
+    /// Exit status: 0 it happened, 1 timed out, 2 error, 3 the program ended first. Never takes control.
+    #[command(group(clap::ArgGroup::new("until").required(true).multiple(true).args(["pattern", "idle", "exit"])))]
+    Wait {
+        #[arg(default_value = "local")]
+        host: String,
+        #[arg(short, long, default_value = "default")]
+        workspace: String,
+        #[arg(long, default_value_t = 1)]
+        pane: u64,
+        /// A regular expression one line of output must match.
+        #[arg(long = "for", value_name = "REGEX")]
+        pattern: Option<String>,
+        /// No new output for this many seconds.
+        #[arg(long, value_name = "SECS")]
+        idle: Option<f64>,
+        /// The pane's program ends (its exit status is printed).
+        #[arg(long)]
+        exit: bool,
+        /// With --for: ignore output that is already on the pane.
+        #[arg(long, requires = "pattern")]
+        new: bool,
+        /// Give up after this many seconds.
+        #[arg(long, default_value_t = 300)]
+        timeout: u64,
     },
     /// Record a pane to an asciicast v2 file (screen snapshots; play with `teryon play` or `asciinema play`).
     Record {
@@ -297,25 +329,31 @@ enum Commands {
         #[arg(long, default_value_t = 50)]
         max: usize,
     },
-    /// Play a `teryon record` (asciicast v2) file in this terminal. Pauses longer than --max-idle are
-    /// shortened. Sequences that write the clipboard or make the terminal answer are dropped unless --raw.
+    /// Play a recording (asciicast v2 or v3, e.g. from `teryon record` or asciinema) in this terminal.
+    /// Pauses longer than --max-idle are shortened. Sequences that write the clipboard or make the
+    /// terminal answer are dropped unless --raw.
     Play {
         file: PathBuf,
         /// Playback speed (2 = twice as fast).
         #[arg(long, default_value_t = 1.0)]
         speed: f64,
-        /// Longest pause kept, in seconds of the recording.
-        #[arg(long, default_value_t = 2.0)]
-        max_idle: f64,
+        /// Longest pause kept, in seconds of the recording (default: the file's idle_time_limit,
+        /// else 2).
+        #[arg(long)]
+        max_idle: Option<f64>,
+        /// Stop at each marker until Space or Enter is pressed (q quits).
+        #[arg(long, conflicts_with = "info")]
+        pause_on_markers: bool,
         /// Pass every byte through, including sequences that write the clipboard or query the terminal.
         #[arg(long)]
         raw: bool,
-        /// Only print the size, length and number of frames.
+        /// Only print the size, length, number of frames and the markers.
         #[arg(long)]
         info: bool,
     },
-    /// Edit a recording file: `compact` shortens long pauses inside the file; `redact` makes a copy that
-    /// is safe to share (secrets replaced, clipboard/title sequences and typed input dropped).
+    /// Work with recording files (asciicast v2 and v3): `compact` shortens pauses, `redact` makes a
+    /// copy that is safe to share, `convert` changes the format or exports text, `cat` joins files,
+    /// `mark` adds a chapter marker. The input is never changed.
     Cast {
         #[command(subcommand)]
         action: CastCommand,
@@ -739,6 +777,35 @@ enum CastCommand {
         /// New file; must not exist.
         #[arg(short, long)]
         output: PathBuf,
+    },
+    /// Rewrite FILE as asciicast v2 or v3, or export the text it leaves on a terminal.
+    Convert {
+        file: PathBuf,
+        /// New file; must not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long, value_parser = ["v2", "v3", "txt"])]
+        to: String,
+    },
+    /// Join recordings, one after another, in the first one's format.
+    Cat {
+        #[arg(required = true, num_args = 2..)]
+        files: Vec<PathBuf>,
+        /// New file; must not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Write a copy of FILE with a marker added (see `play --pause-on-markers`).
+    Mark {
+        file: PathBuf,
+        /// New file; must not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Seconds from the start of the recording.
+        #[arg(long, value_name = "SECS")]
+        at: f64,
+        #[arg(long, default_value = "")]
+        label: String,
     },
 }
 #[derive(Subcommand)]
@@ -1232,6 +1299,161 @@ fn capture(rpc: &mut Rpc, pane: u64) -> Result<String> {
     } else {
         bail!("unexpected capture response")
     }
+}
+/// Repeated looks at one pane over one connection; the text is only fetched again when it changed.
+struct Watched {
+    pane: u64,
+    known: BTreeMap<String, u64>,
+    revision: u64,
+    exited: Option<u32>,
+    text: String,
+    first: u64,
+}
+impl Watched {
+    fn new(pane: u64) -> Self {
+        Self {
+            pane,
+            known: BTreeMap::new(),
+            revision: 0,
+            exited: None,
+            text: String::new(),
+            first: 0,
+        }
+    }
+    /// Look again; `true` when the pane changed since the last look.
+    fn refresh(&mut self, rpc: &mut Rpc) -> Result<bool> {
+        let Response::State { panes } = rpc.call(Request::Poll {
+            known: self.known.clone(),
+            diff: false,
+            wait_ms: 0,
+        })?
+        else {
+            bail!("unexpected response")
+        };
+        for p in &panes {
+            self.known.insert(p.id.to_string(), p.revision);
+        }
+        let Some(view) = panes.iter().find(|p| p.id == self.pane) else {
+            bail!("pane {} not found", self.pane);
+        };
+        self.exited = view.exited;
+        if view.revision == self.revision {
+            return Ok(false);
+        }
+        self.revision = view.revision;
+        let Response::Captured { text, first_line } =
+            rpc.call(Request::Capture { pane: self.pane })?
+        else {
+            bail!("unexpected capture response")
+        };
+        (self.text, self.first) = (text, first_line);
+        Ok(true)
+    }
+}
+/// `teryon wait`: returns the process exit status.
+fn wait_pane(
+    rpc: &mut Rpc,
+    pane: u64,
+    until: teryon::panewait::Until,
+    want_exit: bool,
+    timeout: Duration,
+) -> Result<i32> {
+    use teryon::panewait::{Look, Outcome, Waiter};
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .context("--timeout is too large")?;
+    let mut waiter = Waiter::new(until, Instant::now());
+    let mut seen = Watched::new(pane);
+    loop {
+        seen.refresh(rpc)?;
+        let look = Look {
+            revision: seen.revision,
+            exited: seen.exited,
+            text: &seen.text,
+            first: seen.first,
+        };
+        match waiter.look(Instant::now(), look) {
+            Some(Outcome::Match(line)) => {
+                println!("{}", teryon::sanitize::label(&line, 4000));
+                return Ok(0);
+            }
+            Some(Outcome::Idle) => {
+                println!("idle");
+                return Ok(0);
+            }
+            Some(Outcome::Exited(code)) => {
+                println!("exited {code}");
+                return Ok(if want_exit { 0 } else { 3 });
+            }
+            None => {}
+        }
+        if Instant::now() >= deadline && !waiter.settling() {
+            eprintln!("teryon: timed out; the pane is still running");
+            return Ok(1);
+        }
+        thread::sleep(Duration::from_millis(150));
+    }
+}
+/// `teryon capture --follow`: print new lines until the pane's program ends.
+fn follow(rpc: &mut Rpc, pane: u64, plain: bool, tail: Option<usize>) -> Result<()> {
+    use std::io::Write;
+    /// How long the bottom line must stay the same before it is printed.
+    const QUIET: Duration = Duration::from_secs(1);
+    let mut seen = Watched::new(pane);
+    let mut follower = teryon::panewait::Follower::default();
+    seen.refresh(rpc)?;
+    if let Some(n) = tail {
+        follower.skip_all_but(&seen.text, seen.first, n);
+    }
+    let mut changed = Instant::now();
+    let mut exit_seen = false;
+    let mut out = std::io::stdout().lock();
+    loop {
+        // One more look after the exit picks up the last output.
+        let done = exit_seen && seen.exited.is_some();
+        exit_seen = seen.exited.is_some();
+        let lines = follower.take(&seen.text, seen.first, done || changed.elapsed() >= QUIET);
+        for line in lines {
+            let line = if plain {
+                teryon::sanitize::label(&line, 4000)
+            } else {
+                line
+            };
+            match writeln!(out, "{line}").and_then(|()| out.flush()) {
+                // The reader (`head`, say) has had enough.
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => return Ok(()),
+                r => r?,
+            }
+        }
+        if done {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(150));
+        if seen.refresh(rpc)? {
+            changed = Instant::now();
+        }
+    }
+}
+/// Playback is paused at a marker: wait for Space or Enter; `false` (q, Esc, Ctrl-C) stops.
+fn wait_at_marker() -> Result<bool> {
+    use crossterm::event::{read, Event, KeyCode, KeyEventKind, KeyModifiers};
+    crossterm::terminal::enable_raw_mode()?;
+    let answer = loop {
+        match read() {
+            Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => match k.code {
+                KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Ok(false)
+                }
+                KeyCode::Char('q') | KeyCode::Esc => break Ok(false),
+                KeyCode::Char(' ') | KeyCode::Enter => break Ok(true),
+                _ => {}
+            },
+            Ok(_) => {}
+            Err(e) => break Err(e),
+        }
+    };
+    crossterm::terminal::disable_raw_mode()?;
+    Ok(answer?)
 }
 fn run() -> Result<i32> {
     let cli = Cli::parse();
@@ -1988,14 +2210,54 @@ fn run() -> Result<i32> {
             workspace,
             pane,
             plain,
+            follow: following,
+            tail,
         } => {
             let mut rpc = attach(&target(host, bin)?, workspace, true, None)?;
-            let text = capture(&mut rpc, pane)?;
-            if plain {
-                println!("{}", teryon::sanitize::text_with_note(&text));
+            if following {
+                follow(&mut rpc, pane, plain, tail)?;
             } else {
-                println!("{text}");
+                let mut text = capture(&mut rpc, pane)?;
+                if let Some(n) = tail {
+                    let lines: Vec<&str> = text.lines().collect();
+                    text = lines[lines.len().saturating_sub(n)..].join("\n");
+                }
+                if plain {
+                    println!("{}", teryon::sanitize::text_with_note(&text));
+                } else {
+                    println!("{text}");
+                }
             }
+        }
+        Commands::Wait {
+            host,
+            workspace,
+            pane,
+            pattern,
+            idle,
+            exit,
+            new,
+            timeout,
+        } => {
+            let waited = (|| -> Result<i32> {
+                if idle.is_some_and(|s| !(0.2..=86_400.0).contains(&s)) {
+                    bail!("--idle is 0.2 to 86400 seconds");
+                }
+                let pattern = pattern
+                    .map(|p| regex::Regex::new(&p).context("--for is not a valid pattern"))
+                    .transpose()?;
+                let until = teryon::panewait::Until {
+                    pattern,
+                    idle: idle.map(Duration::from_secs_f64),
+                    only_new: new,
+                };
+                let mut rpc = attach(&target(host, bin)?, workspace, true, None)?;
+                wait_pane(&mut rpc, pane, until, exit, Duration::from_secs(timeout))
+            })();
+            return Ok(waited.unwrap_or_else(|e| {
+                eprintln!("teryon: {e:#}");
+                2
+            }));
         }
         Commands::Record {
             host,
@@ -2207,26 +2469,51 @@ fn run() -> Result<i32> {
         Commands::Cast { action } => {
             use std::io::Write;
             use std::os::unix::fs::OpenOptionsExt;
-            let (file, output) = match &action {
-                CastCommand::Compact { file, output, .. }
-                | CastCommand::Redact { file, output } => (file, output),
-            };
-            let text = std::fs::read_to_string(file)
-                .with_context(|| format!("cannot read {}", file.display()))?;
-            let (new_text, note) = match action {
-                CastCommand::Compact { max_idle, .. } => {
-                    (teryon::castplay::compact(&text, max_idle)?, String::new())
+            use teryon::castplay::{self, read_text};
+            let (output, new_text, note) = match action {
+                CastCommand::Compact {
+                    file,
+                    output,
+                    max_idle,
+                } => {
+                    let t = castplay::compact(&read_text(&file)?, max_idle)?;
+                    (output, t, String::new())
                 }
-                CastCommand::Redact { .. } => {
-                    let (t, n) = teryon::castplay::redact(&text)?;
-                    (t, format!(", {n} secrets replaced"))
+                CastCommand::Redact { file, output } => {
+                    let (t, n) = castplay::redact(&read_text(&file)?)?;
+                    (output, t, format!(", {n} secrets replaced"))
+                }
+                CastCommand::Convert { file, output, to } => {
+                    let text = read_text(&file)?;
+                    let t = match to.as_str() {
+                        "v2" => castplay::convert(&text, 2)?,
+                        "v3" => castplay::convert(&text, 3)?,
+                        _ => castplay::to_plain(&text)?,
+                    };
+                    (output, t, String::new())
+                }
+                CastCommand::Cat { files, output } => {
+                    let texts = files
+                        .iter()
+                        .map(|f| read_text(f))
+                        .collect::<Result<Vec<_>>>()?;
+                    (output, castplay::cat(&texts)?, String::new())
+                }
+                CastCommand::Mark {
+                    file,
+                    output,
+                    at,
+                    label,
+                } => {
+                    let t = castplay::mark(&read_text(&file)?, at, &label)?;
+                    (output, t, String::new())
                 }
             };
             let mut f = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
-                .open(output)
+                .open(&output)
                 .with_context(|| format!("create {} (refusing to overwrite)", output.display()))?;
             f.write_all(new_text.as_bytes())?;
             println!("wrote {}{note}", output.display());
@@ -2235,20 +2522,35 @@ fn run() -> Result<i32> {
             file,
             speed,
             max_idle,
+            pause_on_markers,
             raw,
             info,
         } => {
-            if !(0.05..=100.0).contains(&speed) || !max_idle.is_finite() || max_idle <= 0.0 {
+            if !(0.05..=100.0).contains(&speed)
+                || max_idle.is_some_and(|m| !m.is_finite() || m <= 0.0)
+            {
                 bail!("--speed is 0.05 to 100 and --max-idle must be above 0");
             }
             let cast = teryon::castplay::read(&file)?;
             if info {
                 print!("{}", teryon::castplay::info(&cast));
             } else {
+                use std::io::IsTerminal;
+                if pause_on_markers && !std::io::stdin().is_terminal() {
+                    bail!("--pause-on-markers needs a terminal to read the key from");
+                }
+                let max_idle = max_idle.or(cast.idle_limit).unwrap_or(2.0);
                 let mut out = std::io::stdout().lock();
-                teryon::castplay::play(&cast, speed, max_idle, raw, &mut out, &mut |d| {
-                    std::thread::sleep(d)
-                })?;
+                let mut pause = |_: &teryon::castplay::Marker| wait_at_marker();
+                teryon::castplay::play_marked(
+                    &cast,
+                    speed,
+                    max_idle,
+                    raw,
+                    &mut out,
+                    &mut |d| std::thread::sleep(d),
+                    pause_on_markers.then_some(&mut pause),
+                )?;
                 if !raw {
                     use std::io::Write;
                     // A recording may stop mid-style.
