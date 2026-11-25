@@ -66,7 +66,7 @@ impl<W: Write> CastWriter<W> {
     pub fn frame(&mut self, seconds: f64, screen: &[u8]) -> Result<()> {
         let mut text = String::from_utf8_lossy(screen).into_owned();
         if self.redact {
-            let filtered = crate::castplay::Filter::default().feed(&text);
+            let filtered = crate::castplay::Filter::sharing().feed(&text);
             let (clean, n) = crate::ai::redact::redact(&filtered);
             self.redactions += n;
             text = clean;

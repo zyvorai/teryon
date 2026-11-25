@@ -23,7 +23,7 @@ Leave out `--allow-write` for a read-only server.
 | `list_panes` | no | id, title, directory, foreground command (for example `claude`), exit status |
 | `read_pane` | no | the last N lines (default 200, max 2000) of a pane's retained output |
 | `search_scrollback` | no | regex over a pane's retained output, with absolute line numbers |
-| `wait_for` | no | block until a regex appears (a server says "ready"), the pane exits, or a timeout (max 300 s) |
+| `wait_for` | no | block until a regex appears (a server says "ready"), the pane is quiet for `idle_s` seconds, the pane exits, or a timeout (max 300 s); `since: "now"` ignores output already there |
 | `new_pane` | yes | start a command (argv list; `["sh","-c","…"]` for a shell line) in a new persistent pane |
 | `send_keys` | yes | type text into a pane, optionally pressing Enter |
 | `close_pane` | yes | terminate a pane |

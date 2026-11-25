@@ -32,6 +32,20 @@
 
 # Changelog
 
+## Unreleased — asciicast v3, markers, `wait`, `capture --follow`
+
+* **asciicast v3**: `teryon play` and `teryon cast compact|redact` now read the format asciinema 3 writes (relative intervals, `#` comments, `term` header, exit events); before, they refused it.
+* `teryon cast convert FILE -o OUT --to v2|v3|txt` (text export runs the output through a terminal emulator), `cast cat A B... -o OUT`, `cast mark FILE --at SECS --label TEXT -o OUT`.
+* `teryon play --pause-on-markers` (Space or Enter continues, q quits); `play --info` lists markers; without `--max-idle` the file's `idle_time_limit` is used.
+* `teryon wait` blocks until a pane prints a matching line (`--for`, optionally only `--new` output), is quiet (`--idle`) or its program ends (`--exit`). Exit 0 happened, 1 timeout, 2 error, 3 ended first.
+* MCP `wait_for`: new `idle_s` and `since: "now"`; `pattern` is optional when `idle_s` is given. Output printed just before a program exits is now checked before reporting the exit.
+* `teryon capture --follow` streams new and rewritten lines until the program ends; `--tail N`.
+* **Bug fix**: `record --redact` and `cast redact` kept window titles, working-directory reports and hyperlink URLs (documented as dropped); every OSC sequence is now removed from shared files.
+* **Bug fix**: `cast redact` copied the header unchanged, so a secret in `title`, `command` or `env` survived; the header and marker labels are now scrubbed, and comments, unknown events and extra environment variables are dropped.
+* `vt100` 0.16.2 to 0.18.1 with the vendored patches re-applied (`vendor/vt100/PATCH.md`). Upstream changes behaviour on resize (rows move to and from the scrollback) and handles `CSI 3 J`, `REP`, `HPA`/`HVP` and more. Restart the daemon to get it.
+* `cargo update` (14 crates); Pages actions `upload-pages-artifact@v5`, `deploy-pages@v5`.
+* **Held back**: `eframe` 0.31. 0.34 and later need Rust 1.92 or newer (MSRV is 1.89), and any newer version needs the vendored `epaint` and `egui_glow` patches ported and then checked in a real window, which this Linux host cannot show.
+
 ## Unreleased — untrusted-output hardening, redacted recordings, ssh-audit
 
 * **New `src/sanitize.rs`**: removes escape sequences (CSI, OSC including OSC 52, DCS/APC), control characters, bidi controls, zero-width and Unicode tag characters from untrusted text, caps line and total size, reports what it removed. Used by every MCP tool result and error (before redaction, so hidden characters cannot disguise a secret), by `teryon capture --plain` and by `teryon panes`.

@@ -46,6 +46,7 @@ pub mod marks;
 pub mod mcp;
 pub mod notes;
 pub mod notify;
+pub mod panewait;
 pub mod paste;
 pub mod picker;
 pub mod ports;
