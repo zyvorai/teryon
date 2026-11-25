@@ -12,7 +12,7 @@
 //! # Synopsis
 //!
 //! ```
-//! let mut parser = vt100::Parser::new(24, 80, 0);
+//! let mut parser = vt100::Parser::default();
 //!
 //! let screen = parser.screen().clone();
 //! parser.process(b"this text is \x1b[31mRED\x1b[m");
@@ -25,14 +25,15 @@
 //! parser.process(b"\x1b[3D\x1b[32mGREEN");
 //! assert_eq!(
 //!     parser.screen().contents_formatted(),
-//!     &b"\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN"[..],
+//!     "\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN",
 //! );
 //! assert_eq!(
 //!     parser.screen().contents_diff(&screen),
-//!     &b"\x1b[1;14H\x1b[32mGREEN"[..],
+//!     "\x1b[1;14H\x1b[32mGREEN",
 //! );
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 #![warn(clippy::cargo)]
 #![warn(clippy::pedantic)]
@@ -47,8 +48,12 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 
+#[macro_use]
+extern crate alloc;
+
 mod attrs;
 mod callbacks;
+pub mod capture;
 mod cell;
 mod grid;
 mod links;
@@ -62,4 +67,6 @@ pub use attrs::Color;
 pub use callbacks::Callbacks;
 pub use cell::Cell;
 pub use parser::Parser;
-pub use screen::{Hyperlink, MouseProtocolEncoding, MouseProtocolMode, Screen};
+pub use screen::{
+    CursorStyle, Hyperlink, MouseProtocolEncoding, MouseProtocolMode, Screen,
+};

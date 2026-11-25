@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.70"
+edition = "2024"
+rust-version = "1.85"
 name = "vt100"
-version = "0.16.2"
+version = "0.18.1"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 build = false
 include = [
@@ -41,15 +41,24 @@ categories = [
 license = "MIT"
 repository = "https://github.com/doy/vt100-rust"
 
+[features]
+default = ["std"]
+std = ["vte/std"]
+
 [lib]
 name = "vt100"
 path = "src/lib.rs"
 
+[dependencies.embedded-io]
+version = "0.7.1"
+optional = true
+
 [dependencies.itoa]
-version = "1.0.15"
+version = "1.0.18"
 
 [dependencies.unicode-width]
-version = "0.2.1"
+version = "0.2.2"
 
 [dependencies.vte]
 version = "0.15.0"
+default-features = false

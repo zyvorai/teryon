@@ -67,7 +67,7 @@ impl TerminalCallbacks {
             return None;
         }
         let size = crate::inlineimg::pixel_size(&request.bytes)?;
-        let (screen_rows, screen_cols) = screen.size();
+        let (screen_rows, screen_cols) = crate::vt::size(screen);
         let (cols, rows) = crate::inlineimg::span(&request, size, screen_cols, screen_rows);
         let (row, col) = screen.cursor_position();
         let top = screen.scrolled_total();
@@ -315,7 +315,7 @@ impl Pane {
             }
         });
         let state = Arc::new(Mutex::new(TerminalState {
-            parser: vt100::Parser::new_with_callbacks(
+            parser: crate::vt::parser_with(
                 rows,
                 cols,
                 scrollback_lines(),
@@ -404,14 +404,14 @@ impl Pane {
         mut sync: Option<&mut crate::screensync::PaneSync>,
     ) -> PaneView {
         let st = self.state.lock_recover();
-        let (rows, cols) = st.parser.screen().size();
+        let (rows, cols) = crate::vt::size(st.parser.screen());
         let changed = known != Some(st.revision);
         let top = st.parser.screen().scrolled_total();
         let log = &st.parser.callbacks().log;
         let (mut screen, mut screen_b64, mut diff_from, mut digest) = (None, None, None, None);
         match (changed, sync.as_deref_mut()) {
             (false, _) => {}
-            (true, None) => screen = Some(st.parser.screen().state_formatted()),
+            (true, None) => screen = Some(st.parser.screen().state_formatted().into_bytes()),
             (true, Some(sync)) => {
                 // A client that asks for diffs also reads the compact text form.
                 let e = crate::screensync::ServerMirror::encode(
@@ -529,7 +529,7 @@ impl Pane {
             pixel_height: 0,
         })?;
         let mut st = self.state.lock_recover();
-        st.parser.screen_mut().set_size(rows, cols);
+        crate::vt::set_size(st.parser.screen_mut(), rows, cols);
         st.revision += 1;
         announce_change();
         Ok(())
@@ -538,7 +538,7 @@ impl Pane {
     /// number of its first line.
     fn capture(&self) -> (String, u64) {
         let mut st = self.state.lock_recover();
-        let (rows, cols) = st.parser.screen().size();
+        let (rows, cols) = crate::vt::size(st.parser.screen());
         let rows = usize::from(rows);
         // Query the actual bounded scrollback length, then walk oldest to newest.
         st.parser.screen_mut().set_scrollback(usize::MAX);
@@ -1142,7 +1142,7 @@ fn answer_pane(
             false
         } else {
             let screen = st.parser.screen();
-            let (_, cols) = screen.size();
+            let (_, cols) = crate::vt::size(screen);
             let rows: Vec<String> = screen.rows(0, cols).collect();
             crate::agents::status(&rows, Duration::from_secs(60)) == crate::agents::Status::NeedsYou
         }
@@ -1228,7 +1228,7 @@ fn watch_panes(state: &Arc<Mutex<State>>) {
                 let rows = || {
                     let st = pane.state.lock_recover();
                     let screen = st.parser.screen();
-                    let (_, cols) = screen.size();
+                    let (_, cols) = crate::vt::size(screen);
                     screen.rows(0, cols).collect::<Vec<String>>()
                 };
                 let long_ms = u64::from(cfg.after_seconds) * 1000;

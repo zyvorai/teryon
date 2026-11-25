@@ -14,7 +14,7 @@ terminal applications - programs like `screen` or `tmux` for example.
 ## Synopsis
 
 ```rust
-let mut parser = vt100::Parser::new(24, 80, 0);
+let mut parser = vt100::Parser::default();
 
 let screen = parser.screen().clone();
 parser.process(b"this text is \x1b[31mRED\x1b[m");
@@ -27,10 +27,10 @@ let screen = parser.screen().clone();
 parser.process(b"\x1b[3D\x1b[32mGREEN");
 assert_eq!(
     parser.screen().contents_formatted(),
-    &b"\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN"[..],
+    "\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN",
 );
 assert_eq!(
     parser.screen().contents_diff(&screen),
-    &b"\x1b[1;14H\x1b[32mGREEN"[..],
+    "\x1b[1;14H\x1b[32mGREEN",
 );
 ```

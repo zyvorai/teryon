@@ -603,7 +603,7 @@ mod tests {
             ..Default::default()
         };
         app.panes
-            .insert(id, Pane::new(view, vt100::Parser::new(10, 60, 0)));
+            .insert(id, Pane::new(view, crate::vt::parser(10, 60, 0)));
     }
     fn frame(app: &mut Desktop) {
         let ctx = egui::Context::default();

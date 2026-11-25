@@ -93,7 +93,7 @@ impl Desktop {
                 Status::Working
             } else {
                 let screen = pane.parser.screen();
-                let (_, cols) = screen.size();
+                let (_, cols) = crate::vt::size(screen);
                 let rows: Vec<String> = screen.rows(0, cols).collect();
                 if let Some(line) = agents::summary(&rows) {
                     tr.summary = Some(line);
@@ -521,7 +521,7 @@ mod tests {
 
     fn agent_pane(app: &mut Desktop, id: u64, fg: Option<&str>, text: &str) {
         let (rows, cols) = (10, 60);
-        let mut parser = vt100::Parser::new(rows, cols, 0);
+        let mut parser = crate::vt::parser(rows, cols, 0);
         parser.process(text.as_bytes());
         let view = PaneView {
             id,
@@ -566,7 +566,7 @@ mod tests {
         agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
         app.agents_update();
         assert!(app.extra.cards.is_empty(), "nothing asks yet");
-        let mut parser = vt100::Parser::new(10, 60, 0);
+        let mut parser = crate::vt::parser(10, 60, 0);
         parser.process("Apply this edit?\r\nDo you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
         let pane = app.panes.get_mut(&2).unwrap();
         pane.parser = parser;
@@ -583,7 +583,7 @@ mod tests {
         let _ = ctx.run(egui::RawInput::default(), |ctx| app.cards_ui(ctx));
         assert_eq!(app.extra.cards.len(), 1);
         let pane = app.panes.get_mut(&2).unwrap();
-        pane.parser = vt100::Parser::new(10, 60, 0);
+        pane.parser = crate::vt::parser(10, 60, 0);
         pane.track.changed = Instant::now();
         pane.track.computed -= Duration::from_secs(5);
         app.agents_update();
@@ -599,7 +599,7 @@ mod tests {
             app.focus = focus;
             agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
             app.agents_update();
-            let mut parser = vt100::Parser::new(10, 60, 0);
+            let mut parser = crate::vt::parser(10, 60, 0);
             parser.process("Do you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
             let pane = app.panes.get_mut(&2).unwrap();
             pane.parser = parser;
@@ -621,7 +621,7 @@ mod tests {
         app.window_focused = false;
         agent_pane(&mut app, 2, Some("claude"), "esc to interrupt\r\n");
         app.agents_update();
-        let mut parser = vt100::Parser::new(10, 60, 0);
+        let mut parser = crate::vt::parser(10, 60, 0);
         parser.process("Do you want to proceed?\r\n❯ 1. Yes\r\n".as_bytes());
         let pane = app.panes.get_mut(&2).unwrap();
         pane.parser = parser;

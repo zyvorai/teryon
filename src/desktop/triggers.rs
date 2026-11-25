@@ -56,7 +56,7 @@ impl Desktop {
         }
         let first_scan = !pane.scanned;
         let screen = pane.parser.screen();
-        let (rows, cols) = screen.size();
+        let (rows, cols) = crate::vt::size(screen);
         let mut spans: Vec<Span> = Vec::new();
         let mut fires: Vec<(usize, String)> = Vec::new();
         for row in 0..rows {

@@ -1,4 +1,5 @@
 use crate::term::BufWrite as _;
+use alloc::{string::String, vec::Vec};
 
 #[derive(Clone, Debug)]
 pub struct Row {
@@ -29,6 +30,11 @@ impl Row {
         self.wrapped = false;
     }
 
+    pub fn reset(&mut self) {
+        self.cells.fill(crate::Cell::new());
+        self.wrapped = false;
+    }
+
     pub fn cells_mut(&mut self) -> impl Iterator<Item = &mut crate::Cell> {
         self.cells.iter_mut()
     }
@@ -49,38 +55,120 @@ impl Row {
         self.cells.get_mut(usize::from(col))
     }
 
-    pub fn insert(&mut self, i: u16, cell: crate::Cell) {
-        self.cells.insert(usize::from(i), cell);
-        self.wrapped = false;
+    /// Inserts empty cells without changing the size of the row.
+    ///
+    /// Cells at the end are dropped.
+    pub fn insert(&mut self, i: u16, count: u16) {
+        let count = usize::from(count).min(self.cells.len() - usize::from(i));
+        if count == 0 {
+            // Always "truncate", even when `count` is 0. However, because we
+            // didn't actually insert any cells, we don't need to follow the
+            // whole truncation procedure in `Self::set_truncated`; we can just
+            // clear the `wrapped` flag.
+            self.wrapped = false;
+            return;
+        }
+
+        let is_wide_continuation = self.get_mut(i).is_some_and(|cell| {
+            let is_wc = cell.is_wide_continuation();
+            if is_wc {
+                cell.set_wide_continuation(false);
+            }
+            is_wc
+        });
+
+        let slice = &mut self.cells[usize::from(i)..];
+        slice.rotate_right(count);
+        slice[..count].fill(crate::Cell::new());
+        if is_wide_continuation {
+            self.get_mut(i).unwrap().set_wide_continuation(true);
+        }
+        self.set_truncated();
     }
 
-    pub fn remove(&mut self, i: u16) {
-        self.clear_wide(i);
-        self.cells.remove(usize::from(i));
+    /// Removes cells without changing the size of the row.
+    ///
+    /// Empty cells are added to the end.
+    pub fn remove(&mut self, range: core::ops::Range<u16>) {
         self.wrapped = false;
+        if range.start >= range.end {
+            return;
+        }
+
+        self.clear_wide(range.start);
+        let last = range.end - 1;
+        if last != range.start {
+            self.clear_wide(last);
+        }
+
+        let count = usize::from(range.end - range.start);
+        let slice = &mut self.cells[usize::from(range.start)..];
+        slice[..count].fill(crate::Cell::new());
+        slice.rotate_left(count);
     }
 
     pub fn erase(&mut self, i: u16, attrs: crate::attrs::Attrs) {
         let wide = self.cells[usize::from(i)].is_wide();
         self.clear_wide(i);
         self.cells[usize::from(i)].clear(attrs);
-        if i == self.cols() - if wide { 2 } else { 1 } {
+        // `wide` is captured pre-erase on purpose: a 2-wide char occupies the
+        // logical last column at cols() - 2. saturating_sub guards the
+        // degenerate case of an orphaned wide cell in a one-column row, where
+        // cols() - 2 would underflow.
+        if i == self.cols().saturating_sub(if wide { 2 } else { 1 }) {
             self.wrapped = false;
         }
     }
 
     pub fn truncate(&mut self, len: u16) {
         self.cells.truncate(usize::from(len));
+        self.set_truncated();
+    }
+
+    fn set_truncated(&mut self) {
         self.wrapped = false;
-        let last_cell = &mut self.cells[usize::from(len) - 1];
-        if last_cell.is_wide() {
-            last_cell.clear(*last_cell.attrs());
+        if let Some(last_cell) = self.cells.last_mut() {
+            if last_cell.is_wide() {
+                last_cell.clear(*last_cell.attrs());
+            }
+        }
+    }
+
+    fn grow_unchecked(&mut self, len: u16, cell: crate::Cell) {
+        debug_assert!(self.cells.len() < usize::from(len));
+        self.cells.resize(len.into(), cell);
+        self.wrapped = false;
+    }
+
+    /// Like [`Self::resize`], but never decreases the size of the row.
+    pub fn grow(&mut self, len: u16, cell: crate::Cell) {
+        if self.cells.len() < usize::from(len) {
+            self.grow_unchecked(len, cell);
         }
     }
 
     pub fn resize(&mut self, len: u16, cell: crate::Cell) {
-        self.cells.resize(usize::from(len), cell);
-        self.wrapped = false;
+        match usize::from(len).cmp(&self.cells.len()) {
+            core::cmp::Ordering::Equal => {}
+            core::cmp::Ordering::Less => {
+                self.truncate(len);
+            }
+            core::cmp::Ordering::Greater => {
+                self.grow_unchecked(len, cell);
+            }
+        }
+    }
+
+    /// Trims trailing blank cells from the row.
+    pub fn trim(&mut self) {
+        let excess = self
+            .cells
+            .iter()
+            .rev()
+            .take_while(|c| **c == crate::cell::Cell::DEFAULT)
+            .count();
+        self.cells.truncate(self.cells.len() - excess);
+        self.cells.shrink_to_fit();
     }
 
     pub fn wrap(&mut self, wrap: bool) {
@@ -92,9 +180,20 @@ impl Row {
     }
 
     pub fn clear_wide(&mut self, col: u16) {
-        let cell = &self.cells[usize::from(col)];
+        let col_idx = usize::from(col);
+        let cell = &self.cells[col_idx];
         let other = if cell.is_wide() {
-            &mut self.cells[usize::from(col + 1)]
+            let next = col_idx + 1;
+            if next >= self.cells.len() {
+                // Wide char at the last column with no continuation
+                // (e.g. a shrinking resize that split the pair).
+                // Clear the cell in place instead of indexing past
+                // the end.
+                let attrs = *self.cells[col_idx].attrs();
+                self.cells[col_idx].clear(attrs);
+                return;
+            }
+            &mut self.cells[next]
         } else if cell.is_wide_continuation() {
             &mut self.cells[usize::from(col - 1)]
         } else {
@@ -144,7 +243,7 @@ impl Row {
 
     pub fn write_contents_formatted(
         &self,
-        contents: &mut Vec<u8>,
+        contents: &mut String,
         start: u16,
         width: u16,
         row: u16,
@@ -153,7 +252,6 @@ impl Row {
         prev_attrs: Option<crate::attrs::Attrs>,
     ) -> (crate::grid::Pos, crate::attrs::Attrs) {
         let mut prev_was_wide = false;
-        let default_cell = crate::Cell::new();
 
         let mut prev_pos = prev_pos.unwrap_or_else(|| {
             if wrapping {
@@ -168,13 +266,13 @@ impl Row {
         let mut prev_attrs = prev_attrs.unwrap_or_default();
 
         let first_cell = &self.cells[usize::from(start)];
-        if wrapping && first_cell == &default_cell {
-            let default_attrs = default_cell.attrs();
-            if &prev_attrs != default_attrs {
+        if wrapping && first_cell == &crate::cell::Cell::DEFAULT {
+            let default_attrs = crate::cell::Cell::DEFAULT.attrs();
+            if prev_attrs != *default_attrs {
                 default_attrs.write_escape_code_diff(contents, &prev_attrs);
                 prev_attrs = *default_attrs;
             }
-            contents.push(b' ');
+            contents.push(' ');
             crate::term::Backspace.write_buf(contents);
             crate::term::EraseChar::new(1).write_buf(contents);
             prev_pos = crate::grid::Pos { row, col: 0 };
@@ -205,12 +303,11 @@ impl Row {
                         && prev_pos.col >= self.cols()
                     {
                         if new_pos.col > 0 {
-                            contents.extend(
-                                " ".repeat(usize::from(new_pos.col))
-                                    .as_bytes(),
+                            contents.push_str(
+                                &" ".repeat(usize::from(new_pos.col)),
                             );
                         } else {
-                            contents.extend(b" ");
+                            contents.push(' ');
                             crate::term::Backspace.write_buf(contents);
                         }
                     } else {
@@ -228,7 +325,7 @@ impl Row {
                 }
             }
 
-            if cell != &default_cell {
+            if *cell != crate::cell::Cell::DEFAULT {
                 let attrs = cell.attrs();
                 if cell.has_contents() {
                     if pos != prev_pos {
@@ -251,7 +348,7 @@ impl Row {
 
                     prev_pos.col += if cell.is_wide() { 2 } else { 1 };
                     let cell_contents = cell.contents();
-                    contents.extend(cell_contents.as_bytes());
+                    contents.push_str(cell_contents);
                 } else if erase.is_none() {
                     erase = Some((pos.col, attrs));
                 }
@@ -264,11 +361,9 @@ impl Row {
                 && prev_pos.col >= self.cols()
             {
                 if new_pos.col > 0 {
-                    contents.extend(
-                        " ".repeat(usize::from(new_pos.col)).as_bytes(),
-                    );
+                    contents.push_str(&" ".repeat(usize::from(new_pos.col)));
                 } else {
-                    contents.extend(b" ");
+                    contents.push(' ');
                     crate::term::Backspace.write_buf(contents);
                 }
             } else {
@@ -286,12 +381,47 @@ impl Row {
         (prev_pos, prev_attrs)
     }
 
+    pub fn write_contents_formatted_basic(
+        &self,
+        writer: &mut impl alloc::fmt::Write,
+        current_attrs: &mut crate::attrs::Attrs,
+    ) -> alloc::fmt::Result {
+        let mut prev_was_wide = false;
+        let mut num_empty = 0;
+
+        for cell in self.cells() {
+            if core::mem::take(&mut prev_was_wide) {
+                continue;
+            }
+            prev_was_wide = cell.is_wide();
+
+            if *cell == crate::cell::Cell::DEFAULT {
+                num_empty += 1;
+                continue;
+            }
+
+            for _ in 0..core::mem::take(&mut num_empty) {
+                writer.write_char(' ')?;
+            }
+
+            let new_attrs = *cell.attrs();
+            new_attrs.write_escape_code_diff_fmt(writer, current_attrs)?;
+            *current_attrs = new_attrs;
+            if cell.has_contents() {
+                writer.write_str(cell.contents())?;
+            } else {
+                writer.write_char(' ')?;
+            }
+        }
+        Ok(())
+    }
+
     // while it's true that most of the logic in this is identical to
     // write_contents_formatted, i can't figure out how to break out the
     // common parts without making things noticeably slower.
     pub fn write_contents_diff(
         &self,
-        contents: &mut Vec<u8>,
+        contents: &mut String,
         prev: &Self,
         start: u16,
         width: u16,
@@ -325,7 +455,7 @@ impl Row {
             } else {
                 false
             };
-            contents.extend(cell_contents.as_bytes());
+            contents.push_str(cell_contents);
             crate::term::Backspace.write_buf(contents);
             if prev_first_cell.is_wide() {
                 crate::term::Backspace.write_buf(contents);
@@ -362,12 +492,11 @@ impl Row {
                         && prev_pos.col >= self.cols()
                     {
                         if new_pos.col > 0 {
-                            contents.extend(
-                                " ".repeat(usize::from(new_pos.col))
-                                    .as_bytes(),
+                            contents.push_str(
+                                &" ".repeat(usize::from(new_pos.col)),
                             );
                         } else {
-                            contents.extend(b" ");
+                            contents.push(' ');
                             crate::term::Backspace.write_buf(contents);
                         }
                     } else {
@@ -407,7 +536,7 @@ impl Row {
                     }
 
                     prev_pos.col += if cell.is_wide() { 2 } else { 1 };
-                    contents.extend(cell.contents().as_bytes());
+                    contents.push_str(cell.contents());
                 } else if erase.is_none() {
                     erase = Some((pos.col, attrs));
                 }
@@ -420,11 +549,9 @@ impl Row {
                 && prev_pos.col >= self.cols()
             {
                 if new_pos.col > 0 {
-                    contents.extend(
-                        " ".repeat(usize::from(new_pos.col)).as_bytes(),
-                    );
+                    contents.push_str(&" ".repeat(usize::from(new_pos.col)));
                 } else {
-                    contents.extend(b" ");
+                    contents.push(' ');
                     crate::term::Backspace.write_buf(contents);
                 }
             } else {
@@ -472,11 +599,37 @@ impl Row {
                     attrs.write_escape_code_diff(contents, &prev_attrs);
                     prev_attrs = *attrs;
                 }
-                contents.extend(end_cell.contents().as_bytes());
+                contents.push_str(end_cell.contents());
                 prev_pos.col += if end_cell.is_wide() { 2 } else { 1 };
             }
         }
 
         (prev_pos, prev_attrs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An orphaned wide cell (wide flag set, no continuation) in a
+    // one-column row must not make Row::erase underflow when it derives the
+    // logical last column as cols() - 2. Covers the Copilot review note on
+    // the clear_wide OOB fix: clear_wide itself was hardened, but its caller
+    // erase computed cols() - 2 == 1 - 2 from the captured `wide` value.
+    #[test]
+    fn erase_wide_cell_in_one_column_row_does_not_underflow() {
+        let attrs = crate::attrs::Attrs::default();
+        let mut row = Row::new(1);
+        // A 2-wide char in the only column: a wide cell with no room for a
+        // continuation cell.
+        row.get_mut(0).unwrap().set('中', attrs);
+        assert!(row.get(0).unwrap().is_wide());
+
+        row.erase(0, attrs);
+
+        let cell = row.get(0).unwrap();
+        assert!(!cell.is_wide(), "erased cell must no longer be wide");
+        assert!(!cell.has_contents(), "erased cell must be empty");
     }
 }

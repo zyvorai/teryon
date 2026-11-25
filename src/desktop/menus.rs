@@ -491,7 +491,7 @@ impl Desktop {
             },
             MenuPick::SelectAll => {
                 if let Some(p) = self.panes.get(&pane) {
-                    let (rows, cols) = p.parser.screen().size();
+                    let (rows, cols) = crate::vt::size(p.parser.screen());
                     self.selection = Some(Selection {
                         pane,
                         a: (0, 0),

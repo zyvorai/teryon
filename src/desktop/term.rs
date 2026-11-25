@@ -1814,7 +1814,7 @@ impl Desktop {
         if screen.alternate_screen() {
             return;
         }
-        let (_, cols) = screen.size();
+        let (_, cols) = crate::vt::size(screen);
         let used = screen
             .rows(0, cols)
             .filter(|r| !r.trim().is_empty())

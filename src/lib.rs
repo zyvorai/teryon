@@ -76,6 +76,7 @@ pub mod ui;
 pub mod uikit;
 pub mod update;
 pub mod util;
+pub mod vt;
 pub mod wake;
 pub mod watch;
 pub mod watchsync;

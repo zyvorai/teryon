@@ -887,11 +887,11 @@ impl App {
                 self.panes.retain(|id, _| views.iter().any(|p| p.id == *id));
                 for view in views {
                     let pane = self.panes.entry(view.id).or_insert_with(|| Pane {
-                        parser: vt100::Parser::new(view.rows, view.cols, 0),
+                        parser: crate::vt::parser(view.rows, view.cols, 0),
                         info: view.clone(),
                     });
                     if let Some(bytes) = &view.screen {
-                        pane.parser = vt100::Parser::new(view.rows, view.cols, 0);
+                        pane.parser = crate::vt::parser(view.rows, view.cols, 0);
                         pane.parser.process(bytes);
                     }
                     if let (None, Some(code)) = (pane.info.exited, view.exited) {
@@ -1753,7 +1753,7 @@ mod tests {
                     exited: None,
                     ..Default::default()
                 };
-                let mut parser = vt100::Parser::new(24, 80, 0);
+                let mut parser = crate::vt::parser(24, 80, 0);
                 parser.process("\x1b[32mUnicode λ界\x1b[0m".as_bytes());
                 let mut app = App {
                     target: "mini".into(),
